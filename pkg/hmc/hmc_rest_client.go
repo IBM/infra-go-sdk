@@ -51,6 +51,14 @@ type PartitionTemplate struct {
 	Content string   `xml:",innerxml"` // Capture full XML content
 }
 
+// System represents the ManagedSystem content
+type System struct {
+	XMLName       xml.Name `xml:"http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/ ManagedSystem"`
+	MaxPartitions string   `xml:"MaximumPartitions"`
+	SystemName    string   `xml:"SystemName"`
+	SerialNumber  string   `xml:"MachineTypeModelAndSerialNumber>SerialNumber"`
+}
+
 // Logger with prefix for HMC operations
 var hmcLogger = log.New(log.Writer(), "[HMC] ", log.LstdFlags)
 
@@ -415,8 +423,8 @@ func CopyPartitionTemplate(client *http.Client, hmcIP, session, fromName, toName
 		hmcLogger.Printf("Copy response body:\n%s", string(body))
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("request failed with status: %s", resp.Status)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("request failed with status: %d", resp.StatusCode)
 	}
 
 	doc = etree.NewDocument()
@@ -586,4 +594,61 @@ func CheckPartitionTemplate(client *http.Client, hmcIP, session, templateName, c
 // FetchJobStatus retrieves the status of a job by its ID (Placeholder)
 func FetchJobStatus(client *http.Client, hmcIP, session, jobID string, template bool, verbose bool) (string, error) {
 	return "", fmt.Errorf("FetchJobStatus not implemented")
+}
+
+// GetMaximumPartitions retrieves the MaximumPartitions for a system by UUID
+func GetMaximumPartitions(client *http.Client, hmcIP, session, systemUUID string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", hmcIP, systemUUID)
+	if verbose {
+		hmcLogger.Printf("Requesting system details for UUID: %s, URL: %s", systemUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("request creation failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=ManagedSystem")
+	req.Header.Set("X-API-Session", session)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("Response status for system details: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response failed: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Raw response body for system details:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("request failed with status: %s", resp.Status)
+	}
+
+	var system System
+	if err := xml.Unmarshal(body, &system); err != nil {
+		return "", fmt.Errorf("XML unmarshal failed: %v", err)
+	}
+
+	if system.MaxPartitions == "" {
+		return "", fmt.Errorf("MaximumPartitions not found for system %s", systemUUID)
+	}
+
+	if verbose {
+		hmcLogger.Printf("MaximumPartitions: %s", system.MaxPartitions)
+	}
+
+	return system.MaxPartitions, nil
 }

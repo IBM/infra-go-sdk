@@ -21,10 +21,14 @@ func main() {
 	osType := flag.String("os-type", "", "OS type (aix, linux, aix_linux, ibmi)")
 	listTemplate := flag.Bool("list-template", false, "List all partition template IDs")
 	templateName := flag.String("template-name", "", "Get AtomID for a specific partition template name")
+	systemUUID := flag.String("system-uuid", "", "System UUID for CEC (required for copying)")
 	flag.Parse()
 
 	if *hmcIP == "" || *username == "" || *password == "" {
 		log.Fatal("All flags --hmc-ip, --username, and --password are required")
+	}
+	if *osType != "" && *systemUUID == "" {
+		log.Fatal("Flag --system-uuid is required when --os-type is specified")
 	}
 
 	// Create HTTP client with insecure SSL
@@ -81,48 +85,55 @@ func main() {
 
 	// Perform template copy if os-type is set
 	if *osType != "" {
-		var sourceTemplateName string
+		var referenceTemplate string
 		switch *osType {
 		case "aix", "linux", "aix_linux":
-			sourceTemplateName = "AIX_Default" // Replace with valid template name from Step 1
+			referenceTemplate = "QuickStart_lpar_rpa_2" // Replace with valid template name from --list-template
 		case "ibmi":
-			sourceTemplateName = "IBMi_Default" // Replace with valid IBMi template name
+			referenceTemplate = "QuickStart_lpar_IBMi_2" // Replace with valid IBMi template name
 		default:
 			log.Fatalf("Invalid os-type: %s. Must be aix, linux, aix_linux, or ibmi", *osType)
 		}
 
-		destTemplateName := fmt.Sprintf("ansible_powervm_create_%04d", rand.Intn(9000)+1000)
+		tempTemplateName := fmt.Sprintf("ansible_powervm_create_%04d", rand.Intn(9000)+1000)
 		if *verbose {
-			log.Printf("Generated destination template name: %s", destTemplateName)
+			log.Printf("Generated temporary template name: %s", tempTemplateName)
 		}
 
+		// Copy the template
 		if *verbose {
-			log.Printf("Retrieving AtomID for os-type %s (template: %s)", *osType, sourceTemplateName)
+			log.Printf("Copying template from %s to %s", referenceTemplate, tempTemplateName)
 		}
-		sourceID, err := hmc.GetPartitionTemplateID(client, *hmcIP, session, sourceTemplateName, *verbose)
+		err = hmc.CopyPartitionTemplate(client, *hmcIP, session, referenceTemplate, tempTemplateName, *verbose)
 		if err != nil {
-			log.Fatalf("Failed to get template ID for %s: %v", sourceTemplateName, err)
+			log.Fatalf("Failed to copy template from %s to %s: %v", referenceTemplate, tempTemplateName, err)
 		}
-		fmt.Printf("Source Template ID for os-type %s (template %s): %s\n", *osType, sourceTemplateName, sourceID)
+		fmt.Printf("Successfully copied template from %s to %s\n", referenceTemplate, tempTemplateName)
 
+		// Retrieve the copied template's UUID
 		if *verbose {
-			log.Printf("Copying template from %s to %s", sourceTemplateName, destTemplateName)
+			log.Printf("Retrieving AtomID for temporary template: %s", tempTemplateName)
 		}
-		err = hmc.CopyPartitionTemplate(client, *hmcIP, session, sourceTemplateName, destTemplateName, *verbose)
-		if err != nil {
-			log.Fatalf("Failed to copy template from %s to %s: %v", sourceTemplateName, destTemplateName, err)
+		tempTemplateDoc, err := hmc.GetPartitionTemplate(client, *hmcIP, session, "", tempTemplateName, *verbose)
+		if err != nil || tempTemplateDoc == nil {
+			log.Fatalf("Failed to retrieve temporary template %s: %v", tempTemplateName, err)
 		}
-		fmt.Printf("Successfully copied template from %s to %s\n", sourceTemplateName, destTemplateName)
+		atomIDs := tempTemplateDoc.FindElements("//AtomID")
+		if len(atomIDs) == 0 {
+			log.Fatalf("AtomID not found for temporary template %s", tempTemplateName)
+		}
+		tempUUID := atomIDs[0].Text()
+		fmt.Printf("Temporary template UUID: %s\n", tempUUID)
 
+		// Fetch MaximumPartitions for the system
 		if *verbose {
-			log.Printf("Retrieving AtomID for destination template: %s", destTemplateName)
+			log.Printf("Fetching MaximumPartitions for system UUID: %s", *systemUUID)
 		}
-		destID, err := hmc.GetPartitionTemplateID(client, *hmcIP, session, destTemplateName, *verbose)
+		maxLpars, err := hmc.GetMaximumPartitions(client, *hmcIP, session, *systemUUID, *verbose)
 		if err != nil {
-			log.Printf("Warning: Failed to get template ID for %s: %v", destTemplateName, err)
-		} else {
-			fmt.Printf("Destination Template ID for %s: %s\n", destTemplateName, destID)
+			log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", *systemUUID, err)
 		}
+		fmt.Printf("Maximum Partitions for system %s: %s\n", *systemUUID, maxLpars)
 	}
 
 	// Logoff
