@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sudeeshjohn/PowerHMC/pkg/hmc"
+	"golang.org/x/crypto/ssh"
 )
 
 func main() {
@@ -23,10 +24,29 @@ func main() {
 	templateName := flag.String("template-name", "", "Get AtomID for a specific partition template name")
 	systemUUID := flag.String("system-uuid", "", "System UUID for CEC (required for copying)")
 	flag.Parse()
-
 	if *hmcIP == "" || *username == "" || *password == "" {
 		log.Fatal("All flags --hmc-ip, --username, and --password are required")
 	}
+
+	sshConfig := &ssh.ClientConfig{
+		User: *username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(*password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	sshClient, err := ssh.Dial("tcp", *hmcIP+":22", sshConfig)
+	if err != nil {
+		log.Fatalf("Failed to connect to HMC: %v", err)
+	}
+	defer sshClient.Close()
+
+	hmcObj := hmc.NewHmc(sshClient)
+	version, err := hmcObj.ListHMCVersion()
+	if err != nil {
+		log.Fatalf("Failed to list HMC version: %v", err)
+	}
+	fmt.Printf("HMC Version: %+v\n", version)
 	if *osType != "" && *systemUUID == "" {
 		log.Fatal("Flag --system-uuid is required when --os-type is specified")
 	}
