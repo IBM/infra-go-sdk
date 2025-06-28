@@ -22,12 +22,18 @@ func main() {
 	osType := flag.String("os-type", "", "OS type (aix, linux, aix_linux, ibmi)")
 	listTemplate := flag.Bool("list-template", false, "List all partition template IDs")
 	templateName := flag.String("template-name", "", "Get AtomID for a specific partition template name")
-	systemUUID := flag.String("system-uuid", "", "System UUID for CEC (required for copying)")
+	systemName := flag.String("system-name", "", "Managed system name")
 	flag.Parse()
+
+	// Validate required flags
 	if *hmcIP == "" || *username == "" || *password == "" {
 		log.Fatal("All flags --hmc-ip, --username, and --password are required")
 	}
+	if *osType != "" && *systemName == "" {
+		log.Fatal("Flag --system-name is required when --os-type is specified")
+	}
 
+	// SSH Connection for CLI operations
 	sshConfig := &ssh.ClientConfig{
 		User: *username,
 		Auth: []ssh.AuthMethod{
@@ -37,7 +43,7 @@ func main() {
 	}
 	sshClient, err := ssh.Dial("tcp", *hmcIP+":22", sshConfig)
 	if err != nil {
-		log.Fatalf("Failed to connect to HMC: %v", err)
+		log.Fatalf("Failed to connect to HMC via SSH: %v", err)
 	}
 	defer sshClient.Close()
 
@@ -47,9 +53,6 @@ func main() {
 		log.Fatalf("Failed to list HMC version: %v", err)
 	}
 	fmt.Printf("HMC Version: %+v\n", version)
-	if *osType != "" && *systemUUID == "" {
-		log.Fatal("Flag --system-uuid is required when --os-type is specified")
-	}
 
 	// Create HTTP client with insecure SSL
 	client := &http.Client{
@@ -61,16 +64,35 @@ func main() {
 	// Seed random number generator
 	rand.Seed(time.Now().UnixNano())
 
+	// Initialize HmcRestClient
+	restClient := hmc.NewHmcRestClient(*hmcIP, client)
+
 	// Logon
 	if *verbose {
 		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
 	}
-	session, err := hmc.Logon(client, *hmcIP, *username, *password, *verbose)
-	if err != nil {
+	if err := restClient.Login(*username, *password, *verbose); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
+	defer restClient.Logoff() // Ensure logoff on exit
 	if *verbose {
-		log.Printf("Logon successful, session token: %s", session)
+		log.Printf("Logon successful, session token: %s", restClient.Session())
+	}
+
+	// Fetch managed system UUID if system-name is provided
+	var systemUUID string
+	if *systemName != "" {
+		uuid, _, err := restClient.GetManagedSystem(*systemName)
+		if err != nil {
+			log.Fatalf("Failed to get managed system: %v", err)
+		}
+		if uuid == "" {
+			log.Fatalf("Given system '%s' is not present", *systemName)
+		}
+		systemUUID = uuid
+		if *verbose {
+			fmt.Printf("Managed System UUID: %s\n", systemUUID)
+		}
 	}
 
 	// List all partition template IDs if --list-template is set
@@ -78,7 +100,7 @@ func main() {
 		if *verbose {
 			log.Printf("Listing all partition template IDs")
 		}
-		ids, err := hmc.ListPartitionTemplateIDs(client, *hmcIP, session, *verbose)
+		ids, err := hmc.ListPartitionTemplateIDs(client, *hmcIP, restClient.Session(), *verbose)
 		if err != nil {
 			log.Fatalf("Failed to list partition template IDs: %v", err)
 		}
@@ -96,7 +118,7 @@ func main() {
 		if *verbose {
 			log.Printf("Retrieving AtomID for template name: %s", *templateName)
 		}
-		id, err := hmc.GetPartitionTemplateID(client, *hmcIP, session, *templateName, *verbose)
+		id, err := hmc.GetPartitionTemplateID(client, *hmcIP, restClient.Session(), *templateName, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to get template ID for %s: %v", *templateName, err)
 		}
@@ -108,7 +130,7 @@ func main() {
 		var referenceTemplate string
 		switch *osType {
 		case "aix", "linux", "aix_linux":
-			referenceTemplate = "QuickStart_lpar_rpa_2" // Replace with valid template name from --list-template
+			referenceTemplate = "QuickStart_lpar_rpa_2" // Replace with valid template name
 		case "ibmi":
 			referenceTemplate = "QuickStart_lpar_IBMi_2" // Replace with valid IBMi template name
 		default:
@@ -124,7 +146,7 @@ func main() {
 		if *verbose {
 			log.Printf("Copying template from %s to %s", referenceTemplate, tempTemplateName)
 		}
-		err = hmc.CopyPartitionTemplate(client, *hmcIP, session, referenceTemplate, tempTemplateName, *verbose)
+		err = hmc.CopyPartitionTemplate(client, *hmcIP, restClient.Session(), referenceTemplate, tempTemplateName, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to copy template from %s to %s: %v", referenceTemplate, tempTemplateName, err)
 		}
@@ -134,7 +156,7 @@ func main() {
 		if *verbose {
 			log.Printf("Retrieving AtomID for temporary template: %s", tempTemplateName)
 		}
-		tempTemplateDoc, err := hmc.GetPartitionTemplate(client, *hmcIP, session, "", tempTemplateName, *verbose)
+		tempTemplateDoc, err := hmc.GetPartitionTemplate(client, *hmcIP, restClient.Session(), "", tempTemplateName, *verbose)
 		if err != nil || tempTemplateDoc == nil {
 			log.Fatalf("Failed to retrieve temporary template %s: %v", tempTemplateName, err)
 		}
@@ -147,22 +169,16 @@ func main() {
 
 		// Fetch MaximumPartitions for the system
 		if *verbose {
-			log.Printf("Fetching MaximumPartitions for system UUID: %s", *systemUUID)
+			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
 		}
-		maxLpars, err := hmc.GetMaximumPartitions(client, *hmcIP, session, *systemUUID, *verbose)
+		maxLpars, err := hmc.GetMaximumPartitions(client, *hmcIP, restClient.Session(), systemUUID, *verbose)
 		if err != nil {
-			log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", *systemUUID, err)
+			log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", systemUUID, err)
 		}
-		fmt.Printf("Maximum Partitions for system %s: %s\n", *systemUUID, maxLpars)
+		fmt.Printf("Maximum Partitions for system %s: %s\n", systemUUID, maxLpars)
 	}
 
-	// Logoff
-	if *verbose {
-		log.Printf("Attempting to log off")
-	}
-	if err := hmc.Logoff(client, *hmcIP, session, *verbose); err != nil {
-		log.Fatalf("Logoff failed: %v", err)
-	}
+	// Logoff is handled by defer
 	if *verbose {
 		log.Println("Logged off successfully")
 	}
