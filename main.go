@@ -47,8 +47,9 @@ func main() {
 	}
 	defer sshClient.Close()
 
+	// Initialize HMC object
 	hmcObj := hmc.NewHmc(sshClient)
-	version, err := hmcObj.ListHMCVersion()
+	version, err := hmcObj.ListHMCVersion(*verbose) // Pass verbose flag
 	if err != nil {
 		log.Fatalf("Failed to list HMC version: %v", err)
 	}
@@ -61,9 +62,6 @@ func main() {
 		},
 	}
 
-	// Seed random number generator
-	rand.Seed(time.Now().UnixNano())
-
 	// Initialize HmcRestClient
 	restClient := hmc.NewHmcRestClient(*hmcIP, client)
 
@@ -74,12 +72,15 @@ func main() {
 	if err := restClient.Login(*username, *password, *verbose); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
-	defer restClient.Logoff() // Ensure logoff on exit
-	if *verbose {
-		log.Printf("Logon successful, session token: %s", restClient.Session())
-	}
+	defer func() {
+		if err := restClient.Logoff(); err != nil {
+			log.Printf("Logoff failed: %v", err)
+		} else if *verbose {
+			log.Println("Logged off successfully")
+		}
+	}()
 
-	// Fetch managed system UUID if system-name is provided
+	// Handle managed system operations if system-name is provided
 	var systemUUID string
 	if *systemName != "" {
 		uuid, _, err := restClient.GetManagedSystem(*systemName)
@@ -100,7 +101,7 @@ func main() {
 		if *verbose {
 			log.Printf("Listing all partition template IDs")
 		}
-		ids, err := hmc.ListPartitionTemplateIDs(client, *hmcIP, restClient.Session(), *verbose)
+		ids, err := restClient.ListPartitionTemplateIDs(*verbose)
 		if err != nil {
 			log.Fatalf("Failed to list partition template IDs: %v", err)
 		}
@@ -118,14 +119,14 @@ func main() {
 		if *verbose {
 			log.Printf("Retrieving AtomID for template name: %s", *templateName)
 		}
-		id, err := hmc.GetPartitionTemplateID(client, *hmcIP, restClient.Session(), *templateName, *verbose)
+		id, err := restClient.GetPartitionTemplateID(*templateName, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to get template ID for %s: %v", *templateName, err)
 		}
 		fmt.Printf("Template ID for %s: %s\n", *templateName, id)
 	}
 
-	// Perform template copy if os-type is set
+	// Perform template copy and partition creation if os-type is set
 	if *osType != "" {
 		var referenceTemplate string
 		switch *osType {
@@ -137,7 +138,9 @@ func main() {
 			log.Fatalf("Invalid os-type: %s. Must be aix, linux, aix_linux, or ibmi", *osType)
 		}
 
-		tempTemplateName := fmt.Sprintf("ansible_powervm_create_%04d", rand.Intn(9000)+1000)
+		// Generate a unique temporary template name
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		tempTemplateName := fmt.Sprintf("ansible_powervm_create_%04d", rng.Intn(9000)+1000)
 		if *verbose {
 			log.Printf("Generated temporary template name: %s", tempTemplateName)
 		}
@@ -146,7 +149,7 @@ func main() {
 		if *verbose {
 			log.Printf("Copying template from %s to %s", referenceTemplate, tempTemplateName)
 		}
-		err = hmc.CopyPartitionTemplate(client, *hmcIP, restClient.Session(), referenceTemplate, tempTemplateName, *verbose)
+		err = restClient.CopyPartitionTemplate(referenceTemplate, tempTemplateName, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to copy template from %s to %s: %v", referenceTemplate, tempTemplateName, err)
 		}
@@ -156,7 +159,7 @@ func main() {
 		if *verbose {
 			log.Printf("Retrieving AtomID for temporary template: %s", tempTemplateName)
 		}
-		tempTemplateDoc, err := hmc.GetPartitionTemplate(client, *hmcIP, restClient.Session(), "", tempTemplateName, *verbose)
+		tempTemplateDoc, err := restClient.GetPartitionTemplate("", tempTemplateName, *verbose)
 		if err != nil || tempTemplateDoc == nil {
 			log.Fatalf("Failed to retrieve temporary template %s: %v", tempTemplateName, err)
 		}
@@ -171,15 +174,42 @@ func main() {
 		if *verbose {
 			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
 		}
-		maxLpars, err := hmc.GetMaximumPartitions(client, *hmcIP, restClient.Session(), systemUUID, *verbose)
+		maxLpars, err := restClient.GetMaximumPartitions(systemUUID, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", systemUUID, err)
 		}
 		fmt.Printf("Maximum Partitions for system %s: %s\n", systemUUID, maxLpars)
-	}
 
-	// Logoff is handled by defer
-	if *verbose {
-		log.Println("Logged off successfully")
+		// Create a partition using the template
+		if *verbose {
+			log.Printf("Creating partition for system %s using template %s", systemUUID, tempTemplateName)
+		}
+		jobID, err := restClient.CreatePartition(systemUUID, tempUUID, *osType, *verbose)
+		if err != nil {
+			log.Fatalf("Failed to create partition: %v", err)
+		}
+		fmt.Printf("Partition creation job ID: %s\n", jobID)
+
+		// Check job status
+		if *verbose {
+			log.Printf("Checking status for job ID: %s", jobID)
+		}
+		for i := 0; i < 10; i++ { // Retry up to 10 times
+			time.Sleep(5 * time.Second)
+			status, err := restClient.FetchJobStatus(jobID, true, *verbose)
+			if err != nil {
+				log.Fatalf("Failed to check job status: %v", err)
+			}
+			if *verbose {
+				log.Printf("Job status: %s", status)
+			}
+			if status == "COMPLETED" {
+				fmt.Printf("Partition creation completed successfully\n")
+				break
+			}
+			if status == "FAILED" || status == "COMPLETED_WITH_ERRORS" {
+				log.Fatalf("Partition creation failed with status: %s", status)
+			}
+		}
 	}
 }

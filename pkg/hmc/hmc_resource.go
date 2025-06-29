@@ -2,7 +2,6 @@ package hmc
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
 	"sync"
@@ -26,7 +25,10 @@ func NewHmc(sshClient *ssh.Client) *Hmc {
 }
 
 // execute runs a command via SSH and returns the output
-func (h *Hmc) execute(cmd string) (string, error) {
+func (h *Hmc) execute(cmd string, verbose bool) (string, error) {
+	if verbose {
+		hmcLogger.Printf("Executing SSH command: %s", cmd)
+	}
 	session, err := h.sshClient.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("failed to create SSH session: %v", err)
@@ -37,11 +39,14 @@ func (h *Hmc) execute(cmd string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to run command '%s': %v", cmd, err)
 	}
+	if verbose {
+		hmcLogger.Printf("Command output: %s", string(output))
+	}
 	return string(output), nil
 }
 
 // ListHMCVersion lists the HMC version details
-func (h *Hmc) ListHMCVersion() (map[string]string, error) {
+func (h *Hmc) ListHMCVersion(verbose bool) (map[string]string, error) {
 	// Check if HMC_CMD["LSHMC"] exists
 	if _, ok := h.cmdStack.HMC_CMD["LSHMC"]; !ok {
 		return nil, fmt.Errorf("command LSHMC not found in HMC_CMD")
@@ -61,8 +66,7 @@ func (h *Hmc) ListHMCVersion() (map[string]string, error) {
 	}
 
 	cmd := h.cmdStack.HMC_CMD["LSHMC"] + vStr
-	log.Printf("CMD: %s", cmd) // Replaced hmcLogger.Fatal with log.Printf
-	result, err := h.execute(cmd)
+	result, err := h.execute(cmd, verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -102,11 +106,20 @@ func (h *Hmc) ListHMCVersion() (map[string]string, error) {
 }
 
 // PingTest pings a host and returns the result
-func (h *Hmc) PingTest(host string) (string, error) {
+func (h *Hmc) PingTest(host string, verbose bool) (string, error) {
+	if verbose {
+		hmcLogger.Printf("Pinging host: %s", host)
+	}
 	cmd := exec.Command("ping", "-c", "2", host)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if verbose {
+			hmcLogger.Printf("Ping failed: %v", err)
+		}
 		return "No response", nil
+	}
+	if verbose {
+		hmcLogger.Printf("Ping output: %s", string(output))
 	}
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
@@ -124,7 +137,7 @@ func (h *Hmc) PingTest(host string) (string, error) {
 }
 
 // CheckHmcUpandRunning checks if HMC is up and running
-func (h *Hmc) CheckHmcUpandRunning(rebootStarted bool, timeoutInMin int) (bool, error) {
+func (h *Hmc) CheckHmcUpandRunning(rebootStarted bool, timeoutInMin int, verbose bool) (bool, error) {
 	pollInterval := 30 * time.Second
 	waitUntil := time.Duration(timeoutInMin) * time.Minute
 
@@ -136,7 +149,7 @@ func (h *Hmc) CheckHmcUpandRunning(rebootStarted bool, timeoutInMin int) (bool, 
 		defer wg.Done()
 		start := time.Now()
 		for time.Since(start) < waitUntil {
-			pingState, _ := h.PingTest(h.sshClient.RemoteAddr().String())
+			pingState, _ := h.PingTest(h.sshClient.RemoteAddr().String(), verbose)
 			if pingState == "Alive" && rebootStarted {
 				pingSuccess = true
 				return
@@ -153,10 +166,13 @@ func (h *Hmc) CheckHmcUpandRunning(rebootStarted bool, timeoutInMin int) (bool, 
 }
 
 // CheckIfHMCFullyBootedUp checks if HMC is fully booted up
-func CheckIfHMCFullyBootedUp(hmcIP, user, password string) (bool, map[string]string, error) {
+func CheckIfHMCFullyBootedUp(hmcIP, user, password string, verbose bool) (bool, map[string]string, error) {
 	pollInterval := 30 * time.Second
 	waitUntil := 20 * time.Minute
 
+	if verbose {
+		hmcLogger.Printf("Checking if HMC %s is fully booted up", hmcIP)
+	}
 	time.Sleep(3 * time.Minute) // Initial wait
 	start := time.Now()
 	for time.Since(start) < waitUntil {
@@ -170,10 +186,13 @@ func CheckIfHMCFullyBootedUp(hmcIP, user, password string) (bool, map[string]str
 		if err == nil {
 			defer sshClient.Close()
 			hmcObj := NewHmc(sshClient)
-			versionDict, err := hmcObj.ListHMCVersion()
+			versionDict, err := hmcObj.ListHMCVersion(verbose)
 			if err == nil && versionDict["RELEASE"] != "" {
 				return true, versionDict, nil
 			}
+		}
+		if verbose {
+			hmcLogger.Printf("HMC not fully booted, retrying after %v", pollInterval)
 		}
 		time.Sleep(pollInterval)
 	}
@@ -181,7 +200,7 @@ func CheckIfHMCFullyBootedUp(hmcIP, user, password string) (bool, map[string]str
 }
 
 // HmcShutdown shuts down the HMC
-func (h *Hmc) HmcShutdown(numOfMin string, reboot bool) error {
+func (h *Hmc) HmcShutdown(numOfMin string, reboot bool, verbose bool) error {
 	if _, ok := h.cmdStack.HMC_CMD["HMCSHUTDOWN"]; !ok {
 		return fmt.Errorf("command HMCSHUTDOWN not found in HMC_CMD")
 	}
@@ -209,8 +228,7 @@ func (h *Hmc) HmcShutdown(numOfMin string, reboot bool) error {
 		}
 		cmd += rStr
 	}
-	log.Printf("CMD: %s", cmd) // Log the command
-	_, err := h.execute(cmd)
+	_, err := h.execute(cmd, verbose)
 	if err != nil {
 		return err
 	}

@@ -59,6 +59,13 @@ type System struct {
 	SerialNumber  string   `xml:"MachineTypeModelAndSerialNumber>SerialNumber"`
 }
 
+// JobResponse represents the XML response for a job operation
+type JobResponse struct {
+	XMLName xml.Name `xml:"JobResponse"`
+	JobID   string   `xml:"JobID"`
+	Status  string   `xml:"Status"`
+}
+
 // Logger with prefix for HMC operations
 var hmcLogger = log.New(log.Writer(), "[HMC] ", log.LstdFlags)
 
@@ -219,102 +226,9 @@ func (c *HmcRestClient) GetManagedSystem(systemName string) (string, *etree.Elem
 	return uuid, msElem, nil
 }
 
-// Logon performs the logon operation to the HMC REST API (standalone function)
-func Logon(client *http.Client, hmcIP, username, password string, verbose bool) (string, error) {
-	payload := LogonRequest{
-		SchemaVersion: "V1_0",
-		XMLNS:         "http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/",
-		XMLNSMC:       "http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/",
-		UserID:        username,
-		Password:      password,
-	}
-	xmlData, err := xml.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("XML marshal failed: %v", err)
-	}
-
-	if verbose {
-		hmcLogger.Printf("Sending logon request to https://%s/rest/api/web/Logon", hmcIP)
-		hmcLogger.Printf("Logon request payload:\n%s", string(xmlData))
-	}
-
-	url := fmt.Sprintf("https://%s/rest/api/web/Logon", hmcIP)
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(xmlData))
-	if err != nil {
-		return "", fmt.Errorf("request creation failed: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
-	req.SetBasicAuth(username, password)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if verbose {
-		hmcLogger.Printf("Logon response status: %s", resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("reading response failed: %v", err)
-	}
-
-	if verbose {
-		hmcLogger.Printf("Logon response body:\n%s", string(body))
-	}
-
-	var logonResp LogonResponse
-	if err := xml.Unmarshal(body, &logonResp); err != nil {
-		return "", fmt.Errorf("XML unmarshal failed: %v", err)
-	}
-
-	return logonResp.Session, nil
-}
-
-// Logoff performs the logoff operation from the HMC REST API (standalone function)
-func Logoff(client *http.Client, hmcIP, session string, verbose bool) error {
-	url := fmt.Sprintf("https://%s/rest/api/web/Logon", hmcIP)
-	if verbose {
-		hmcLogger.Printf("Sending logoff request to %s", url)
-	}
-
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		return fmt.Errorf("request creation failed: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
-	req.Header.Set("Authorization", "Basic Og==")
-	req.Header.Set("X-API-Session", session)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if verbose {
-		hmcLogger.Printf("Logoff response status: %s", resp.Status)
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("logoff failed with status: %s", resp.Status)
-	}
-	return nil
-}
-
 // GetPartitionTemplateID retrieves the AtomID for a partition template by name
-func GetPartitionTemplateID(client *http.Client, hmcIP, session, name string, verbose bool) (string, error) {
-	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", hmcIP)
+func (c *HmcRestClient) GetPartitionTemplateID(name string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
 	if verbose {
 		hmcLogger.Printf("Requesting template ID for name: %s, URL: %s", name, url)
 	}
@@ -324,13 +238,13 @@ func GetPartitionTemplateID(client *http.Client, hmcIP, session, name string, ve
 		return "", fmt.Errorf("request creation failed: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=PartitionTemplate")
-	req.Header.Set("X-API-Session", session)
+	req.Header.Set("X-API-Session", c.session)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
@@ -371,20 +285,20 @@ func GetPartitionTemplateID(client *http.Client, hmcIP, session, name string, ve
 }
 
 // ListPartitionTemplateIDs retrieves all PartitionTemplate AtomIDs
-func ListPartitionTemplateIDs(client *http.Client, hmcIP, session string, verbose bool) ([]string, error) {
-	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", hmcIP)
+func (c *HmcRestClient) ListPartitionTemplateIDs(verbose bool) ([]string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("request creation failed: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=PartitionTemplate")
-	req.Header.Set("X-API-Session", session)
+	req.Header.Set("X-API-Session", c.session)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
@@ -419,10 +333,10 @@ func ListPartitionTemplateIDs(client *http.Client, hmcIP, session string, verbos
 }
 
 // GetPartitionTemplate retrieves the full PartitionTemplate XML by UUID or name
-func GetPartitionTemplate(client *http.Client, hmcIP, session, uuid, name string, verbose bool) (*etree.Element, error) {
+func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, verbose bool) (*etree.Element, error) {
 	if uuid == "" && name != "" {
 		var err error
-		uuid, err = GetPartitionTemplateID(client, hmcIP, session, name, verbose)
+		uuid, err = c.GetPartitionTemplateID(name, verbose)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get template UUID for name %s: %v", name, err)
 		}
@@ -432,19 +346,19 @@ func GetPartitionTemplate(client *http.Client, hmcIP, session, uuid, name string
 		return nil, fmt.Errorf("no template found for name %s", name)
 	}
 
-	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s", hmcIP, uuid)
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s", c.hmcIP, uuid)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("request creation failed: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=PartitionTemplate")
-	req.Header.Set("X-API-Session", session)
+	req.Header.Set("X-API-Session", c.session)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
@@ -478,8 +392,12 @@ func GetPartitionTemplate(client *http.Client, hmcIP, session, uuid, name string
 }
 
 // CopyPartitionTemplate copies a partition template from one name to another
-func CopyPartitionTemplate(client *http.Client, hmcIP, session, fromName, toName string, verbose bool) error {
-	templateDoc, err := GetPartitionTemplate(client, hmcIP, session, "", fromName, verbose)
+func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, verbose bool) error {
+	if verbose {
+		hmcLogger.Printf("Copying template from %s to %s", fromName, toName)
+	}
+
+	templateDoc, err := c.GetPartitionTemplate("", fromName, verbose)
 	if err != nil || templateDoc == nil {
 		return fmt.Errorf("failed to fetch source template %s: %v", fromName, err)
 	}
@@ -499,20 +417,20 @@ func CopyPartitionTemplate(client *http.Client, hmcIP, session, fromName, toName
 	}
 	xmlStr = strings.Replace(xmlStr, "<PartitionTemplate>", "<"+templateNamespace+">", 1)
 
-	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate", hmcIP)
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate", c.hmcIP)
 	req, err := http.NewRequest("PUT", url, strings.NewReader(xmlStr))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
 
-	req.Header.Set("X-API-Session", session)
+	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.templates+xml;type=PartitionTemplate")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %v", err)
 	}
@@ -523,7 +441,7 @@ func CopyPartitionTemplate(client *http.Client, hmcIP, session, fromName, toName
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("request failed with status: %d", resp.StatusCode)
 	}
 
@@ -544,21 +462,168 @@ func CopyPartitionTemplate(client *http.Client, hmcIP, session, fromName, toName
 	return nil
 }
 
-// GetMaximumPartitions retrieves the MaximumPartitions for a system by UUID
-func GetMaximumPartitions(client *http.Client, hmcIP, session, systemUUID string, verbose bool) (string, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", hmcIP, systemUUID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("request creation failed: %v", err)
+// CreatePartition creates a partition using a template UUID
+func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/do/CreatePartitionFromTemplate", c.hmcIP, systemUUID)
+	if verbose {
+		hmcLogger.Printf("Creating partition for system %s with template UUID %s and osType %s", systemUUID, templateUUID, osType)
 	}
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=ManagedSystem")
-	req.Header.Set("X-API-Session", session)
+
+	type Operation struct {
+		XMLName       xml.Name `xml:"Operation"`
+		OperationName string   `xml:"OperationName"`
+		GroupName     string   `xml:"GroupName"`
+		ProgressType  string   `xml:"ProgressType"`
+	}
+
+	type JobParameter struct {
+		XMLName xml.Name `xml:"JobParameter"`
+		Name    string   `xml:"name"`
+		Value   string   `xml:"value"`
+	}
+
+	type JobRequest struct {
+		XMLName       xml.Name       `xml:"JobRequest"`
+		SchemaVersion string         `xml:"schemaVersion,attr"`
+		Operation     Operation      `xml:"RequestedOperation>Operation"`
+		Parameters    []JobParameter `xml:"JobParameters>JobParameter"`
+	}
+
+	payload := JobRequest{
+		SchemaVersion: "V1_0",
+		Operation: Operation{
+			OperationName: "CreatePartitionFromTemplate",
+			GroupName:     "ManagedSystem",
+			ProgressType:  "DISCRETE",
+		},
+		Parameters: []JobParameter{
+			{Name: "K_X_API_SESSION_MEMENTO", Value: c.session},
+			{Name: "TemplateUuid", Value: templateUUID},
+			{Name: "OsType", Value: osType},
+		},
+	}
+
+	body, err := xml.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal job request payload: %v", err)
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Create partition response body:\n%s", string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("request failed with status: %d", resp.StatusCode)
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(respBody); err != nil {
+		return "", fmt.Errorf("failed to parse response XML: %v", err)
+	}
+	root := doc.Root()
+	if root == nil {
+		return "", fmt.Errorf("no root element in response XML")
+	}
+
+	jobIDs := root.FindElements("//JobID")
+	if len(jobIDs) == 0 {
+		return "", fmt.Errorf("JobID not found in response")
+	}
+
+	return jobIDs[0].Text(), nil
+}
+
+// FetchJobStatus retrieves the status of a job by its ID
+func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/do/GetJobStatus?JobID=%s", c.hmcIP, jobID)
+	if verbose {
+		hmcLogger.Printf("Fetching job status for JobID: %s, URL: %s", jobID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("request creation failed: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.web+xml; type=JobResponse")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("Job status response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response failed: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Job status response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("request failed with status: %s", resp.Status)
+	}
+
+	var jobResp JobResponse
+	if err := xml.Unmarshal(body, &jobResp); err != nil {
+		return "", fmt.Errorf("XML unmarshal failed: %v", err)
+	}
+
+	if jobResp.Status == "" {
+		return "", fmt.Errorf("no status found for job ID %s", jobID)
+	}
+
+	return jobResp.Status, nil
+}
+
+// GetMaximumPartitions retrieves the MaximumPartitions for a system by UUID
+func (c *HmcRestClient) GetMaximumPartitions(systemUUID string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("request creation failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=ManagedSystem")
+	req.Header.Set("X-API-Session", c.session)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
