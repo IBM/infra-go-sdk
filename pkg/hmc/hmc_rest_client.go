@@ -714,7 +714,6 @@ func (c *HmcRestClient) UpdateVirtualNWSettingsToDom(templateXML *etree.Element,
                             <Atom/>
                         </Metadata>
                         <name kxe="false" kb="CUD">%s</name>
-                        <uuid kb="CUD" kxe="false">placeholder-uuid</uuid> <!-- Adjust as needed -->
                     </ClientVirtualNetwork>
                 </clientVirtualNetworks>
             </ClientNetworkAdapter>`, vsnPayload, eachVN.NetworkName)
@@ -754,6 +753,73 @@ func (c *HmcRestClient) UpdateVirtualNWSettingsToDom(templateXML *etree.Element,
 			parent.InsertChildAt(i+1, vnwPayloadElement)
 			break
 		}
+	}
+
+	return nil
+}
+
+// LPAR_TEMPLATE_NS is the namespace for PartitionTemplate as used in the Python code
+const LPAR_TEMPLATE_NS = `PartitionTemplate xmlns="http://www.ibm.com/xmlns/systems/power/firmware/templates/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2"`
+
+// UpdatePartitionTemplate updates an existing partition template with the provided XML
+func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Element, verbose bool) error {
+	if uuid == "" {
+		return fmt.Errorf("UUID cannot be empty")
+	}
+
+	// Convert the etree.Element to a string
+	doc := etree.NewDocument()
+	doc.SetRoot(templateXML)
+	xmlStr, err := doc.WriteToString()
+	if err != nil {
+		return fmt.Errorf("failed to serialize XML: %v", err)
+	}
+
+	// Replace the PartitionTemplate tag with the namespace, mimicking the Python behavior
+	xmlStr = strings.Replace(xmlStr, "<PartitionTemplate>", "<"+LPAR_TEMPLATE_NS+">", 1)
+
+	if verbose {
+		hmcLogger.Printf("Updating partition template XML for UUID %s:\n%s", uuid, xmlStr)
+	}
+
+	// Construct the URL
+	templateURL := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s", c.hmcIP, uuid)
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest("POST", templateURL, strings.NewReader(xmlStr))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.templates+xml;type=PartitionTemplate")
+
+	// Set context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Update partition template response status: %s", resp.Status)
+		hmcLogger.Printf("Response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("request failed with status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	return nil

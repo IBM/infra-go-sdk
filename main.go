@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/beevik/etree"
@@ -87,7 +88,7 @@ func main() {
 	var systemUUID string
 	configDict := make(map[string]string) // Initialize configDict
 	if *systemName != "" {
-		uuid, _, err := restClient.GetManagedSystem(*systemName, *verbose)
+		uuid, systemElem, err := restClient.GetManagedSystem(*systemName, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to get managed system: %v", err)
 		}
@@ -107,7 +108,7 @@ func main() {
 		maxVirtualSlots := 50
 		procMode := "uncapped"             // Assumption based on weight logic
 		weight10 := 128                    // Hardcoded assumption
-		procCompatibilityMode := "default" // Hardcoded assumption
+		procCompatibilityMode := "Default" // Hardcoded assumption
 		sharedProcPool := "0"              // Hardcoded default
 
 		// Populate configDict with hardcoded values
@@ -134,6 +135,31 @@ func main() {
 		// Log configDict if verbose
 		if *verbose {
 			log.Printf("Configuration dictionary: %+v", configDict)
+		}
+
+		// Check proc_comp_mode
+		if procCompMode, ok := configDict["proc_comp_mode"]; ok && procCompMode != "" {
+			suppCompatModes := systemElem.FindElements("//SupportedPartitionProcessorCompatibilityModes")
+			supportedModes := make([]string, 0, len(suppCompatModes))
+			for _, modeElem := range suppCompatModes {
+				text := modeElem.Text()
+				if text == "default" {
+					supportedModes = append(supportedModes, "Default")
+				} else {
+					processed := strings.ReplaceAll(text, "Plus", "plus")
+					supportedModes = append(supportedModes, processed)
+				}
+			}
+			found := false
+			for _, mode := range supportedModes {
+				if mode == procCompMode {
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.Fatalf("unsupported proc_compat_mode: %s, Supported proc_compat_modes are %v", procCompMode, supportedModes)
+			}
 		}
 	}
 
@@ -260,6 +286,14 @@ func main() {
 				log.Printf("Updated XML:\n%s", xmlString)
 			}
 		}
+		// Update the partition template with the modified XML
+		if *verbose {
+			log.Printf("Updating partition template with UUID: %s", tempUUID)
+		}
+		if err := restClient.UpdatePartitionTemplate(tempUUID, tempTemplateDoc, *verbose); err != nil {
+			log.Fatalf("Failed to update partition template: %v", err)
+		}
+		fmt.Printf("Successfully updated partition template with UUID: %s\n", tempUUID)
 		// Fetch MaximumPartitions for the system
 		if *verbose {
 			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
