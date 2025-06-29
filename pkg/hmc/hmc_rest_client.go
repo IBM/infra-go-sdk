@@ -180,8 +180,14 @@ func (c *HmcRestClient) Logoff() error {
 }
 
 // GetManagedSystem fetches the managed system UUID and details by name
-func (c *HmcRestClient) GetManagedSystem(systemName string) (string, *etree.Element, error) {
+func (c *HmcRestClient) GetManagedSystem(systemName string, verbose bool) (string, *etree.Element, error) {
+	if systemName == "" {
+		return "", nil, fmt.Errorf("systemName cannot be empty")
+	}
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/search/(SystemName=='%s')", c.hmcIP, systemName)
+	if verbose {
+		hmcLogger.Printf("Fetching managed system for name: %s, URL: %s", systemName, url)
+	}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create request: %v", err)
@@ -195,7 +201,14 @@ func (c *HmcRestClient) GetManagedSystem(systemName string) (string, *etree.Elem
 	}
 	defer resp.Body.Close()
 
+	if verbose {
+		hmcLogger.Printf("GetManagedSystem response status: %s", resp.Status)
+	}
+
 	if resp.StatusCode == 204 {
+		if verbose {
+			hmcLogger.Printf("No managed system found for name: %s", systemName)
+		}
 		return "", nil, nil // No content found
 	}
 	if resp.StatusCode != 200 {
@@ -205,6 +218,10 @@ func (c *HmcRestClient) GetManagedSystem(systemName string) (string, *etree.Elem
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetManagedSystem response body:\n%s", string(body))
 	}
 
 	doc := etree.NewDocument()

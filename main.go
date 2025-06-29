@@ -49,7 +49,7 @@ func main() {
 
 	// Initialize HMC object
 	hmcObj := hmc.NewHmc(sshClient)
-	version, err := hmcObj.ListHMCVersion(*verbose) // Pass verbose flag
+	version, err := hmcObj.ListHMCVersion(*verbose)
 	if err != nil {
 		log.Fatalf("Failed to list HMC version: %v", err)
 	}
@@ -83,7 +83,7 @@ func main() {
 	// Handle managed system operations if system-name is provided
 	var systemUUID string
 	if *systemName != "" {
-		uuid, _, err := restClient.GetManagedSystem(*systemName)
+		uuid, _, err := restClient.GetManagedSystem(*systemName, *verbose) // Fix: Pass verbose
 		if err != nil {
 			log.Fatalf("Failed to get managed system: %v", err)
 		}
