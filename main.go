@@ -97,38 +97,42 @@ func main() {
 			fmt.Printf("Managed System UUID: %s\n", systemUUID)
 		}
 
-		// Check service pack level and get next partition ID if < 951
-		spLevelStr, ok := version["SERVICEPACK"]
-		if !ok {
-			log.Fatalf("SERVICEPACK not found in HMC version")
-		}
-		spLevel, err := strconv.Atoi(spLevelStr)
-		if err != nil {
-			log.Fatalf("Failed to parse SERVICEPACK level: %v", err)
-		}
-		if spLevel < 951 {
-			// Fetch MaximumPartitions for the system
-			if *verbose {
-				log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
-			}
-			maxLpars, err := restClient.GetMaximumPartitions(systemUUID, *verbose)
-			if err != nil {
-				log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", systemUUID, err)
-			}
-			maxLparsInt, err := strconv.Atoi(maxLpars)
-			if err != nil {
-				log.Fatalf("Failed to parse MaximumPartitions: %v", err)
-			}
-			nextLparID, err := hmcObj.GetNextPartitionID(*systemName, maxLparsInt, *verbose)
-			if err != nil {
-				log.Fatalf("Failed to get next partition ID: %v", err)
-			}
-			configDict["lpar_id"] = strconv.Itoa(nextLparID)
-			if *verbose {
-				log.Printf("Next Partition ID: %d", nextLparID)
-			}
-		}
+		// Hardcoded values as per your request
+		vmName := "test-test"
+		proc := 2
+		procUnit := 2
+		mem := 2048
+		maxVirtualSlots := 50
+		procMode := "uncapped"             // Assumption based on weight logic
+		weight10 := 128                    // Hardcoded assumption
+		procCompatibilityMode := "default" // Hardcoded assumption
+		sharedProcPool := "0"              // Hardcoded default
 
+		// Populate configDict with hardcoded values
+		configDict["vm_name"] = vmName
+		configDict["proc"] = strconv.Itoa(proc)
+		configDict["max_proc"] = strconv.Itoa(proc)          // Default to proc value
+		configDict["min_proc"] = "1"                         // Reasonable default
+		configDict["proc_unit"] = strconv.Itoa(procUnit)     // Convert to string
+		configDict["max_proc_unit"] = strconv.Itoa(procUnit) // Default to proc_unit
+		configDict["min_proc_unit"] = "1"                    // Reasonable default
+		configDict["mem"] = strconv.Itoa(mem)
+		configDict["max_mem"] = strconv.Itoa(mem) // Default to mem value
+		configDict["min_mem"] = "1024"            // Reasonable default
+		configDict["max_virtual_slots"] = strconv.Itoa(maxVirtualSlots)
+		configDict["proc_mode"] = procMode
+		if procMode == "uncapped" {
+			configDict["weight"] = strconv.Itoa(weight10)
+		} else {
+			configDict["weight"] = "0"
+		}
+		configDict["proc_comp_mode"] = procCompatibilityMode
+		configDict["shared_proc_pool"] = sharedProcPool
+
+		// Log configDict if verbose
+		if *verbose {
+			log.Printf("Configuration dictionary: %+v", configDict)
+		}
 	}
 
 	// List all partition template IDs if --list-template is set
