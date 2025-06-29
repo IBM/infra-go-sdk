@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/sudeeshjohn/PowerHMC/pkg/hmc"
@@ -82,8 +83,9 @@ func main() {
 
 	// Handle managed system operations if system-name is provided
 	var systemUUID string
+	configDict := make(map[string]string) // Initialize configDict
 	if *systemName != "" {
-		uuid, _, err := restClient.GetManagedSystem(*systemName, *verbose) // Fix: Pass verbose
+		uuid, _, err := restClient.GetManagedSystem(*systemName, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to get managed system: %v", err)
 		}
@@ -94,6 +96,39 @@ func main() {
 		if *verbose {
 			fmt.Printf("Managed System UUID: %s\n", systemUUID)
 		}
+
+		// Check service pack level and get next partition ID if < 951
+		spLevelStr, ok := version["SERVICEPACK"]
+		if !ok {
+			log.Fatalf("SERVICEPACK not found in HMC version")
+		}
+		spLevel, err := strconv.Atoi(spLevelStr)
+		if err != nil {
+			log.Fatalf("Failed to parse SERVICEPACK level: %v", err)
+		}
+		if spLevel < 951 {
+			// Fetch MaximumPartitions for the system
+			if *verbose {
+				log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
+			}
+			maxLpars, err := restClient.GetMaximumPartitions(systemUUID, *verbose)
+			if err != nil {
+				log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", systemUUID, err)
+			}
+			maxLparsInt, err := strconv.Atoi(maxLpars)
+			if err != nil {
+				log.Fatalf("Failed to parse MaximumPartitions: %v", err)
+			}
+			nextLparID, err := hmcObj.GetNextPartitionID(*systemName, maxLparsInt, *verbose)
+			if err != nil {
+				log.Fatalf("Failed to get next partition ID: %v", err)
+			}
+			configDict["lpar_id"] = strconv.Itoa(nextLparID)
+			if *verbose {
+				log.Printf("Next Partition ID: %d", nextLparID)
+			}
+		}
+
 	}
 
 	// List all partition template IDs if --list-template is set
@@ -210,6 +245,11 @@ func main() {
 			if status == "FAILED" || status == "COMPLETED_WITH_ERRORS" {
 				log.Fatalf("Partition creation failed with status: %s", status)
 			}
+		}
+
+		// Log configDict if verbose
+		if *verbose && len(configDict) > 0 {
+			log.Printf("Configuration dictionary: %+v", configDict)
 		}
 	}
 }

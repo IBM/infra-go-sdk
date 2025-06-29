@@ -3,6 +3,8 @@ package hmc
 import (
 	"fmt"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -240,4 +242,110 @@ func (h *Hmc) HmcShutdown(numOfMin string, reboot bool, verbose bool) error {
 		time.Sleep(minutes)
 	}
 	return nil
+}
+
+// GetNextPartitionID retrieves the next available partition ID for a given CEC
+func (h *Hmc) GetNextPartitionID(cecName string, maxSuppLpars int, verbose bool) (int, error) {
+	// Validate inputs
+	if cecName == "" {
+		return 0, fmt.Errorf("cecName cannot be empty")
+	}
+	if maxSuppLpars <= 0 {
+		return 0, fmt.Errorf("maxSuppLpars must be positive")
+	}
+
+	// Construct the lssyscfg command
+	if _, ok := h.cmdStack.HMC_CMD["LSSYSCFG"]; !ok {
+		return 0, fmt.Errorf("command LSSYSCFG not found in HMC_CMD")
+	}
+	if _, ok := h.cmdStack.HMC_CMD_OPT[HmcCmdLssyscfg]; !ok {
+		return 0, fmt.Errorf("options for LSSYSCFG not found in HMC_CMD_OPT")
+	}
+	rOpt, ok := h.cmdStack.HMC_CMD_OPT[HmcCmdLssyscfg]["-R"]
+	if !ok {
+		return 0, fmt.Errorf("option -R not found for LSSYSCFG in HMC_CMD_OPT")
+	}
+	rLparMap, ok := rOpt.(map[string]string)
+	if !ok {
+		return 0, fmt.Errorf("expected map[string]string for -R option, got %T", rOpt)
+	}
+	rLpar, ok := rLparMap["LPAR"]
+	if !ok {
+		return 0, fmt.Errorf("option -R LPAR not found for LSSYSCFG")
+	}
+	mOpt, ok := h.cmdStack.HMC_CMD_OPT[HmcCmdLssyscfg]["-M"]
+	if !ok {
+		return 0, fmt.Errorf("option -M not found for LSSYSCFG in HMC_CMD_OPT")
+	}
+	mStr, ok := mOpt.(string)
+	if !ok {
+		return 0, fmt.Errorf("expected string for -M option, got %T", mOpt)
+	}
+	fOpt, ok := h.cmdStack.HMC_CMD_OPT[HmcCmdLssyscfg]["-F"]
+	if !ok {
+		return 0, fmt.Errorf("option -F not found for LSSYSCFG in HMC_CMD_OPT")
+	}
+	fStr, ok := fOpt.(string)
+	if !ok {
+		return 0, fmt.Errorf("expected string for -F option, got %T", fOpt)
+	}
+
+	cmd := h.cmdStack.HMC_CMD["LSSYSCFG"] + rLpar + mStr + cecName + fStr + "lpar_id"
+	result, err := h.execute(cmd, verbose)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute lssyscfg command: %v", err)
+	}
+
+	result = strings.TrimSpace(result)
+	// Check if no partitions exist
+	if result == "No results were found." {
+		return 1, nil
+	}
+
+	// Parse existing partition IDs into a slice of integers
+	existingLparList := []int{}
+	for _, idStr := range strings.Split(result, "\n") {
+		idStr = strings.TrimSpace(idStr)
+		if idStr == "" {
+			continue
+		}
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse partition ID '%s': %v", idStr, err)
+		}
+		existingLparList = append(existingLparList, id)
+	}
+
+	// Generate the list of supported IDs (1 to maxSuppLpars)
+	suppIDList := make([]int, maxSuppLpars)
+	for i := 0; i < maxSuppLpars; i++ {
+		suppIDList[i] = i + 1
+	}
+
+	// Find available IDs (IDs in suppIDList but not in existingLparList)
+	availList := []int{}
+	for _, id := range suppIDList {
+		if !contains(existingLparList, id) {
+			availList = append(availList, id)
+		}
+	}
+
+	// If no available IDs, return an error
+	if len(availList) == 0 {
+		return 0, fmt.Errorf("no available partition IDs for CEC %s", cecName)
+	}
+
+	// Sort available IDs and return the smallest one
+	sort.Ints(availList)
+	return availList[0], nil
+}
+
+// contains checks if a slice contains a specific integer
+func contains(slice []int, val int) bool {
+	for _, item := range slice {
+		if item == val {
+			return true
+		}
+	}
+	return false
 }
