@@ -81,7 +81,8 @@ func main() {
 			log.Println("Logged off successfully")
 		}
 	}()
-
+	// Hardcode virt_network_config for now
+	virtNetworkConfigs := []hmc.VirtualNetworkConfig{{NetworkName: "VNET0", SlotNumber: 49, VirtualSlotNumber: 49}}
 	// Handle managed system operations if system-name is provided
 	var systemUUID string
 	configDict := make(map[string]string) // Initialize configDict
@@ -240,6 +241,25 @@ func main() {
 			}
 		}
 
+		// Update virtual network settings in the XML
+		if *verbose {
+			log.Printf("Updating virtual network settings in temporary template XML")
+		}
+		err = restClient.UpdateVirtualNWSettingsToDom(tempTemplateDoc, virtNetworkConfigs)
+		if err != nil {
+			log.Fatalf("Failed to update virtual network settings: %v", err)
+		}
+		// Print the updated XML for verification
+		if *verbose {
+			doc := etree.NewDocument()
+			doc.SetRoot(tempTemplateDoc)
+			xmlString, err := doc.WriteToString()
+			if err != nil {
+				log.Printf("Failed to serialize updated XML: %v", err)
+			} else {
+				log.Printf("Updated XML:\n%s", xmlString)
+			}
+		}
 		// Fetch MaximumPartitions for the system
 		if *verbose {
 			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)

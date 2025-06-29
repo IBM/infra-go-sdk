@@ -89,6 +89,12 @@ func (c *HmcRestClient) Session() string {
 	return c.session
 }
 
+type VirtualNetworkConfig struct {
+	NetworkName       string
+	SlotNumber        int
+	VirtualSlotNumber int
+}
+
 // Login performs the logon operation to the HMC REST API
 func (c *HmcRestClient) Login(username, password string, verbose bool) error {
 	payload := LogonRequest{
@@ -681,6 +687,73 @@ func (c *HmcRestClient) UpdateProcMemSettingsToDom(templateXML *etree.Element, c
 			return fmt.Errorf("currProcessorCompatibilityMode element not found in XML")
 		}
 		currProcCompMode.SetText(procCompMode)
+	}
+
+	return nil
+}
+func (c *HmcRestClient) UpdateVirtualNWSettingsToDom(templateXML *etree.Element, configDictList []VirtualNetworkConfig) error {
+	vnPayload := ""
+	for _, eachVN := range configDictList {
+		vsnPayload := ""
+		if eachVN.VirtualSlotNumber != 0 { // Check for non-zero to mimic Python's 'is not None'
+			vsnPayload = fmt.Sprintf(`
+                <VirtualSlotNumber kb="CUD" kxe="false">%d</VirtualSlotNumber>`, eachVN.VirtualSlotNumber)
+		}
+		vnPayload += fmt.Sprintf(`
+            <ClientNetworkAdapter schemaVersion="V1_0">
+                <Metadata>
+                    <Atom/>
+                </Metadata>
+                %s
+                <clientVirtualNetworks kb="CUD" kxe="false" schemaVersion="V1_0">
+                    <Metadata>
+                        <Atom/>
+                    </Metadata>
+                    <ClientVirtualNetwork schemaVersion="V1_0">
+                        <Metadata>
+                            <Atom/>
+                        </Metadata>
+                        <name kxe="false" kb="CUD">%s</name>
+                        <uuid kb="CUD" kxe="false">placeholder-uuid</uuid> <!-- Adjust as needed -->
+                    </ClientVirtualNetwork>
+                </clientVirtualNetworks>
+            </ClientNetworkAdapter>`, vsnPayload, eachVN.NetworkName)
+	}
+
+	vnwPayload := fmt.Sprintf(`
+        <clientNetworkAdapters kb="CUD" kxe="false" schemaVersion="V1_0">
+            <Metadata>
+                <Atom/>
+            </Metadata>
+            %s
+        </clientNetworkAdapters>`, vnPayload)
+
+	// Parse the XML string into an etree.Document
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(vnwPayload); err != nil {
+		return fmt.Errorf("failed to parse virtual network XML: %v", err)
+	}
+	vnwPayloadElement := doc.Root()
+	if vnwPayloadElement == nil {
+		return fmt.Errorf("failed to parse virtual network XML: no root element")
+	}
+
+	// Find the ioConfiguration element
+	ioConfigTag := templateXML.FindElement("//ioConfiguration")
+	if ioConfigTag == nil {
+		return fmt.Errorf("ioConfiguration element not found in XML")
+	}
+
+	// Get the parent and insert the new element after ioConfigTag
+	parent := ioConfigTag.Parent()
+	if parent == nil {
+		return fmt.Errorf("ioConfiguration element has no parent")
+	}
+	for i, child := range parent.Child {
+		if child == ioConfigTag {
+			parent.InsertChildAt(i+1, vnwPayloadElement)
+			break
+		}
 	}
 
 	return nil
