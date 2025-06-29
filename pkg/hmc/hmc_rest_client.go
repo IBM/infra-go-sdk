@@ -479,6 +479,213 @@ func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, verbose b
 	return nil
 }
 
+// UpdateLparNameAndIDToDom updates the partition ID, name, and max virtual slots in the XML document
+func (c *HmcRestClient) UpdateLparNameAndIDToDom(templateXML *etree.Element, configDict map[string]string) error {
+	// Handle partitionId
+	lparIDElements := templateXML.FindElements("//partitionId")
+	if len(lparIDElements) > 0 {
+		if lparID, ok := configDict["lpar_id"]; ok {
+			lparIDElements[0].SetText(lparID)
+		} else {
+			// Remove the partitionId element if lpar_id is not in configDict
+			parent := lparIDElements[0].Parent()
+			if parent != nil {
+				parent.RemoveChild(lparIDElements[0])
+			}
+		}
+	} else {
+		return fmt.Errorf("partitionId element not found in XML")
+	}
+
+	// Set currMaxVirtualIOSlots
+	maxSlotsElements := templateXML.FindElements("//currMaxVirtualIOSlots")
+	if len(maxSlotsElements) > 0 {
+		if maxSlots, ok := configDict["max_virtual_slots"]; ok {
+			maxSlotsElements[0].SetText(maxSlots)
+		} else {
+			return fmt.Errorf("max_virtual_slots not found in configDict")
+		}
+	} else {
+		return fmt.Errorf("currMaxVirtualIOSlots element not found in XML")
+	}
+
+	// Set partitionName
+	partitionNameElements := templateXML.FindElements("//partitionName")
+	if len(partitionNameElements) > 0 {
+		if vmName, ok := configDict["vm_name"]; ok {
+			partitionNameElements[0].SetText(vmName)
+		} else {
+			return fmt.Errorf("vm_name not found in configDict")
+		}
+	} else {
+		return fmt.Errorf("partitionName element not found in XML")
+	}
+
+	return nil
+}
+
+// UpdateProcMemSettingsToDom updates processor and memory settings in the XML document
+// UpdateProcMemSettingsToDom updates processor and memory settings in the XML document
+func (c *HmcRestClient) UpdateProcMemSettingsToDom(templateXML *etree.Element, configDict map[string]string) error {
+	// Shared processor configuration
+	if procUnit, ok := configDict["proc_unit"]; ok && procUnit != "" {
+		sharedPayload := fmt.Sprintf(`<sharedProcessorConfiguration kxe="false" kb="CUD" schemaVersion="V1_0">
+			<Metadata>
+				<Atom/>
+			</Metadata>
+			<sharedProcessorPoolId kxe="false" kb="CUD">%s</sharedProcessorPoolId>
+			<uncappedWeight kxe="false" kb="CUD">%s</uncappedWeight>
+			<minProcessingUnits kb="CUD" kxe="false">%s</minProcessingUnits>
+			<desiredProcessingUnits kxe="false" kb="CUD">%s</desiredProcessingUnits>
+			<maxProcessingUnits kb="CUD" kxe="false">%s</maxProcessingUnits>
+			<minVirtualProcessors kb="CUD" kxe="false">%s</minVirtualProcessors>
+			<desiredVirtualProcessors kxe="false" kb="CUD">%s</desiredVirtualProcessors>
+			<maxVirtualProcessors kxe="false" kb="CUD">%s</maxVirtualProcessors>
+		</sharedProcessorConfiguration>`,
+			configDict["shared_proc_pool"],
+			configDict["weight"],
+			configDict["min_proc_unit"],
+			configDict["proc_unit"],
+			configDict["max_proc_unit"],
+			configDict["min_proc"],
+			configDict["proc"],
+			configDict["max_proc"])
+
+		// Remove existing sharedProcessorConfiguration if present
+		sharedConfigTags := templateXML.FindElements("//sharedProcessorConfiguration")
+		for _, tag := range sharedConfigTags {
+			if parent := tag.Parent(); parent != nil {
+				parent.RemoveChild(tag)
+			}
+		}
+
+		// Add new sharedProcessorConfiguration after sharingMode
+		sharingModeTag := templateXML.FindElement("//sharingMode")
+		if sharingModeTag == nil {
+			return fmt.Errorf("sharingMode element not found in XML")
+		}
+		doc := etree.NewDocument()
+		if err := doc.ReadFromString(sharedPayload); err != nil {
+			return fmt.Errorf("failed to parse shared processor configuration XML: %v", err)
+		}
+		sharedConfigElement := doc.Root()
+		if sharedConfigElement == nil {
+			return fmt.Errorf("failed to parse shared processor configuration XML: no root element")
+		}
+		if parent := sharingModeTag.Parent(); parent != nil {
+			// Loop through the parent's children to find sharingModeTag's index
+			for i, child := range parent.Child {
+				if child == sharingModeTag {
+					// Insert sharedConfigElement immediately after sharingModeTag
+					fmt.Printf("Type of sharedConfigElement: %T\n", sharedConfigElement)
+					parent.InsertChildAt(i+1, sharedConfigElement)
+					break
+				}
+			}
+		} else {
+			return fmt.Errorf("sharingMode element has no parent")
+		}
+
+		// Remove dedicatedProcessorConfiguration if present
+		dediTags := templateXML.FindElements("//dedicatedProcessorConfiguration")
+		for _, tag := range dediTags {
+			if parent := tag.Parent(); parent != nil {
+				parent.RemoveChild(tag)
+			}
+		}
+
+		// Update currHasDedicatedProcessors and currSharingMode
+		currHasDedicatedProcessors := templateXML.FindElement("//currHasDedicatedProcessors")
+		if currHasDedicatedProcessors == nil {
+			return fmt.Errorf("currHasDedicatedProcessors element not found in XML")
+		}
+		currHasDedicatedProcessors.SetText("false")
+
+		currSharingMode := templateXML.FindElement("//currSharingMode")
+		if currSharingMode == nil {
+			return fmt.Errorf("currSharingMode element not found in XML")
+		}
+		if procMode, ok := configDict["proc_mode"]; ok {
+			currSharingMode.SetText(procMode)
+		} else {
+			return fmt.Errorf("proc_mode not found in configDict")
+		}
+	} else {
+		// Dedicated processor configuration
+		minProcs := templateXML.FindElement("//minProcessors")
+		if minProcs == nil {
+			return fmt.Errorf("minProcessors element not found in XML")
+		}
+		if minProc, ok := configDict["min_proc"]; ok {
+			minProcs.SetText(minProc)
+		} else {
+			return fmt.Errorf("min_proc not found in configDict")
+		}
+
+		desiredProcs := templateXML.FindElement("//desiredProcessors")
+		if desiredProcs == nil {
+			return fmt.Errorf("desiredProcessors element not found in XML")
+		}
+		if proc, ok := configDict["proc"]; ok {
+			desiredProcs.SetText(proc)
+		} else {
+			return fmt.Errorf("proc not found in configDict")
+		}
+
+		maxProcs := templateXML.FindElement("//maxProcessors")
+		if maxProcs == nil {
+			return fmt.Errorf("maxProcessors element not found in XML")
+		}
+		if maxProc, ok := configDict["max_proc"]; ok {
+			maxProcs.SetText(maxProc)
+		} else {
+			return fmt.Errorf("max_proc not found in configDict")
+		}
+	}
+
+	// Update memory settings
+	currMinMemory := templateXML.FindElement("//currMinMemory")
+	if currMinMemory == nil {
+		return fmt.Errorf("currMinMemory element not found in XML")
+	}
+	if minMem, ok := configDict["min_mem"]; ok {
+		currMinMemory.SetText(minMem)
+	} else {
+		return fmt.Errorf("min_mem not found in configDict")
+	}
+
+	currMemory := templateXML.FindElement("//currMemory")
+	if currMemory == nil {
+		return fmt.Errorf("currMemory element not found in XML")
+	}
+	if mem, ok := configDict["mem"]; ok {
+		currMemory.SetText(mem)
+	} else {
+		return fmt.Errorf("mem not found in configDict")
+	}
+
+	currMaxMemory := templateXML.FindElement("//currMaxMemory")
+	if currMaxMemory == nil {
+		return fmt.Errorf("currMaxMemory element not found in XML")
+	}
+	if maxMem, ok := configDict["max_mem"]; ok {
+		currMaxMemory.SetText(maxMem)
+	} else {
+		return fmt.Errorf("max_mem not found in configDict")
+	}
+
+	// Update processor compatibility mode if provided
+	if procCompMode, ok := configDict["proc_comp_mode"]; ok && procCompMode != "" {
+		currProcCompMode := templateXML.FindElement("//currProcessorCompatibilityMode")
+		if currProcCompMode == nil {
+			return fmt.Errorf("currProcessorCompatibilityMode element not found in XML")
+		}
+		currProcCompMode.SetText(procCompMode)
+	}
+
+	return nil
+}
+
 // CreatePartition creates a partition using a template UUID
 func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string, verbose bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/do/CreatePartitionFromTemplate", c.hmcIP, systemUUID)

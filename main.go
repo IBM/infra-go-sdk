@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/beevik/etree"
 	"github.com/sudeeshjohn/PowerHMC/pkg/hmc"
 	"golang.org/x/crypto/ssh"
 )
@@ -194,7 +195,7 @@ func main() {
 		}
 		fmt.Printf("Successfully copied template from %s to %s\n", referenceTemplate, tempTemplateName)
 
-		// Retrieve the copied template's UUID
+		// Retrieve the copied template's XML
 		if *verbose {
 			log.Printf("Retrieving AtomID for temporary template: %s", tempTemplateName)
 		}
@@ -209,6 +210,36 @@ func main() {
 		tempUUID := atomIDs[0].Text()
 		fmt.Printf("Temporary template UUID: %s\n", tempUUID)
 
+		// Update the temporary template XML with configDict values
+		if *verbose {
+			log.Printf("Updating temporary template XML with configDict")
+		}
+		err = restClient.UpdateLparNameAndIDToDom(tempTemplateDoc, configDict)
+		if err != nil {
+			log.Fatalf("Failed to update temporary template XML: %v", err)
+		}
+
+		// Update processor and memory settings in the XML
+		if *verbose {
+			log.Printf("Updating processor and memory settings in temporary template XML")
+		}
+		err = restClient.UpdateProcMemSettingsToDom(tempTemplateDoc, configDict)
+		if err != nil {
+			log.Fatalf("Failed to update processor and memory settings: %v", err)
+		}
+
+		// Print the updated XML for verification
+		if *verbose {
+			doc := etree.NewDocument()
+			doc.SetRoot(tempTemplateDoc)
+			xmlString, err := doc.WriteToString()
+			if err != nil {
+				log.Printf("Failed to serialize updated XML: %v", err)
+			} else {
+				log.Printf("Updated XML:\n%s", xmlString)
+			}
+		}
+
 		// Fetch MaximumPartitions for the system
 		if *verbose {
 			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
@@ -219,9 +250,9 @@ func main() {
 		}
 		fmt.Printf("Maximum Partitions for system %s: %s\n", systemUUID, maxLpars)
 
-		// Create a partition using the template
+		// Create a partition using the updated template
 		if *verbose {
-			log.Printf("Creating partition for system %s using template %s", systemUUID, tempTemplateName)
+			log.Printf("Creating partition for system %s using updated template %s", systemUUID, tempTemplateName)
 		}
 		jobID, err := restClient.CreatePartition(systemUUID, tempUUID, *osType, *verbose)
 		if err != nil {
