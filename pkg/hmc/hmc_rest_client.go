@@ -298,9 +298,15 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]*etre
 		pvDocStr, _ = pvDoc.WriteToString()
 		hmcLogger.Printf("Free Physical Volume job response:\n%s", pvDocStr)
 	}
-
 	// Extract the result XML from the job response
-	resultElem := pvDoc.FindElement("//ParameterName[text()='result']/following-sibling::ParameterValue")
+	resultElem := pvDoc.FindElement("//Results/JobParameter/ParameterValue")
+	if verbose {
+		if resultElem != nil {
+			hmcLogger.Printf("resultElem content: %s", resultElem.Text())
+		} else {
+			hmcLogger.Printf("resultElem is nil: no ParameterValue found for ParameterName 'result'")
+		}
+	}
 	if resultElem == nil {
 		return nil, fmt.Errorf("result not found in job response: %s", pvDocStr)
 	}

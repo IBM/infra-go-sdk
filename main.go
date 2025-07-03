@@ -279,7 +279,7 @@ func main() {
 
 		// Define volume configs, structured like virtNetworkConfigs
 		volumeConfigs := []hmc.VolumeConfig{
-			{ViosName: "vios", VolumeName: "hdisk1"},
+			{ViosName: "vios", VolumeName: "hdisk3"},
 			// Add more as needed
 		}
 
@@ -399,16 +399,27 @@ func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volCon
 	// Get free physical volumes for the VIOS
 	pvList, err := restClient.GetFreePhyVolume(targetVIOS.UUID, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get free physical volumes for VIOS %s: %v", viosName, err)
+		// Log the error and assume no volumes are available
+		if verbose {
+			log.Printf("Error getting free physical volumes for VIOS %s: %v", viosName, err)
+		}
+		pvList = []*etree.Element{} // Treat as no volumes found
 	}
 
 	// Find the volume with the given name
 	for _, pv := range pvList {
 		volumeNameElem := pv.FindElement("VolumeName")
 		if volumeNameElem != nil && volumeNameElem.Text() == volumeName {
+			if verbose {
+				log.Printf("Found volume %s on VIOS %s", volumeName, viosName)
+			}
 			return pv, nil
 		}
 	}
 
-	return nil, fmt.Errorf("volume %s not found on VIOS %s", volumeName, viosName)
+	// If no volumes are found or the specific volume is not in the list
+	if len(pvList) == 0 {
+		return nil, fmt.Errorf("no free physical volumes found on VIOS %s", viosName)
+	}
+	return nil, fmt.Errorf("volume %s not found among free physical volumes on VIOS %s", volumeName, viosName)
 }
