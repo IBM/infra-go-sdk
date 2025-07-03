@@ -3,6 +3,7 @@ package hmc
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -93,6 +94,431 @@ type VirtualNetworkConfig struct {
 	NetworkName       string
 	SlotNumber        int
 	VirtualSlotNumber int
+}
+
+// VolumeConfig defines the configuration for a volume
+type VolumeConfig struct {
+	ViosName   string // Name of the VIOS managing the volume
+	VolumeName string // Name of the volume (e.g., hdisk1)
+}
+
+// VIOS represents a Virtual I/O Server
+type VIOS struct {
+	UUID          string `json:"UUID"`
+	PartitionName string `json:"PartitionName"`
+	RMCState      string `json:"RMCState"`
+}
+
+// PhysicalVolume represents a physical volume
+type PhysicalVolume struct {
+	VolumeName string `xml:"VolumeName"`
+}
+
+// xmlStripNamespace removes XML namespaces from the document to simplify XPath queries
+func xmlStripNamespace(xmlData []byte) (*etree.Document, error) {
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(xmlData); err != nil {
+		return nil, fmt.Errorf("failed to parse XML: %v", err)
+	}
+	// Remove namespaces by setting the namespace URI to empty
+	for _, elem := range doc.FindElements("//*") {
+		elem.Space = ""
+	}
+	return doc, nil
+}
+
+// GetVirtualIOServersQuick retrieves the list of Virtual I/O Servers for a given managed system UUID
+func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, verbose bool) ([]VIOS, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer/quick/All", c.hmcIP, systemUUID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/json")
+
+	// Set a timeout of 300 seconds
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		if verbose {
+			hmcLogger.Printf("GetVirtualIOServersQuick failed with status: %s", resp.Status)
+		}
+		return nil, fmt.Errorf("request failed with status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetVirtualIOServersQuick response body:\n%s", string(body))
+	}
+
+	var viosList []VIOS
+	if err := json.Unmarshal(body, &viosList); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON response: %v", err)
+	}
+
+	return viosList, nil
+}
+
+// / GetFreePhyVolume retrieves free physical volumes for a given VIOS UUID
+func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]*etree.Element, error) {
+	if verbose {
+		hmcLogger.Printf("VIOS UUID: %s", viosUUID)
+	}
+	// Optionally test with FibreChannelBackedOnly
+	/* jobParams := map[string]string{
+		"FibreChannelBackedOnly": "false",
+	} */
+	jobParams := map[string]string{}
+	// Operation details for the job request
+	reqdOperation := map[string]string{
+		"OperationName": "GetFreePhysicalVolumes",
+		"GroupName":     "VirtualIOServer",
+		"ProgressType":  "DISCRETE",
+	}
+	// Create the XML payload for the job request
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_3_0", verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("Job request payload:\n%s", payload)
+	}
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/GetFreePhysicalVolumes", c.hmcIP, viosUUID)
+	if verbose {
+		hmcLogger.Printf("Requesting free physical volumes for VIOS UUID %s, URL: %s", viosUUID, url)
+	}
+
+	// Headers to match Postman
+	/* header := map[string]string{
+		"X-API-Session": c.session,
+		"Content-Type":  "application/vnd.ibm.powervm.web+xml; type=JobRequest",
+	}
+	*/
+	// jobParams := make(map[string]string) // Uncomment to test without FibreChannelBackedOnly
+
+	// Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	// Enable basic auth to match Postman's Authorization: Basic
+	req.SetBasicAuth("", "") // Credentials handled by session token
+	if verbose {
+		hmcLogger.Printf("Request headers: %+v", req.Header)
+	}
+
+	// Set a timeout of 300 seconds
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log the response status and body
+	if verbose {
+		hmcLogger.Printf("GetFreePhyVolume response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("GetFreePhyVolume response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		// Parse the response to check for specific error messages
+		doc, err := xmlStripNamespace(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse error response: %v, status: %s, body: %s", err, resp.Status, string(body))
+		}
+		errorMsgs := doc.FindElements("//Message")
+		if len(errorMsgs) > 0 {
+			return nil, fmt.Errorf("HMC error: %s, status: %s, body: %s", errorMsgs[0].Text(), resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	// Strip namespaces from the response XML
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+	}
+
+	// Check for error messages in the response
+	errorMsgs := doc.FindElements("//Message")
+	if len(errorMsgs) > 0 {
+		return nil, fmt.Errorf("error in response: %s", errorMsgs[0].Text())
+	}
+
+	// Extract the JobID
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	}
+
+	// Fetch the job response
+	pvDoc, err := c.FetchJobResponse(jobID, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch job response: %v", err)
+	}
+
+	// Log the job response
+	var pvDocStr string
+	if verbose {
+		pvDocStr, _ = pvDoc.WriteToString()
+		hmcLogger.Printf("Free Physical Volume job response:\n%s", pvDocStr)
+	}
+
+	// Extract the result XML from the job response
+	resultElem := pvDoc.FindElement("//ParameterName[text()='result']/following-sibling::ParameterValue")
+	if resultElem == nil {
+		return nil, fmt.Errorf("result not found in job response: %s", pvDocStr)
+	}
+	pvXML := resultElem.Text()
+
+	// Strip namespaces from the physical volumes XML
+	pvDoc, err = xmlStripNamespace([]byte(pvXML))
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from physical volumes XML: %v", err)
+	}
+
+	// Find all PhysicalVolume elements
+	listPvElem := pvDoc.FindElements("//PhysicalVolume")
+	if len(listPvElem) == 0 {
+		if verbose {
+			hmcLogger.Printf("No free physical volumes found for VIOS UUID %s", viosUUID)
+		}
+		// Return an empty list instead of an error, as no volumes is a valid case
+		return listPvElem, nil
+	}
+	if verbose {
+		hmcLogger.Printf("Found %d free physical volumes for VIOS UUID %s", len(listPvElem), viosUUID)
+	}
+	return listPvElem, nil
+}
+
+// createJobRequestPayload generates the XML payload for a job request
+func createJobRequestPayload(operation map[string]string, params map[string]string, schemaVersion string, verbose bool) (string, error) {
+	if verbose {
+		hmcLogger.Printf("Payload creation: operation=%v, params=%v, schema=%s", operation, params, schemaVersion)
+	}
+
+	// Create the root element with namespace prefix
+	doc := etree.NewDocument()
+	root := doc.CreateElement("JobRequest:JobRequest")
+	root.CreateAttr("xmlns:JobRequest", "http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/")
+	root.CreateAttr("xmlns", "http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/")
+	root.CreateAttr("xmlns:ns2", "http://www.w3.org/XML/1998/namespace/k2")
+	root.CreateAttr("schemaVersion", schemaVersion)
+
+	// Add Metadata > Atom
+	metadata := root.CreateElement("Metadata")
+	metadata.CreateElement("Atom")
+
+	// Add RequestedOperation
+	requestedOp := root.CreateElement("RequestedOperation")
+	requestedOp.CreateAttr("kb", "CUR")
+	requestedOp.CreateAttr("kxe", "false")
+	requestedOp.CreateAttr("schemaVersion", schemaVersion)
+	requestedOpMetadata := requestedOp.CreateElement("Metadata")
+	requestedOpMetadata.CreateElement("Atom")
+
+	// Add OperationName, GroupName, ProgressType
+	opName := requestedOp.CreateElement("OperationName")
+	opName.CreateAttr("kb", "ROR")
+	opName.CreateAttr("kxe", "false")
+	opName.SetText(operation["OperationName"])
+
+	groupName := requestedOp.CreateElement("GroupName")
+	groupName.CreateAttr("kb", "ROR")
+	groupName.CreateAttr("kxe", "false")
+	groupName.SetText(operation["GroupName"])
+
+	progressType := requestedOp.CreateElement("ProgressType")
+	progressType.SetText(operation["ProgressType"])
+
+	// Add JobParameters
+	jobParams := root.CreateElement("JobParameters")
+	jobParams.CreateAttr("kxe", "false")
+	jobParams.CreateAttr("kb", "CUR")
+	jobParams.CreateAttr("schemaVersion", schemaVersion)
+	jobParamsMetadata := jobParams.CreateElement("Metadata")
+	jobParamsMetadata.CreateElement("Atom")
+
+	// Add job parameters if any
+	for key, value := range params {
+		param := jobParams.CreateElement("JobParameter")
+		paramMetadata := param.CreateElement("Metadata")
+		paramMetadata.CreateElement("Atom")
+		paramName := param.CreateElement("ParameterName")
+		paramName.CreateAttr("kb", "ROR")
+		paramName.CreateAttr("kxe", "false")
+		paramName.SetText(key)
+		paramValue := param.CreateElement("ParameterValue")
+		paramValue.CreateAttr("kxe", "false")
+		paramValue.CreateAttr("kb", "CUR")
+		paramValue.SetText(value)
+	}
+
+	// Serialize the XML
+	xmlStr, err := doc.WriteToString()
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize XML: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Generated job request payload:\n%s", xmlStr)
+	}
+	return xmlStr, nil
+}
+
+func AddVSCSIPayload(volConfig VolumeConfig, pv *etree.Element, verbose bool) string {
+	volumeNameElem := pv.FindElement("VolumeName")
+	if volumeNameElem == nil {
+		if verbose {
+			hmcLogger.Printf("VolumeName element not found in physical volume XML")
+		}
+		return ""
+	}
+	volumeName := volumeNameElem.Text()
+	if verbose {
+		hmcLogger.Printf("Generating VSCSI payload for volume %s on VIOS %s", volumeName, volConfig.ViosName)
+	}
+	return fmt.Sprintf(`
+        <VirtualSCSIClientAdapter schemaVersion="V1_0">
+            <Metadata>
+                <Atom/>
+            </Metadata>
+            <name kb="CUD" kxe="false"></name>
+            <associatedPhysicalVolume kb="CUD" kxe="false" schemaVersion="V1_0">
+                <Metadata>
+                    <Atom/>
+                </Metadata>
+                <PhysicalVolume schemaVersion="V1_0">
+                    <Metadata>
+                        <Atom/>
+                    </Metadata>
+                    <name kb="CUD" kxe="false">%s</name>
+                </PhysicalVolume>
+            </associatedPhysicalVolume>
+            <connectingPartitionName kxe="false" kb="CUD">%s</connectingPartitionName>
+        </VirtualSCSIClientAdapter>`, volumeName, volConfig.ViosName)
+}
+
+// AddVSCSI adds the VSCSI client adapters to the partition template XML
+func AddVSCSI(templateXML *etree.Element, vscsiClients string) error {
+	vscsiClientPayload := fmt.Sprintf(`
+        <virtualSCSIClientAdapters kxe="false" kb="CUD" schemaVersion="V1_0">
+            <Metadata>
+                <Atom/>
+            </Metadata>
+            %s
+        </virtualSCSIClientAdapters>`, vscsiClients)
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(vscsiClientPayload); err != nil {
+		return fmt.Errorf("failed to parse VSCSI client payload: %v", err)
+	}
+	vscsiElement := doc.Root()
+	if vscsiElement == nil {
+		return fmt.Errorf("failed to parse VSCSI client payload: no root element")
+	}
+
+	suspendEnableTag := templateXML.FindElement("//suspendEnable")
+	if suspendEnableTag == nil {
+		return fmt.Errorf("suspendEnable element not found in XML")
+	}
+	parent := suspendEnableTag.Parent()
+	if parent == nil {
+		return fmt.Errorf("suspendEnable element has no parent")
+	}
+
+	for i, child := range parent.Child {
+		if child == suspendEnableTag {
+			parent.InsertChildAt(i, vscsiElement)
+			break
+		}
+	}
+	return nil
+}
+
+// FetchJobResponse retrieves the full job response XML as an etree.Document
+func (c *HmcRestClient) FetchJobResponse(jobID string, verbose bool) (*etree.Document, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
+	if verbose {
+		hmcLogger.Printf("Fetching job response for JobID: %s, URL: %s", jobID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("request creation failed: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.web+xml; type=JobResponse")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("Job response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response failed: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Job response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status: %s", resp.Status)
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(body); err != nil {
+		return nil, fmt.Errorf("failed to parse XML: %v", err)
+	}
+
+	return doc, nil
 }
 
 // Login performs the logon operation to the HMC REST API

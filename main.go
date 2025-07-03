@@ -84,6 +84,7 @@ func main() {
 	}()
 	// Hardcode virt_network_config for now
 	virtNetworkConfigs := []hmc.VirtualNetworkConfig{{NetworkName: "VNET0", SlotNumber: 49, VirtualSlotNumber: 49}}
+
 	// Handle managed system operations if system-name is provided
 	var systemUUID string
 	configDict := make(map[string]string) // Initialize configDict
@@ -198,9 +199,9 @@ func main() {
 		var referenceTemplate string
 		switch *osType {
 		case "aix", "linux", "aix_linux":
-			referenceTemplate = "QuickStart_lpar_rpa_2" // Replace with valid template name
+			referenceTemplate = "QuickStart_lpar_rpa_2"
 		case "ibmi":
-			referenceTemplate = "QuickStart_lpar_IBMi_2" // Replace with valid IBMi template name
+			referenceTemplate = "QuickStart_lpar_IBMi_2"
 		default:
 			log.Fatalf("Invalid os-type: %s. Must be aix, linux, aix_linux, or ibmi", *osType)
 		}
@@ -255,18 +256,6 @@ func main() {
 			log.Fatalf("Failed to update processor and memory settings: %v", err)
 		}
 
-		// Print the updated XML for verification
-		if *verbose {
-			doc := etree.NewDocument()
-			doc.SetRoot(tempTemplateDoc)
-			xmlString, err := doc.WriteToString()
-			if err != nil {
-				log.Printf("Failed to serialize updated XML: %v", err)
-			} else {
-				log.Printf("Updated XML:\n%s", xmlString)
-			}
-		}
-
 		// Update virtual network settings in the XML
 		if *verbose {
 			log.Printf("Updating virtual network settings in temporary template XML")
@@ -275,6 +264,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to update virtual network settings: %v", err)
 		}
+
 		// Print the updated XML for verification
 		if *verbose {
 			doc := etree.NewDocument()
@@ -283,17 +273,58 @@ func main() {
 			if err != nil {
 				log.Printf("Failed to serialize updated XML: %v", err)
 			} else {
-				log.Printf("Updated XML:\n%s", xmlString)
+				log.Printf("Updated XML before VSCSI:\n%s", xmlString)
 			}
 		}
-		// Update the partition template with the modified XML
+
+		// Define volume configs, structured like virtNetworkConfigs
+		volumeConfigs := []hmc.VolumeConfig{
+			{ViosName: "vios", VolumeName: "hdisk1"},
+			// Add more as needed
+		}
+
+		// Add VSCSI configuration and update template
+		if len(volumeConfigs) > 0 {
+			vscsiClientsPayload := ""
+			for _, volConfig := range volumeConfigs {
+				pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, *verbose)
+				if err != nil {
+					log.Fatalf("Failed to identify free volume: %v", err)
+				}
+				payload := hmc.AddVSCSIPayload(volConfig, pv, *verbose)
+				vscsiClientsPayload += payload
+			}
+			if vscsiClientsPayload != "" {
+				if *verbose {
+					log.Printf("Adding VSCSI client adapters to template XML")
+				}
+				err := hmc.AddVSCSI(tempTemplateDoc, vscsiClientsPayload)
+				if err != nil {
+					log.Fatalf("Failed to add VSCSI to template XML: %v", err)
+				}
+				// Update the partition template with VSCSI configuration
+				if *verbose {
+					log.Printf("Updating partition template with UUID: %s after VSCSI configuration", tempUUID)
+				}
+				if err := restClient.UpdatePartitionTemplate(tempUUID, tempTemplateDoc, *verbose); err != nil {
+					log.Fatalf("Failed to update partition template with VSCSI: %v", err)
+				}
+				fmt.Printf("Successfully updated partition template with VSCSI for UUID: %s\n", tempUUID)
+			}
+		}
+
+		// Print the final updated XML for verification
 		if *verbose {
-			log.Printf("Updating partition template with UUID: %s", tempUUID)
+			doc := etree.NewDocument()
+			doc.SetRoot(tempTemplateDoc)
+			xmlString, err := doc.WriteToString()
+			if err != nil {
+				log.Printf("Failed to serialize final updated XML: %v", err)
+			} else {
+				log.Printf("Final updated XML:\n%s", xmlString)
+			}
 		}
-		if err := restClient.UpdatePartitionTemplate(tempUUID, tempTemplateDoc, *verbose); err != nil {
-			log.Fatalf("Failed to update partition template: %v", err)
-		}
-		fmt.Printf("Successfully updated partition template with UUID: %s\n", tempUUID)
+
 		// Fetch MaximumPartitions for the system
 		if *verbose {
 			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
@@ -341,4 +372,43 @@ func main() {
 			log.Printf("Configuration dictionary: %+v", configDict)
 		}
 	}
+
+}
+func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volConfig hmc.VolumeConfig, verbose bool) (*etree.Element, error) {
+	viosName := volConfig.ViosName
+	volumeName := volConfig.VolumeName
+
+	// Get VIOS list
+	viosList, err := restClient.GetVirtualIOServersQuick(systemUUID, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get VIOSes: %v", err)
+	}
+
+	// Find the VIOS with the given name
+	var targetVIOS hmc.VIOS
+	for _, vios := range viosList {
+		if vios.PartitionName == viosName {
+			targetVIOS = vios
+			break
+		}
+	}
+	if targetVIOS.UUID == "" {
+		return nil, fmt.Errorf("VIOS %s not found", viosName)
+	}
+
+	// Get free physical volumes for the VIOS
+	pvList, err := restClient.GetFreePhyVolume(targetVIOS.UUID, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get free physical volumes for VIOS %s: %v", viosName, err)
+	}
+
+	// Find the volume with the given name
+	for _, pv := range pvList {
+		volumeNameElem := pv.FindElement("VolumeName")
+		if volumeNameElem != nil && volumeNameElem.Text() == volumeName {
+			return pv, nil
+		}
+	}
+
+	return nil, fmt.Errorf("volume %s not found on VIOS %s", volumeName, viosName)
 }
