@@ -337,22 +337,25 @@ func main() {
 		if *verbose {
 			log.Printf("Creating partition for system %s using updated template %s", systemUUID, tempTemplateName)
 		}
-		jobID, err := restClient.DeployPartitionTemplate(tempUUID, systemUUID, *verbose)
+		partUUID, err := restClient.DeployPartitionTemplate(tempUUID, systemUUID, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to create partition: %v", err)
 		}
-		fmt.Printf("Partition creation job ID: %s\n", jobID)
+		fmt.Printf("Partition creation job ID: %s\n", partUUID)
 
-		// Check job status
+		/* // Check job status
 		if *verbose {
 			log.Printf("Checking status for job ID: %s", jobID)
 		}
 		for i := 0; i < 10; i++ { // Retry up to 10 times
 			time.Sleep(5 * time.Second)
-			status, err := restClient.FetchJobStatus(jobID, true, *verbose)
+			doc, err := restClient.FetchJobStatus(jobID, true, 2, *verbose)
 			if err != nil {
 				log.Fatalf("Failed to check job status: %v", err)
 			}
+			// Extract job status
+			statusElem := doc.FindElement("//Status")
+			status := statusElem.Text()
 			if *verbose {
 				log.Printf("Job status: %s", status)
 			}
@@ -363,7 +366,7 @@ func main() {
 			if status == "FAILED" || status == "COMPLETED_WITH_ERRORS" {
 				log.Fatalf("Partition creation failed with status: %s", status)
 			}
-		}
+		} */
 
 		// Log configDict if verbose
 		if *verbose && len(configDict) > 0 {

@@ -278,15 +278,50 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	}
 
 	// Fetch and return the job status
-	status, err := c.FetchJobStatus(jobID, true, verbose)
+	depDoc, err := c.FetchJobStatus(jobID, true, 2, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
+
+	statusElem := depDoc.FindElement("//Status")
+	statusE := statusElem.Text()
 	if verbose {
-		hmcLogger.Printf("Deploy job status: %s", status)
+		hmcLogger.Printf("Deploy job status: %s", statusE)
+	}
+	if verbose {
+		log.Printf("Job status: %s", statusE)
+	}
+	//var partUUID string
+	if statusE == "COMPLETED_OK" {
+		stripNamespace(depDoc.Root())
+		jobParams := depDoc.FindElements("//JobParameter")
+		for _, param := range jobParams {
+			// Look for ParameterName = PartitionUuid
+			nameElem := param.FindElement("ParameterName")
+			if nameElem != nil && strings.TrimSpace(nameElem.Text()) == "PartitionUuid" {
+				partUUID := param.FindElement("ParameterValue")
+				if partUUID != nil {
+					fmt.Println("PartitionUuid:", partUUID.Text())
+					fmt.Printf("Partition creation completed successfully UUID %s\n", partUUID.Text())
+					return partUUID.Text(), nil
+				}
+			}
+		}
+
+	}
+	if statusE == "FAILED" || statusE == "COMPLETED_WITH_ERROR" {
+		log.Fatalf("Partition creation failed with status: %s", statusE)
 	}
 
-	return status, nil
+	return statusE, err
+}
+
+// Recursively strip namespace from XML elements
+func stripNamespace(elem *etree.Element) {
+	elem.Space = ""
+	for _, child := range elem.ChildElements() {
+		stripNamespace(child)
+	}
 }
 
 // / GetFreePhyVolume retrieves free physical volumes for a given VIOS UUID
@@ -404,7 +439,7 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]*etre
 	}
 
 	// Fetch the job response
-	pvDoc, err := c.FetchJobResponse(jobID, verbose)
+	pvDoc, err := c.FetchJobStatus(jobID, false, 2, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job response: %v", err)
 	}
@@ -1473,58 +1508,126 @@ func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string,
 	return jobIDs[0].Text(), nil
 }
 
-// FetchJobStatus retrieves the status of a job by its ID
-func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, verbose bool) (string, error) {
-	url := fmt.Sprintf("https://%s/rest/api/templates/jobs/%s", c.hmcIP, jobID)
-	if verbose {
-		hmcLogger.Printf("Fetching job status for JobID: %s, URL: %s", jobID, url)
+// FetchJobStatus fetches the job status and response, waiting for completion or error
+func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin int, verbose bool) (*etree.Document, error) {
+	// Construct URL based on template flag
+	var url string
+	if template {
+		url = fmt.Sprintf("https://%s/rest/api/templates/jobs/%s", c.hmcIP, jobID)
+	} else {
+		url = fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("request creation failed: %v", err)
-	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobResponse")
-	req.Header.Set("Accept", "*/*")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if verbose {
-		hmcLogger.Printf("Job status response status: %s", resp.Status)
+	// Set up headers
+	headers := map[string]string{
+		"X-API-Session": c.session,
+		"Accept":        "application/atom+xml",
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("reading response failed: %v", err)
+	// Set up timeout mechanism
+	maxChecks := timeoutInMin * 2 // Check every 30 seconds
+	checkInterval := 30 * time.Second
+	var jobStatus string // To use in timeout error message
+	var doc *etree.Document
+	for i := range maxChecks {
+		// Sleep between checks, except on the first iteration
+		if i > 0 {
+			time.Sleep(checkInterval)
+		}
+
+		// Create and configure HTTP request
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %v", err)
+		}
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+
+		// Execute request
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("HTTP request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Read response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		// Parse XML and strip namespaces
+		doc, err := xmlStripNamespace(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+		}
+
+		// Extract job status
+		statusElem := doc.FindElement("//Status")
+		if statusElem == nil {
+			return nil, fmt.Errorf("Status element not found in response")
+		}
+		jobStatus = statusElem.Text()
+
+		// Log status if verbose
+		if verbose {
+			hmcLogger.Printf("Job status: %s", jobStatus)
+		}
+
+		// Handle different job statuses
+
+		switch jobStatus {
+		case "COMPLETED_OK":
+			if verbose {
+				hmcLogger.Printf("Job completed successfully, response body:\n%s", string(body))
+			}
+			return doc, nil
+
+		case "COMPLETED_WITH_ERROR":
+			if verbose {
+				hmcLogger.Printf("Job completed with error")
+			}
+			resultElem := doc.FindElement("//Results/JobParameter/ParameterValue")
+			if resultElem != nil {
+				errMsg := strings.TrimSpace(resultElem.Text())
+				if verbose {
+					hmcLogger.Printf("Error message: %s", errMsg)
+				}
+				return nil, fmt.Errorf("job completed with error: %s", errMsg)
+			}
+			return nil, fmt.Errorf("job completed with error, but no result message found")
+
+		default:
+			if jobStatus != "RUNNING" {
+				if verbose {
+					hmcLogger.Printf("Job failed with status: %s", jobStatus)
+				}
+				errMsgElem := doc.FindElement("//ResponseException//Message")
+				if errMsgElem == nil {
+					errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
+				}
+				if errMsgElem != nil {
+					errMsg := errMsgElem.Text()
+					return nil, fmt.Errorf("job failed: %s", errMsg)
+				}
+				return nil, fmt.Errorf("job failed with status %s", jobStatus)
+			}
+			// If status is "RUNNING", continue looping
+		}
+
 	}
 
-	if verbose {
-		hmcLogger.Printf("Job status response body:\n%s", string(body))
+	// Timeout reached
+	operationNameElem := doc.FindElement("//OperationName")
+	if operationNameElem != nil {
+		operationName := operationNameElem.Text()
+		if verbose {
+			hmcLogger.Printf("%s job stuck in %s state. Timed out!!", operationName, jobStatus)
+		}
+		return nil, fmt.Errorf("job %s timed out in state %s", operationName, jobStatus)
 	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("request failed with status: %s", resp.Status)
-	}
-
-	var jobResp JobResponse
-	if err := xml.Unmarshal(body, &jobResp); err != nil {
-		return "", fmt.Errorf("XML unmarshal failed: %v", err)
-	}
-
-	if jobResp.Status == "" {
-		return "", fmt.Errorf("no status found for job ID %s", jobID)
-	}
-
-	return jobResp.Status, nil
+	return nil, fmt.Errorf("job timed out")
 }
 
 // GetMaximumPartitions retrieves the MaximumPartitions for a system by UUID
