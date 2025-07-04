@@ -114,6 +114,12 @@ type PhysicalVolume struct {
 	VolumeName string `xml:"VolumeName"`
 }
 
+// LogicalPartitionQuick represents the structure of a partition in the quick list
+type LogicalPartitionQuick struct {
+	PartitionName string `json:"PartitionName"`
+	UUID          string `json:"UUID"`
+}
+
 // xmlStripNamespace removes XML namespaces from the document to simplify XPath queries
 func xmlStripNamespace(xmlData []byte) (*etree.Document, error) {
 	doc := etree.NewDocument()
@@ -1726,4 +1732,151 @@ func (c *HmcRestClient) QuickGetPartition(lparUUID string, verbose bool) (map[st
 	}
 
 	return partitionProps, nil
+}
+
+// GetLogicalPartitionsQuick retrieves the quick list of logical partitions for a system
+func (c *HmcRestClient) GetLogicalPartitionsQuick(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching quick logical partitions for system UUID %s, URL: %s", systemUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/json")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitionsQuick response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitionsQuick response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNoContent {
+			return nil, nil // No partitions found
+		}
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	var lparList []LogicalPartitionQuick
+	if err := json.Unmarshal(body, &lparList); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	return lparList, nil
+}
+
+// GetLogicalPartition retrieves the details of a logical partition by name or UUID
+func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partitionUUID string, verbose bool) (string, *etree.Element, error) {
+	var lparUUID string
+
+	// If partitionUUID is not provided, find it using partitionName
+	if partitionUUID == "" && partitionName != "" {
+		lparList, err := c.GetLogicalPartitionsQuick(systemUUID, verbose)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to fetch logical partitions: %v", err)
+		}
+		if lparList == nil {
+			if verbose {
+				hmcLogger.Printf("No logical partitions found for system UUID %s", systemUUID)
+			}
+			return "", nil, nil
+		}
+
+		for _, lpar := range lparList {
+			if lpar.PartitionName == partitionName {
+				lparUUID = lpar.UUID
+				if verbose {
+					hmcLogger.Printf("Found partition %s with UUID %s", partitionName, lparUUID)
+				}
+				break
+			}
+		}
+
+		if lparUUID == "" {
+			if verbose {
+				hmcLogger.Printf("Partition %s not found on system UUID %s", partitionName, systemUUID)
+			}
+			return "", nil, nil
+		}
+	} else if partitionUUID != "" {
+		lparUUID = partitionUUID
+	} else {
+		return "", nil, fmt.Errorf("either partitionName or partitionUUID must be provided")
+	}
+
+	// Fetch partition details
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching logical partition details for UUID %s, URL: %s", lparUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartition response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartition response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if verbose {
+			hmcLogger.Printf("Get of Logical Partition failed. Response code: %d", resp.StatusCode)
+		}
+		return "", nil, nil
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	partitionElem := doc.FindElement("//LogicalPartition")
+	if partitionElem == nil {
+		return "", nil, fmt.Errorf("LogicalPartition element not found in response")
+	}
+
+	return lparUUID, partitionElem, nil
 }

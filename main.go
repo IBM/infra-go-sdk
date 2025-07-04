@@ -205,6 +205,19 @@ func main() {
 
 	// Perform template copy and partition creation if os-type is set
 	if *osType != "" {
+		if *verbose {
+			log.Printf("Checking for existing LPAR with name %s on system UUID %s", configDict["vm_name"], systemUUID)
+		}
+		existingUUID, _, err := restClient.GetLogicalPartition(systemUUID, configDict["vm_name"], "", *verbose)
+		if err != nil {
+			log.Fatalf("Failed to check for existing LPAR: %v", err)
+		}
+		if existingUUID != "" {
+			log.Fatalf("LPAR with name %s already exists with UUID %s", configDict["vm_name"], existingUUID)
+		}
+		if *verbose {
+			log.Printf("No existing LPAR found with name %s", configDict["vm_name"])
+		}
 		var referenceTemplate string
 		switch *osType {
 		case "aix", "linux", "aix_linux":
