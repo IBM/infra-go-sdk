@@ -343,30 +343,19 @@ func main() {
 		}
 		fmt.Printf("Partition creation job ID: %s\n", partUUID)
 
-		/* // Check job status
-		if *verbose {
-			log.Printf("Checking status for job ID: %s", jobID)
+		// Retrieve partition properties
+		partitionProps, err := restClient.QuickGetPartition(partUUID, *verbose)
+		if err != nil {
+			log.Fatalf("Failed to retrieve partition properties: %v", err)
 		}
-		for i := 0; i < 10; i++ { // Retry up to 10 times
-			time.Sleep(5 * time.Second)
-			doc, err := restClient.FetchJobStatus(jobID, true, 2, *verbose)
-			if err != nil {
-				log.Fatalf("Failed to check job status: %v", err)
-			}
-			// Extract job status
-			statusElem := doc.FindElement("//Status")
-			status := statusElem.Text()
-			if *verbose {
-				log.Printf("Job status: %s", status)
-			}
-			if status == "COMPLETED" {
-				fmt.Printf("Partition creation completed successfully\n")
-				break
-			}
-			if status == "FAILED" || status == "COMPLETED_WITH_ERRORS" {
-				log.Fatalf("Partition creation failed with status: %s", status)
-			}
-		} */
+
+		// Add AssociatedManagedSystem
+		partitionProps["AssociatedManagedSystem"] = *systemName
+
+		// Print partition properties
+		if *verbose {
+			log.Printf("Partition properties: %+v", partitionProps)
+		}
 
 		// Log configDict if verbose
 		if *verbose && len(configDict) > 0 {

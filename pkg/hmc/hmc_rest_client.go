@@ -1670,3 +1670,60 @@ func (c *HmcRestClient) GetMaximumPartitions(systemUUID string, verbose bool) (s
 
 	return system.MaxPartitions, nil
 }
+
+// QuickGetPartition retrieves quick properties of a partition as a map
+func (c *HmcRestClient) QuickGetPartition(lparUUID string, verbose bool) (map[string]interface{}, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick", c.hmcIP, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching quick partition properties for UUID %s, URL: %s", lparUUID, url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/json")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("QuickGetPartition response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("QuickGetPartition response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	// Parse JSON response
+	var partitionProps map[string]interface{}
+	if err := json.Unmarshal(body, &partitionProps); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	return partitionProps, nil
+}
