@@ -100,6 +100,15 @@ func main() {
 		if *verbose {
 			fmt.Printf("Managed System UUID: %s\n", systemUUID)
 		}
+		// Fetch MaximumPartitions for the system
+		if *verbose {
+			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
+		}
+		maxLpars := systemElem.FindElement("//MaximumPartitions")
+		if maxLpars == nil {
+			log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", systemUUID, err)
+		}
+		fmt.Printf("Maximum Partitions for system %s: %s\n", systemUUID, maxLpars.Text())
 
 		// Hardcoded values as per your request
 		vmName := "test-test"
@@ -324,22 +333,11 @@ func main() {
 				log.Printf("Final updated XML:\n%s", xmlString)
 			}
 		}
-
-		// Fetch MaximumPartitions for the system
-		if *verbose {
-			log.Printf("Fetching MaximumPartitions for system UUID: %s", systemUUID)
-		}
-		maxLpars, err := restClient.GetMaximumPartitions(systemUUID, *verbose)
-		if err != nil {
-			log.Fatalf("Failed to fetch MaximumPartitions for system %s: %v", systemUUID, err)
-		}
-		fmt.Printf("Maximum Partitions for system %s: %s\n", systemUUID, maxLpars)
-
 		// Create a partition using the updated template
 		if *verbose {
 			log.Printf("Creating partition for system %s using updated template %s", systemUUID, tempTemplateName)
 		}
-		jobID, err := restClient.CreatePartition(systemUUID, tempUUID, *osType, *verbose)
+		jobID, err := restClient.DeployPartitionTemplate(tempUUID, systemUUID, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to create partition: %v", err)
 		}

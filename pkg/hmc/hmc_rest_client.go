@@ -172,6 +172,123 @@ func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, verbose bool
 	return viosList, nil
 }
 
+// DeployPartitionTemplate deploys a partition template to a managed system
+func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/deploy", c.hmcIP, draftUUID)
+	if verbose {
+		hmcLogger.Printf("Deploying partition template with UUID %s to system UUID %s, URL: %s", draftUUID, cecUUID, url)
+	}
+
+	// Operation details for the job request
+	reqdOperation := map[string]string{
+		"OperationName": "Deploy",
+		"GroupName":     "PartitionTemplate",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// Job parameters
+	jobParams := map[string]string{
+		"K_X_API_SESSION_MEMENTO": c.session,
+		"TargetUuid":              cecUUID,
+	}
+
+	// Create the XML payload for the job request
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to create job request payload: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("Deploy job request payload:\n%s", payload)
+	}
+
+	// Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+	// Enable basic auth to match Python's force_basic_auth=True
+	req.SetBasicAuth("", "") // Credentials handled by session token
+	if verbose {
+		hmcLogger.Printf("Deploy request headers: %+v", req.Header)
+	}
+	hmcLogger.Printf("DEPLOYTEMPLATE BODY: %s", req.Body)
+	hmcLogger.Printf("DEPLOYTEMPLATE PAYLOAD: %s", payload)
+	// Set a timeout of 300 seconds
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log the response status and body
+	if verbose {
+		hmcLogger.Printf("DeployPartitionTemplate response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("DeployPartitionTemplate response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		// Parse the response to check for specific error messages
+		doc, err := xmlStripNamespace(body)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse error response: %v, status: %s, body: %s", err, resp.Status, string(body))
+		}
+		errorMsgs := doc.FindElements("//Message")
+		if len(errorMsgs) > 0 {
+			return "", fmt.Errorf("HMC error: %s, status: %s, body: %s", errorMsgs[0].Text(), resp.Status, string(body))
+		}
+		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	// Strip namespaces from the response XML
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+	}
+
+	// Check for error messages in the response
+	errorMsgs := doc.FindElements("//Message")
+	if len(errorMsgs) > 0 {
+		return "", fmt.Errorf("error in response: %s", errorMsgs[0].Text())
+	}
+
+	// Extract the JobID
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return "", fmt.Errorf("JobID not found in response: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	}
+
+	// Fetch and return the job status
+	status, err := c.FetchJobStatus(jobID, true, verbose)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch job status: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("Deploy job status: %s", status)
+	}
+
+	return status, nil
+}
+
 // / GetFreePhyVolume retrieves free physical volumes for a given VIOS UUID
 func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]*etree.Element, error) {
 	if verbose {
@@ -189,7 +306,7 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]*etre
 		"ProgressType":  "DISCRETE",
 	}
 	// Create the XML payload for the job request
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_3_0", verbose)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_3_0", verbose, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
@@ -334,9 +451,9 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]*etre
 }
 
 // createJobRequestPayload generates the XML payload for a job request
-func createJobRequestPayload(operation map[string]string, params map[string]string, schemaVersion string, verbose bool) (string, error) {
+func createJobRequestPayload(operation map[string]string, params map[string]string, schemaVersion string, verbose bool, includeJobParamSchema bool) (string, error) {
 	if verbose {
-		hmcLogger.Printf("Payload creation: operation=%v, params=%v, schema=%s", operation, params, schemaVersion)
+		hmcLogger.Printf("Payload creation: operation=%v, params=%v, schema=%s, includeJobParamSchema=%v", operation, params, schemaVersion, includeJobParamSchema)
 	}
 
 	// Create the root element with namespace prefix
@@ -371,6 +488,8 @@ func createJobRequestPayload(operation map[string]string, params map[string]stri
 	groupName.SetText(operation["GroupName"])
 
 	progressType := requestedOp.CreateElement("ProgressType")
+	progressType.CreateAttr("kb", "ROR")
+	progressType.CreateAttr("kxe", "false")
 	progressType.SetText(operation["ProgressType"])
 
 	// Add JobParameters
@@ -384,6 +503,9 @@ func createJobRequestPayload(operation map[string]string, params map[string]stri
 	// Add job parameters if any
 	for key, value := range params {
 		param := jobParams.CreateElement("JobParameter")
+		if includeJobParamSchema {
+			param.CreateAttr("schemaVersion", "V1_0")
+		}
 		paramMetadata := param.CreateElement("Metadata")
 		paramMetadata.CreateElement("Atom")
 		paramName := param.CreateElement("ParameterName")
@@ -1353,7 +1475,7 @@ func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string,
 
 // FetchJobStatus retrieves the status of a job by its ID
 func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, verbose bool) (string, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/do/GetJobStatus?JobID=%s", c.hmcIP, jobID)
+	url := fmt.Sprintf("https://%s/rest/api/templates/jobs/%s", c.hmcIP, jobID)
 	if verbose {
 		hmcLogger.Printf("Fetching job status for JobID: %s, URL: %s", jobID, url)
 	}
@@ -1363,7 +1485,8 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, verbose bool
 		return "", fmt.Errorf("request creation failed: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/vnd.ibm.powervm.web+xml; type=JobResponse")
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobResponse")
+	req.Header.Set("Accept", "*/*")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
