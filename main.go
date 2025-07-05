@@ -365,16 +365,30 @@ func main() {
 		// Add AssociatedManagedSystem
 		partitionProps["AssociatedManagedSystem"] = *systemName
 
+		clientMacAddress, err := getMacAdddress(restClient, systemUUID, partUUID, *verbose)
+		if err != nil {
+			log.Fatalf("Failed to retrieve client network adapter: %v", err)
+		}
+
+		partitionProps["MacAddress"] = clientMacAddress
 		// Print partition properties
 		if *verbose {
 			log.Printf("Partition properties: %+v", partitionProps)
 		}
-
 		// Log configDict if verbose
 		if *verbose && len(configDict) > 0 {
 			log.Printf("Configuration dictionary: %+v", configDict)
 		}
 	}
+
+}
+func getMacAdddress(restClient *hmc.HmcRestClient, systemUUID string, partUUID string, verbose bool) (string, error) {
+	clientNetAdapter, err := restClient.GetClientNetworkAdapter(systemUUID, partUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to retrieve client network adapter: %v", err)
+	}
+	clineMacAddress := clientNetAdapter.FindElement("//MACAddress")
+	return clineMacAddress.Text(), nil
 
 }
 func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volConfig hmc.VolumeConfig, verbose bool) (*etree.Element, error) {

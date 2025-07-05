@@ -1880,3 +1880,66 @@ func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partition
 
 	return lparUUID, partitionElem, nil
 }
+
+// GetClientNetworkAdapter retrieves the ClientNetworkAdapter details for a partition
+func (c *HmcRestClient) GetClientNetworkAdapter(systemUUID, lparUUID string, verbose bool) (*etree.Element, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching ClientNetworkAdapter for system UUID %s, partition UUID %s, URL: %s", systemUUID, lparUUID, url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml;type=ClientNetworkAdapter")
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetClientNetworkAdapter response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetClientNetworkAdapter response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	// Parse XML response
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	clientNetworkAdapter := doc.FindElement("//ClientNetworkAdapter")
+	if clientNetworkAdapter == nil {
+		return nil, fmt.Errorf("ClientNetworkAdapter element not found in response")
+	}
+
+	return clientNetworkAdapter, nil
+}
