@@ -371,6 +371,11 @@ func main() {
 		}
 
 		partitionProps["MacAddress"] = clientMacAddress
+
+		profileUUID, err := restClient.GetPartitionProfile(partUUID, *verbose)
+		partitionProps["ProfileUUID"] = profileUUID
+
+		_, err = PartitionPowerOn(restClient, systemUUID, partUUID, profileUUID, "manual", "", *osType, *verbose)
 		// Print partition properties
 		if *verbose {
 			log.Printf("Partition properties: %+v", partitionProps)
@@ -380,6 +385,15 @@ func main() {
 			log.Printf("Configuration dictionary: %+v", configDict)
 		}
 	}
+
+}
+func PartitionPowerOn(restClient *hmc.HmcRestClient, systemUUID, lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (string, error) {
+	_, err := restClient.PowerOnPartition(systemUUID, lparUUID, profileUUID, "manual", "", osType, verbose)
+	if err != nil {
+		log.Fatalf("Failed to PowerOn Partition: %s, on Managed Systam: %s, with error %v", lparUUID, systemUUID, err)
+	}
+
+	return "", nil
 
 }
 func getMacAdddress(restClient *hmc.HmcRestClient, systemUUID string, partUUID string, verbose bool) (string, error) {

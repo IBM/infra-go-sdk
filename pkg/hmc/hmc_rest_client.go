@@ -1943,3 +1943,193 @@ func (c *HmcRestClient) GetClientNetworkAdapter(systemUUID, lparUUID string, ver
 
 	return clientNetworkAdapter, nil
 }
+
+// PartitionProfileQuick represents the structure of a partition profile in the quick list
+type PartitionProfileQuick struct {
+	ProfileName string `json:"ProfileName"`
+	UUID        string `json:"UUID"`
+}
+
+// GetPartitionProfile retrieves the UUID of a partition profile for a logical partition
+func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/quick/All", c.hmcIP, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching partition profile for partition UUID %s, URL: %s", lparUUID, url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=LogicalPartitionProfile")
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetPartitionProfile response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != err {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetPartitionProfile response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	// Parse JSON response
+	var profiles []PartitionProfileQuick
+	if err := json.Unmarshal(body, &profiles); err != nil {
+		return "", fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	// Check if any profiles were found
+	if len(profiles) == 0 {
+		return "", fmt.Errorf("no partition profiles found for partition UUID %s", lparUUID)
+	}
+
+	// Return the UUID of the first profile
+	profileUUID := profiles[0].UUID
+	if profileUUID == "" {
+		return "", fmt.Errorf("profile UUID not found in response for partition UUID %s", lparUUID)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Found partition profile %s with UUID %s", profiles[0].ProfileName, profileUUID)
+	}
+
+	return profileUUID, nil
+}
+
+// PowerOnPartition powers on a logical partition and returns the job response
+func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (*etree.Document, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/do/PowerOn", c.hmcIP, systemUUID, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Powering on partition UUID %s on system UUID %s, URL: %s", lparUUID, systemUUID, url)
+	}
+
+	// Define operation details
+	reqdOperation := map[string]string{
+		"OperationName": "PowerOn",
+		"GroupName":     "LogicalPartition",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// Build job parameters
+	jobParams := map[string]string{
+		"force":    "false",
+		"novsi":    "true",
+		"bootmode": "norm",
+	}
+
+	if profileUUID != "" {
+		jobParams["LogicalPartitionProfile"] = profileUUID
+	}
+
+	if keylock != "" {
+		if keylock == "normal" {
+			keylock = "norm"
+		}
+		jobParams["keylock"] = keylock
+	}
+
+	if osType == "OS400" && iIPLsource != "" {
+		jobParams["iIPLsource"] = iIPLsource
+	}
+
+	// Create XML payload using createJobRequestPayload
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("PowerOn job request payload:\n%s", payload)
+	}
+
+	// Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("PowerOnPartition response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("PowerOnPartition response body:\n%s", string(respBody))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse XML response (assuming XML response despite Accept: application/json)
+	doc, err := xmlStripNamespace(respBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// Extract job ID
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response")
+	}
+	jobID := jobIDElem.Text()
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	}
+
+	// Monitor job status
+	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch job status: %v", err)
+	}
+
+	return jobDoc, nil
+}
