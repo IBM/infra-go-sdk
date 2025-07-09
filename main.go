@@ -301,7 +301,7 @@ func main() {
 
 		// Define volume configs, structured like virtNetworkConfigs
 		volumeConfigs := []hmc.VolumeConfig{
-			{ViosName: "vios", VolumeName: "hdisk3"},
+			{ViosName: "vios", VolumeName: "hdisk4"},
 			// Add more as needed
 		}
 
@@ -369,13 +369,21 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to retrieve client network adapter: %v", err)
 		}
-
+		log.Printf("Mac Address: %s", clientMacAddress)
 		partitionProps["MacAddress"] = clientMacAddress
 
 		profileUUID, err := restClient.GetPartitionProfile(partUUID, *verbose)
 		partitionProps["ProfileUUID"] = profileUUID
 
+		// Powering on the partition created
 		_, err = PartitionPowerOn(restClient, systemUUID, partUUID, profileUUID, "manual", "", *osType, *verbose)
+
+		//Deleting the temporary partition template profile created
+		DeleteTempPartitionTemplate(restClient, tempTemplateName, *verbose)
+
+		//time.Sleep(10000)
+		//Restarting partition
+		//_, _ = PowerOff(restClient, systemUUID, partUUID, "Immediate", true, *verbose)
 		// Print partition properties
 		if *verbose {
 			log.Printf("Partition properties: %+v", partitionProps)
@@ -392,9 +400,24 @@ func PartitionPowerOn(restClient *hmc.HmcRestClient, systemUUID, lparUUID, profi
 	if err != nil {
 		log.Fatalf("Failed to PowerOn Partition: %s, on Managed Systam: %s, with error %v", lparUUID, systemUUID, err)
 	}
+	log.Printf("rebooted successfully")
 
 	return "", nil
 
+}
+func PowerOff(restClient *hmc.HmcRestClient, systemUUID, lparUUID, shutdownOption string, restart bool, verbose bool) (*etree.Document, error) {
+
+	doc, err := restClient.PowerOffPartition(systemUUID, lparUUID, shutdownOption, restart, verbose)
+	if err != nil {
+		log.Fatalf("Failed to Restart Partition: %s, on Managed Systam: %s, with error %v", lparUUID, systemUUID, err)
+	}
+	return doc, err
+}
+func DeleteTempPartitionTemplate(restClient *hmc.HmcRestClient, templateName string, verbose bool) {
+	err := restClient.DeletePartitionTemplate(templateName, verbose)
+	if err != nil {
+		log.Fatalf("Failed to Delete Partition Template: %s, with error %v", templateName, err)
+	}
 }
 func getMacAdddress(restClient *hmc.HmcRestClient, systemUUID string, partUUID string, verbose bool) (string, error) {
 	clientNetAdapter, err := restClient.GetClientNetworkAdapter(systemUUID, partUUID, verbose)

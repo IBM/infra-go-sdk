@@ -220,8 +220,6 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	if verbose {
 		hmcLogger.Printf("Deploy request headers: %+v", req.Header)
 	}
-	hmcLogger.Printf("DEPLOYTEMPLATE BODY: %s", req.Body)
-	hmcLogger.Printf("DEPLOYTEMPLATE PAYLOAD: %s", payload)
 	// Set a timeout of 300 seconds
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
@@ -284,7 +282,7 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	}
 
 	// Fetch and return the job status
-	depDoc, err := c.FetchJobStatus(jobID, true, 2, verbose)
+	depDoc, err := c.FetchJobStatus(jobID, true, 10, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -445,7 +443,7 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]*etre
 	}
 
 	// Fetch the job response
-	pvDoc, err := c.FetchJobStatus(jobID, false, 2, verbose)
+	pvDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job response: %v", err)
 	}
@@ -1531,16 +1529,14 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 	}
 
 	// Set up timeout mechanism
-	maxChecks := timeoutInMin * 2 // Check every 30 seconds
-	checkInterval := 30 * time.Second
+	maxChecks := timeoutInMin * 60 // Check every 1 second
+	checkInterval := 1 * time.Second
 	var jobStatus string // To use in timeout error message
 	var doc *etree.Document
-	for i := range maxChecks {
-		// Sleep between checks, except on the first iteration
+	for i := 0; i < maxChecks; i++ {
 		if i > 0 {
 			time.Sleep(checkInterval)
 		}
-
 		// Create and configure HTTP request
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
@@ -2110,6 +2106,199 @@ func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keyl
 	}
 
 	// Parse XML response (assuming XML response despite Accept: application/json)
+	doc, err := xmlStripNamespace(respBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// Extract job ID
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response")
+	}
+	jobID := jobIDElem.Text()
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	}
+
+	// Monitor job status
+	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch job status: %v", err)
+	}
+
+	return jobDoc, nil
+}
+
+// DeletePartitionTemplate deletes a partition template by name
+func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose bool) error {
+	if verbose {
+		hmcLogger.Printf("Deleting partition template: %s", templateName)
+	}
+
+	// Fetch the partition template to get the UUID
+	templateDoc, err := c.GetPartitionTemplate("", templateName, verbose)
+	if err != nil || templateDoc == nil {
+		return fmt.Errorf("failed to fetch partition template %s: %v", templateName, err)
+	}
+
+	atomIDs := templateDoc.FindElements("//AtomID")
+	if len(atomIDs) == 0 {
+		return fmt.Errorf("AtomID not found for partition template %s", templateName)
+	}
+	templateUUID := atomIDs[0].Text()
+	if verbose {
+		hmcLogger.Printf("Found template UUID %s for template %s", templateUUID, templateName)
+	}
+
+	// Construct the DELETE URL
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s", c.hmcIP, templateUUID)
+	if verbose {
+		hmcLogger.Printf("DELETE request URL: %s", url)
+	}
+
+	// Create and configure the DELETE request
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.web+xml")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("DeletePartitionTemplate response status: %s", resp.Status)
+	}
+
+	// Read the response body for error details
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully deleted partition template %s", templateName)
+	}
+
+	return nil
+}
+
+// PowerOffPartition powers off a logical partition and returns the job response
+func (c *HmcRestClient) PowerOffPartition(systemUUID, lparUUID, shutdownOption string, restart bool, verbose bool) (*etree.Document, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/do/PowerOff", c.hmcIP, systemUUID, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Powering off partition UUID %s on system UUID %s, URL: %s", lparUUID, systemUUID, url)
+	}
+
+	// Define operation details
+	reqdOperation := map[string]string{
+		"OperationName": "PowerOff",
+		"GroupName":     "LogicalPartition",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// Determine immediate and operation based on shutdownOption
+	var immediate, operation string
+	switch shutdownOption {
+	case "Delayed":
+		immediate = "false"
+		operation = "shutdown"
+	case "Immediate":
+		immediate = "true"
+		operation = "shutdown"
+	case "OperatingSystem":
+		immediate = "false"
+		operation = "osshutdown"
+	case "OSImmediate":
+		immediate = "true"
+		operation = "osshutdown"
+	case "Dump":
+		immediate = "false"
+		operation = "dumprestart"
+		restart = false // Override restart as per Python logic
+	case "DumpRetry":
+		immediate = "false"
+		operation = "retrydump"
+		restart = false // Override restart as per Python logic
+	default:
+		return nil, fmt.Errorf("invalid shutdownOption: %s, must be one of Delayed, Immediate, OperatingSystem, OSImmediate, Dump, DumpRetry", shutdownOption)
+	}
+
+	// Build job parameters
+	jobParams := map[string]string{
+		"immediate": immediate,
+		"operation": operation,
+		"restart":   fmt.Sprintf("%t", restart),
+	}
+
+	// Create XML payload using createJobRequestPayload
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("PowerOff job request payload:\n%s", payload)
+	}
+
+	// Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("PowerOffPartition response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("PowerOffPartition response body:\n%s", string(respBody))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse XML response
 	doc, err := xmlStripNamespace(respBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
