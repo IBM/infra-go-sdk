@@ -2322,3 +2322,561 @@ func (c *HmcRestClient) PowerOffPartition(systemUUID, lparUUID, shutdownOption s
 
 	return jobDoc, nil
 }
+
+// TransformPartitionTemplate transforms a draft partition template for a managed system
+func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, verbose bool) (*etree.Document, error) {
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/transform", c.hmcIP, draftUUID)
+	if verbose {
+		hmcLogger.Printf("Transforming partition template UUID %s for system UUID %s, URL: %s", draftUUID, cecUUID, url)
+	}
+
+	// Define operation details
+	reqdOperation := map[string]string{
+		"OperationName": "Transform",
+		"GroupName":     "PartitionTemplate",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// Build job parameters
+	jobParams := map[string]string{
+		"K_X_API_SESSION_MEMENTO": c.session,
+		"TargetUuid":              cecUUID,
+	}
+
+	// Create XML payload using createJobRequestPayload
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("Transform job request payload:\n%s", payload)
+	}
+
+	// Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("TransformPartitionTemplate response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("TransformPartitionTemplate response body:\n%s", string(respBody))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		// Parse the response to check for specific error messages
+		doc, err := xmlStripNamespace(respBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse error response: %v, status: %s, body: %s", err, resp.Status, string(respBody))
+		}
+		errorMsgs := doc.FindElements("//Message")
+		if len(errorMsgs) > 0 {
+			return nil, fmt.Errorf("HMC error: %s, status: %s, body: %s", errorMsgs[0].Text(), resp.Status, string(respBody))
+		}
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse XML response
+	doc, err := xmlStripNamespace(respBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// Extract job ID
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response")
+	}
+	jobID := jobIDElem.Text()
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	}
+
+	// Monitor job status
+	jobDoc, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch job status: %v", err)
+	}
+
+	return jobDoc, nil
+}
+
+// CheckPartitionTemplate checks a partition template for a managed system
+func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, verbose bool) (*etree.Document, error) {
+	if verbose {
+		hmcLogger.Printf("Checking partition template %s for system UUID %s", templateName, cecUUID)
+	}
+
+	// Fetch the partition template to get the UUID
+	templateDoc, err := c.GetPartitionTemplate("", templateName, verbose)
+	if err != nil || templateDoc == nil {
+		return nil, fmt.Errorf("failed to fetch partition template %s: %v", templateName, err)
+	}
+
+	atomIDs := templateDoc.FindElements("//AtomID")
+	if len(atomIDs) == 0 {
+		return nil, fmt.Errorf("AtomID not found for partition template %s", templateName)
+	}
+	templateUUID := atomIDs[0].Text()
+	if verbose {
+		hmcLogger.Printf("Found template UUID %s for template %s", templateUUID, templateName)
+	}
+
+	// Construct the check URL
+	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/check", c.hmcIP, templateUUID)
+	if verbose {
+		hmcLogger.Printf("Check request URL: %s", url)
+	}
+
+	// Define operation details
+	reqdOperation := map[string]string{
+		"OperationName": "Check",
+		"GroupName":     "PartitionTemplate",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// Build job parameters
+	jobParams := map[string]string{
+		"K_X_API_SESSION_MEMENTO": c.session,
+		"TargetUuid":              cecUUID,
+	}
+
+	// Create XML payload using createJobRequestPayload
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+	}
+	if verbose {
+		hmcLogger.Printf("Check job request payload:\n%s", payload)
+	}
+
+	// Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("CheckPartitionTemplate response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("CheckPartitionTemplate response body:\n%s", string(respBody))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		// Parse the response to check for specific error messages
+		doc, err := xmlStripNamespace(respBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse error response: %v, status: %s, body: %s", err, resp.Status, string(respBody))
+		}
+		errorMsgs := doc.FindElements("//Message")
+		if len(errorMsgs) > 0 {
+			return nil, fmt.Errorf("HMC error: %s, status: %s, body: %s", errorMsgs[0].Text(), resp.Status, string(respBody))
+		}
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse XML response
+	doc, err := xmlStripNamespace(respBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// Extract job ID
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response")
+	}
+	jobID := jobIDElem.Text()
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	}
+
+	// Monitor job status
+	jobDoc, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch job status: %v", err)
+	}
+
+	return jobDoc, nil
+}
+
+// ManagedSystemQuick represents the structure of a managed system in the quick list
+type ManagedSystemQuick struct {
+	SystemName string `json:"SystemName"`
+	UUID       string `json:"UUID"`
+}
+
+// GetManagedSystems retrieves the list of managed systems as an XML document
+func (c *HmcRestClient) GetManagedSystems(verbose bool) (*etree.Element, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem", c.hmcIP)
+	if verbose {
+		hmcLogger.Printf("Fetching managed systems, URL: %s", url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=ManagedSystem")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetManagedSystems response status: %s", resp.Status)
+	}
+
+	// Handle 204 No Content
+	if resp.StatusCode == http.StatusNoContent {
+		if verbose {
+			hmcLogger.Printf("No managed systems found (204 No Content)")
+		}
+		return nil, nil
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetManagedSystems response body:\n%s", string(body))
+	}
+
+	// Parse XML response
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	managedSystems := doc.FindElement("//ManagedSystem")
+	if managedSystems == nil {
+		return nil, fmt.Errorf("ManagedSystem element not found in response")
+	}
+
+	return managedSystems, nil
+}
+
+// GetManagedSystemsQuick retrieves the quick list of managed systems as a JSON-parsed slice
+func (c *HmcRestClient) GetManagedSystemsQuick(verbose bool) ([]ManagedSystemQuick, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/quick/All", c.hmcIP)
+	if verbose {
+		hmcLogger.Printf("Fetching quick managed systems, URL: %s", url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetManagedSystemsQuick response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetManagedSystemsQuick response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		if verbose {
+			hmcLogger.Printf("Get of Managed Systems failed. Response code: %d", resp.StatusCode)
+		}
+		return nil, nil
+	}
+
+	// Parse JSON response
+	var systems []ManagedSystemQuick
+	if err := json.Unmarshal(body, &systems); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	return systems, nil
+}
+
+// GetManagedSystemQuick retrieves quick details of a specific managed system by UUID
+func (c *HmcRestClient) GetManagedSystemQuick(systemUUID string, verbose bool) (*ManagedSystemQuick, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/quick", c.hmcIP, systemUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching quick managed system details for UUID %s, URL: %s", systemUUID, url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetManagedSystemQuick response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetManagedSystemQuick response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		if verbose {
+			hmcLogger.Printf("Get of Managed System failed. Response code: %d", resp.StatusCode)
+		}
+		return nil, nil
+	}
+
+	// Parse JSON response
+	var system ManagedSystemQuick
+	if err := json.Unmarshal(body, &system); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Found managed system: Name=%s, UUID=%s", system.SystemName, system.UUID)
+	}
+
+	return &system, nil
+}
+
+// GetLogicalPartitions retrieves the list of logical partitions for a managed system as an XML document
+func (c *HmcRestClient) GetLogicalPartitions(systemUUID string, verbose bool) (*etree.Element, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching logical partitions for system UUID %s, URL: %s", systemUUID, url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitions response status: %s", resp.Status)
+	}
+
+	// Check for non-200 status codes
+
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.ReadAll(resp.Body)
+		if verbose {
+			hmcLogger.Printf("Get of Logical Partitions failed. Response code: %d", resp.StatusCode)
+		}
+		return nil, nil
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitions response body:\n%s", string(body))
+	}
+
+	// Parse XML response
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	logicalPartitions := doc.FindElement("//LogicalPartition")
+	if logicalPartitions == nil {
+		return nil, fmt.Errorf("LogicalPartition element not found in response")
+	}
+
+	return logicalPartitions, nil
+}
+
+// GetLogicalPartitionQuick retrieves quick details of a specific logical partition by UUID
+func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose bool) (*LogicalPartitionQuick, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick", c.hmcIP, partitionUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching quick logical partition details for UUID %s, URL: %s", partitionUUID, url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitionQuick response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitionQuick response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		if verbose {
+			hmcLogger.Printf("Get of Logical Partition failed. Response code: %d", resp.StatusCode)
+		}
+		return nil, nil
+	}
+
+	// Parse JSON response
+	var partition LogicalPartitionQuick
+	if err := json.Unmarshal(body, &partition); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Found logical partition: Name=%s, UUID=%s", partition.PartitionName, partition.UUID)
+	}
+
+	return &partition, nil
+}

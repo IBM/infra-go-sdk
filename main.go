@@ -346,6 +346,25 @@ func main() {
 				log.Printf("Final updated XML:\n%s", xmlString)
 			}
 		}
+		// Transforming template
+		if *verbose {
+			log.Printf("Transforming partition template %s", tempTemplateName)
+		}
+		err = TransormTemp(restClient, tempUUID, systemUUID, *verbose)
+		if err != nil {
+			log.Fatalf("Failed to create partition: %v", err)
+		}
+		// Checking partition template
+		if *verbose {
+			log.Printf("Checking partition template %s\n", tempUUID)
+		}
+		fmt.Printf("Template tranformation successful")
+		err = CheckTemp(restClient, tempTemplateName, systemUUID, *verbose)
+		if err != nil {
+			log.Fatalf("Failed to create partition: %v", err)
+		}
+		fmt.Printf("Template tranformation successful")
+
 		// Create a partition using the updated template
 		if *verbose {
 			log.Printf("Creating partition for system %s using updated template %s", systemUUID, tempTemplateName)
@@ -381,19 +400,76 @@ func main() {
 		//Deleting the temporary partition template profile created
 		DeleteTempPartitionTemplate(restClient, tempTemplateName, *verbose)
 
-		//time.Sleep(10000)
+		time.Sleep(10000)
 		//Restarting partition
-		//_, _ = PowerOff(restClient, systemUUID, partUUID, "Immediate", true, *verbose)
+		_, _ = PowerOff(restClient, systemUUID, partUUID, "Immediate", true, *verbose)
 		// Print partition properties
 		if *verbose {
 			log.Printf("Partition properties: %+v", partitionProps)
 		}
+
 		// Log configDict if verbose
 		if *verbose && len(configDict) > 0 {
 			log.Printf("Configuration dictionary: %+v", configDict)
 		}
+		_ = GetMagdSystems(restClient, *verbose)
+		_ = GetMagdSystemsQuick(restClient, *verbose)
+		_ = GetMagdSystemQuick(restClient, systemUUID, *verbose)
+		_ = GetLgclPartitions(restClient, systemUUID, *verbose)
+		_ = GetLgclPartitionQuick(restClient, partUUID, *verbose)
 	}
 
+}
+func GetLgclPartitionQuick(restClient *hmc.HmcRestClient, partUUID string, verbose bool) error {
+	_, err := restClient.GetLogicalPartitionQuick(partUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to get Logical partition Quick, with error %v", err)
+	}
+	return err
+}
+func GetLgclPartitions(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) error {
+	_, err := restClient.GetLogicalPartitions(systemUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to get Logical partitions, with error %v", err)
+	}
+	return err
+}
+func GetMagdSystemQuick(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) error {
+	_, err := restClient.GetManagedSystemQuick(systemUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to get Manged Systems Quick, with error %v", err)
+	}
+
+	return err
+}
+func GetMagdSystemsQuick(restClient *hmc.HmcRestClient, verbose bool) error {
+	_, err := restClient.GetManagedSystemsQuick(verbose)
+	if err != nil {
+		log.Fatalf("Failed to get Manged Systems, with error %v", err)
+	}
+	return err
+}
+func GetMagdSystems(restClient *hmc.HmcRestClient, verbose bool) error {
+	_, err := restClient.GetManagedSystems(verbose)
+	if err != nil {
+		log.Fatalf("Failed to get Manged Systems, with error %v", err)
+	}
+	return err
+}
+func TransormTemp(restClient *hmc.HmcRestClient, tempUUID, systemUUID string, verbose bool) error {
+	_, err := restClient.TransformPartitionTemplate(tempUUID, systemUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to Transform Template: %s, on Managed Systam: %s, with error %v", tempUUID, systemUUID, err)
+
+	}
+	return err
+}
+func CheckTemp(restClient *hmc.HmcRestClient, tempTemplateName, systemUUID string, verbose bool) error {
+	_, err := restClient.CheckPartitionTemplate(tempTemplateName, systemUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to Check Template: %s, on Managed Systam: %s, with error %v", tempTemplateName, systemUUID, err)
+	}
+	return err
 }
 func PartitionPowerOn(restClient *hmc.HmcRestClient, systemUUID, lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (string, error) {
 	_, err := restClient.PowerOnPartition(systemUUID, lparUUID, profileUUID, "manual", "", osType, verbose)
