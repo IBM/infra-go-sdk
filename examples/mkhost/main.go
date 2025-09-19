@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"log"
 
-	"example.com/svc-demo/utils"
-
 	"github.com/mkumatag/svc-go-sdk"
 )
 
 func main() {
 
-	client := utils.GetSVCClient()
+	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
 
 	if err := client.Authenticate(); err != nil {
 		log.Fatalf("auth error: %v", err)
