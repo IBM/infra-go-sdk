@@ -17,7 +17,7 @@ func main() {
 	fmt.Println("✅ Authenticated")
 
 	// List all volumes
-	volumes, err := client.LsVdisk()
+	volumes, err := client.LsVdisk("test_volume2")
 	if err != nil {
 		log.Fatalf("LsVdisk error: %v", err)
 	}

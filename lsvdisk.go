@@ -48,8 +48,13 @@ type VolumeInfo struct {
 }
 
 // LsVdisk retrieves the complete list of volumes using the lsvdisk API endpoint
-func (c *Client) LsVdisk() ([]VolumeInfo, error) {
-	data, err := c.post("lsvdisk", nil)
+func (c *Client) LsVdisk(name string) ([]VolumeInfo, error) {
+	endpoint := "lsvdisk"
+	//nameParam := name
+	if name != "" {
+		endpoint = fmt.Sprintf("lsvdisk/%s", name)
+	}
+	data, err := c.post(endpoint, nil)
 	if err != nil {
 		var errResp ErrorResponse
 		if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
