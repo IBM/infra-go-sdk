@@ -13,6 +13,7 @@ import (
 
 	"github.com/beevik/etree"
 	"github.com/sudeeshjohn/PowerHMC/pkg/hmc"
+	"github.com/sudeeshjohn/svc-go-sdk/svc"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -298,18 +299,106 @@ func main() {
 				log.Printf("Updated XML before VSCSI:\n%s", xmlString)
 			}
 		}
+		//Creating host in svc
+		client1 := svc.NewClient("192.0.2.8", "REDACTED_SVC_USER<==", "REDACTED_HMC_PASS<==").WithTLSInsecure()
+
+		if err := client1.Authenticate(); err != nil {
+			log.Fatalf("auth error: %v", err)
+		}
+		fmt.Println("✅ Authenticated")
+
+		systemInfo, err := client1.Lssystem()
+		if err != nil {
+			log.Fatalf("lssystem error: %v", err)
+		}
+		fmt.Printf("System: %+v\n", systemInfo)
+
+		// Define the host parameters
+		host := svc.Host{
+			Name:     "host2",
+			Fcwwpn:   []string{"100000620B42EB0A", "100000620B42EB09"},
+			Type:     "generic",
+			Protocol: "scsi",
+		}
+
+		// Check if any WWPN is already associated with a host
+		for _, wwpn := range host.Fcwwpn {
+			existingHost, err := client1.GetHostByWWPN(wwpn)
+			if err == nil {
+				fmt.Printf("WWPN %s is already associated with host: %s. Skipping creation.\n", wwpn, existingHost)
+				host.Name = existingHost
+			} else if !strings.Contains(err.Error(), "not found") {
+				err = client1.Mkhost(svc.Host{Name: "host1", Fcwwpn: []string{"100000620B42EB09", "100000620B42EB0A"}, Type: "generic", Protocol: "scsi"})
+				if err != nil {
+					if strings.Contains(err.Error(), "CMMVC6035E") || strings.Contains(err.Error(), "object already exists") {
+						fmt.Println("Host already exists, skipping creation.")
+					} else {
+						log.Fatalf("Mkhost error: %v", err)
+					}
+				} else {
+					fmt.Println("Successfully created host.")
+				}
+			}
+		}
+
+		//Create Volume
+
+		// Create a Volume instance
+		volume := svc.Volume{
+			Name:       "test_volume2",
+			MdiskGrp:   "0",
+			Size:       120,
+			Unit:       "gb",
+			RSize:      "2%",
+			Warning:    "80%",
+			AutoExpand: true,
+			GrainSize:  256,
+		}
+
+		// Create the volume using Mkvdisk
+		if err := client1.Mkvdisk(volume); err != nil {
+			log.Fatalf("Mkvdisk error: %v", err)
+		} else {
+			fmt.Printf("Successfully created disk with name: %s\n", volume.Name)
+		}
+
+		//Create mhost map
+		// Create a VolumeHostMap instance
+		mapping := svc.VolumeHostMap{
+			Host: host.Name, // Host name or ID
+			SCSI: "1",       // Optional SCSI LUN ID
+
+			Force: true,           // Optional force flag
+			VDisk: "test_volume2", // Volume name or ID
+		}
+
+		// Create the volume to host mapping
+		if err := client1.Mkvdiskhostmap(mapping); err != nil {
+			log.Fatalf("Mkvdiskhostmap error: %v", err)
+		} else {
+			fmt.Printf("Successfully created volume host mapping for volume: %s to host: %s\n", mapping.VDisk, mapping.Host)
+
+		}
+		vol, err := client1.LsVdisk(volume.Name)
+		if err != nil {
+			log.Fatalf("LsVdisk error: %v", err)
+		}
 
 		// Define volume configs, structured like virtNetworkConfigs
 		volumeConfigs := []hmc.VolumeConfig{
-			{ViosName: "vios", VolumeName: "hdisk4"},
+			{ViosName: "ltc13u29-vios1", VolumeName: vol[1].Name},
 			// Add more as needed
 		}
 
 		// Add VSCSI configuration and update template
 		if len(volumeConfigs) > 0 {
 			vscsiClientsPayload := ""
+			viosUUID := ""
 			for _, volConfig := range volumeConfigs {
-				pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, *verbose)
+				viosUUID, err = hmc.GetViosID(restClient, systemUUID, volConfig.ViosName, *verbose)
+				fmt.Printf("RETRURNED VIOSUUID: %s\n", viosUUID)
+				err := restClient.ConfigDevice(viosUUID, "", *verbose)
+				pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, vol[1].VdiskUID, *verbose)
 				if err != nil {
 					log.Fatalf("Failed to identify free volume: %v", err)
 				}
@@ -504,52 +593,39 @@ func getMacAdddress(restClient *hmc.HmcRestClient, systemUUID string, partUUID s
 	return clineMacAddress.Text(), nil
 
 }
-func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volConfig hmc.VolumeConfig, verbose bool) (*etree.Element, error) {
+func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
 	viosName := volConfig.ViosName
 	volumeName := volConfig.VolumeName
 
-	// Get VIOS list
-	viosList, err := restClient.GetVirtualIOServersQuick(systemUUID, verbose)
+	// Get VIOS UUID using GetViosID
+	viosUUID, err := hmc.GetViosID(restClient, systemUUID, viosName, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get VIOSes: %v", err)
-	}
-
-	// Find the VIOS with the given name
-	var targetVIOS hmc.VIOS
-	for _, vios := range viosList {
-		if vios.PartitionName == viosName {
-			targetVIOS = vios
-			break
-		}
-	}
-	if targetVIOS.UUID == "" {
-		return nil, fmt.Errorf("VIOS %s not found", viosName)
+		return "", err
 	}
 
 	// Get free physical volumes for the VIOS
-	pvList, err := restClient.GetFreePhyVolume(targetVIOS.UUID, verbose)
+	pvList, err := restClient.GetFreePhyVolume(viosUUID, verbose)
 	if err != nil {
 		// Log the error and assume no volumes are available
 		if verbose {
 			log.Printf("Error getting free physical volumes for VIOS %s: %v", viosName, err)
 		}
-		pvList = []*etree.Element{} // Treat as no volumes found
+		pvList = []hmc.PhysicalVolume{} // Treat as no volumes found
 	}
 
 	// Find the volume with the given name
 	for _, pv := range pvList {
-		volumeNameElem := pv.FindElement("VolumeName")
-		if volumeNameElem != nil && volumeNameElem.Text() == volumeName {
+		if strings.Contains(pv.VolumeUniqueID, VdiskUID) {
 			if verbose {
-				log.Printf("Found volume %s on VIOS %s", volumeName, viosName)
+				log.Printf("Found volume %s on VIOS %s", pv.VolumeName, viosName)
 			}
-			return pv, nil
+			return pv.VolumeName, nil
 		}
 	}
 
 	// If no volumes are found or the specific volume is not in the list
 	if len(pvList) == 0 {
-		return nil, fmt.Errorf("no free physical volumes found on VIOS %s", viosName)
+		return "", fmt.Errorf("no free physical volumes found on VIOS %s", viosName)
 	}
-	return nil, fmt.Errorf("volume %s not found among free physical volumes on VIOS %s", volumeName, viosName)
+	return "", fmt.Errorf("volume %s not found among free physical volumes on VIOS %s", volumeName, viosName)
 }
