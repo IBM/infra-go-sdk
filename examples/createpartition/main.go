@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/beevik/etree"
-	"github.com/sudeeshjohn/PowerHMC/pkg/hmc"
+	hmc "github.com/sudeeshjohn/PowerHMC"
 	"github.com/sudeeshjohn/svc-go-sdk/svc"
-	"golang.org/x/crypto/ssh"
 )
 
 func main() {
@@ -28,36 +27,6 @@ func main() {
 	templateName := flag.String("template-name", "", "Get AtomID for a specific partition template name")
 	systemName := flag.String("system-name", "", "Managed system name")
 	flag.Parse()
-
-	// Validate required flags
-	if *hmcIP == "" || *username == "" || *password == "" {
-		log.Fatal("All flags --hmc-ip, --username, and --password are required")
-	}
-	if *osType != "" && *systemName == "" {
-		log.Fatal("Flag --system-name is required when --os-type is specified")
-	}
-
-	// SSH Connection for CLI operations
-	sshConfig := &ssh.ClientConfig{
-		User: *username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(*password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	sshClient, err := ssh.Dial("tcp", *hmcIP+":22", sshConfig)
-	if err != nil {
-		log.Fatalf("Failed to connect to HMC via SSH: %v", err)
-	}
-	defer sshClient.Close()
-
-	// Initialize HMC object
-	hmcObj := hmc.NewHmc(sshClient)
-	version, err := hmcObj.ListHMCVersion(*verbose)
-	if err != nil {
-		log.Fatalf("Failed to list HMC version: %v", err)
-	}
-	fmt.Printf("HMC Version: %+v\n", version)
 
 	// Create HTTP client with insecure SSL
 	client := &http.Client{
