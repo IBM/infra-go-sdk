@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 
-	"github.com/mkumatag/svc-go-sdk"
+	"github.com/mkumatag/svc-go-sdk" // Adjust if your package path differs
 )
 
 func main() {
@@ -16,45 +17,50 @@ func main() {
 	}
 	fmt.Println("✅ Authenticated")
 
-	// List all volumes
-	volumes, err := client.LsVdisk("test_volume2")
-	if err != nil {
-		log.Fatalf("LsVdisk error: %v", err)
-	}
-
 	volumeName := "test_volume2"
-	var foundVolume *svc.VolumeInfo
-	for _, vol := range volumes {
-		if vol.Name == volumeName {
-			foundVolume = &vol
-			break
-		}
-	}
+	fmt.Printf("Searching for volume: %s...\n", volumeName)
 
-	if foundVolume != nil {
+	// Use the new targeted function instead of listing all and looping client-side
+	foundVolume, err := client.LsVdiskByName(volumeName)
+	if err != nil {
+		// Catch the specific CMMVC5754E error from the IBM API
+		if strings.Contains(err.Error(), "CMMVC5754E") {
+			fmt.Printf("❌ No disk found with name: %s (CMMVC5754E)\n", volumeName)
+		} else {
+			log.Fatalf("LsVdiskByName error: %v", err)
+		}
+	} else {
+		// Volume was found! Convert FCMapCount safely.
 		fcMapCount, _ := strconv.Atoi(foundVolume.FCMapCount)
 		if foundVolume.FCMapCount == "" {
 			fcMapCount = 0
 		}
-		fmt.Printf("Successfully retrieved disk with name: %s\n", foundVolume.Name)
+
+		fmt.Printf("✅ Successfully retrieved disk with name: %s\n", foundVolume.Name)
 		fmt.Printf("Details: MdiskGrp: %s, Capacity: %s, Status: %s, Type: %s, FC Map Count: %d, UID: %s\n",
-			foundVolume.MDiskGrpName, foundVolume.Capacity, foundVolume.Status, foundVolume.Type, fcMapCount, foundVolume.VdiskUID)
-	} else {
-		fmt.Printf("No disk found with name: %s\n", volumeName)
+			foundVolume.MdiskGrpName, foundVolume.Capacity, foundVolume.Status, foundVolume.Type, fcMapCount, foundVolume.VdiskUID)
 	}
 
-	/* if len(volumes) == 0 {
+	/* // ==========================================
+	// Example: Listing ALL volumes if needed
+	// ==========================================
+	volumes, err := client.LsVdisk()
+	if err != nil {
+		log.Fatalf("LsVdisk error: %v", err)
+	}
+
+	if len(volumes) == 0 {
 		fmt.Println("No volumes found")
 	} else {
-		fmt.Println("\nAll Volumes:")
+		fmt.Printf("\nFound %d total volumes:\n", len(volumes))
 		for _, vol := range volumes {
-			// Convert FCMapCount to int for display, default to 0 if empty or invalid
 			fcMapCount, _ := strconv.Atoi(vol.FCMapCount)
 			if vol.FCMapCount == "" {
 				fcMapCount = 0
 			}
 			fmt.Printf("Name: %s, MdiskGrp: %s, Capacity: %s, Status: %s, Type: %s, FC Map Count: %d, Volume UID: %s\n",
-				vol.Name, vol.MDiskGrpName, vol.Capacity, vol.Status, vol.Type, fcMapCount, vol.VdiskUID)
+				vol.Name, vol.MdiskGrpName, vol.Capacity, vol.Status, vol.Type, fcMapCount, vol.VdiskUID)
 		}
-	} */
+	} 
+	*/
 }
