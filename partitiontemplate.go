@@ -463,26 +463,6 @@ func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string,
 		hmcLogger.Printf("Creating partition for system %s with template UUID %s and osType %s", systemUUID, templateUUID, osType)
 	}
 
-	type Operation struct {
-		XMLName       xml.Name `xml:"Operation"`
-		OperationName string   `xml:"OperationName"`
-		GroupName     string   `xml:"GroupName"`
-		ProgressType  string   `xml:"ProgressType"`
-	}
-
-	type JobParameter struct {
-		XMLName xml.Name `xml:"JobParameter"`
-		Name    string   `xml:"name"`
-		Value   string   `xml:"value"`
-	}
-
-	type JobRequest struct {
-		XMLName       xml.Name       `xml:"JobRequest"`
-		SchemaVersion string         `xml:"schemaVersion,attr"`
-		Operation     Operation      `xml:"RequestedOperation>Operation"`
-		Parameters    []JobParameter `xml:"JobParameters>JobParameter"`
-	}
-
 	payload := JobRequest{
 		SchemaVersion: "V1_0",
 		Operation: Operation{

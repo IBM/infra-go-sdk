@@ -1,0 +1,53 @@
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/beevik/etree"
+	hmc "github.com/sudeeshjohn/PowerHMC"
+)
+
+func main() {
+	hmcIP := "192.0.2.4"
+	username := "REDACTED_HMC_USER<=="
+	password := "REDACTED_HMC_PASS<=="
+	verbose := false
+	systemUUID := "49672f05-253d-30bc-ae09-ecd76cb410ce"
+
+	// Initialize HmcRestClient
+	restClient := hmc.NewHmcRestClient(hmcIP)
+
+	// Logon
+	if verbose {
+		log.Printf("Attempting to log on to HMC at %s with username %s", hmcIP, username)
+	}
+	if err := restClient.Login(username, password, verbose); err != nil {
+		log.Fatalf("Logon failed: %v", err)
+	}
+	defer func() {
+		if err := restClient.Logoff(); err != nil {
+			log.Printf("Logoff failed: %v", err)
+		} else if verbose {
+			log.Println("Logged off successfully")
+		}
+	}()
+
+	// Retrieve partition properties
+	partition, err := restClient.GetLogicalPartitions(systemUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to retrieve partition properties: %v", err)
+	}
+
+	doc := etree.NewDocument()
+	doc.SetRoot(partition.Copy())
+
+	xmlStr, err := doc.WriteToString()
+	if err != nil {
+		fmt.Printf("Error serializing XML: %v\n", err)
+		return
+	}
+
+	fmt.Println(xmlStr)
+
+}

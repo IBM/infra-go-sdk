@@ -1,12 +1,10 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +13,12 @@ import (
 	hmc "github.com/sudeeshjohn/PowerHMC"
 	"github.com/sudeeshjohn/svc-go-sdk/svc"
 )
+
+// VolumeConfig defines the configuration for a volume
+type VolumeConfig struct {
+	ViosName   string // Name of the VIOS managing the volume
+	VolumeName string // Name of the volume (e.g., hdisk1)
+}
 
 func main() {
 	// Command-line flags
@@ -28,15 +32,8 @@ func main() {
 	systemName := flag.String("system-name", "", "Managed system name")
 	flag.Parse()
 
-	// Create HTTP client with insecure SSL
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
-
 	// Initialize HmcRestClient
-	restClient := hmc.NewHmcRestClient(*hmcIP, client)
+	restClient := hmc.NewHmcRestClient(*hmcIP)
 
 	// Logon
 	if *verbose {
@@ -200,7 +197,7 @@ func main() {
 
 		// Generate a unique temporary template name
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-		tempTemplateName := fmt.Sprintf("ansible_powervm_create_%04d", rng.Intn(9000)+1000)
+		tempTemplateName := fmt.Sprintf("hmctool_powervm_create_%04d", rng.Intn(9000)+1000)
 		if *verbose {
 			log.Printf("Generated temporary template name: %s", tempTemplateName)
 		}
@@ -268,15 +265,15 @@ func main() {
 				log.Printf("Updated XML before VSCSI:\n%s", xmlString)
 			}
 		}
-		//Creating host in svc
-		client1 := svc.NewClient("192.0.2.8", "REDACTED_SVC_USER<==", "REDACTED_HMC_PASS<==").WithTLSInsecure()
+		// Creating host in svc
+		svcclient := svc.NewClient("192.0.2.8", "REDACTED_SVC_USER<==", "REDACTED_HMC_PASS<==").WithTLSInsecure()
 
-		if err := client1.Authenticate(); err != nil {
+		if err := svcclient.Authenticate(); err != nil {
 			log.Fatalf("auth error: %v", err)
 		}
 		fmt.Println("✅ Authenticated")
 
-		systemInfo, err := client1.Lssystem()
+		systemInfo, err := svcclient.Lssystem()
 		if err != nil {
 			log.Fatalf("lssystem error: %v", err)
 		}
@@ -292,12 +289,12 @@ func main() {
 
 		// Check if any WWPN is already associated with a host
 		for _, wwpn := range host.Fcwwpn {
-			existingHost, err := client1.GetHostByWWPN(wwpn)
+			existingHost, err := svcclient.GetHostByWWPN(wwpn)
 			if err == nil {
 				fmt.Printf("WWPN %s is already associated with host: %s. Skipping creation.\n", wwpn, existingHost)
 				host.Name = existingHost
 			} else if !strings.Contains(err.Error(), "not found") {
-				err = client1.Mkhost(svc.Host{Name: "host1", Fcwwpn: []string{"100000620B42EB09", "100000620B42EB0A"}, Type: "generic", Protocol: "scsi"})
+				err = svcclient.Mkhost(svc.Host{Name: "host1", Fcwwpn: []string{"100000620B42EB09", "100000620B42EB0A"}, Type: "generic", Protocol: "scsi"})
 				if err != nil {
 					if strings.Contains(err.Error(), "CMMVC6035E") || strings.Contains(err.Error(), "object already exists") {
 						fmt.Println("Host already exists, skipping creation.")
@@ -309,6 +306,23 @@ func main() {
 				}
 			}
 		}
+
+		targetHost := host.Name
+    	fmt.Printf("Searching for host: %s...\n", targetHost)
+
+    	target_host, err := svcclient.LshostByTarget(targetHost)
+    	if err != nil {
+        if strings.Contains(err.Error(), "CMMVC5754E") {
+            fmt.Printf("❌ Host '%s' not found (CMMVC5754E)\n", targetHost)
+        } else {
+            log.Fatalf("Error: %v", err)
+        }
+		} else {
+			// 'host' is now a direct pointer to the object
+			fmt.Printf("✅ Found Host: %s (ID: %s)\n", target_host.Name, target_host.ID)
+			fmt.Printf("   Status: %s, Protocol: %s, Portset: %s\n", target_host.Status, host.Protocol, target_host.PortsetName)
+		}
+		host.Name = target_host.ID
 
 		//Create Volume
 
@@ -325,37 +339,88 @@ func main() {
 		}
 
 		// Create the volume using Mkvdisk
-		if err := client1.Mkvdisk(volume); err != nil {
+		if err := svcclient.Mkvdisk(volume); err != nil {
 			log.Fatalf("Mkvdisk error: %v", err)
 		} else {
 			fmt.Printf("Successfully created disk with name: %s\n", volume.Name)
 		}
+		sourceVol, err := svcclient.LsVdisk("image-ibm-default-centos-10")
+		if err != nil {
+			log.Fatalf("LsVdisk error: %v", err)
+		}
+		fmt.Printf("SOURCE VOLUEME: %s\n", sourceVol[0].ID)
+		targetVol, err := svcclient.LsVdisk(volume.Name)
+		if err != nil {
+			log.Fatalf("LsVdisk error: %v", err)
+		}
+		fmt.Printf("TARGET VOLUEME: %s\n", targetVol[0].ID)
+		// Create a FlashCopyMapping instance
+		fcmapping := svc.FlashCopyMapping{
+			Name:        "test_fcmap",
+			Source:      sourceVol[0].ID, //Soure volume ID
+			Target:      targetVol[0].ID, //Target Volume ID
+			CopyRate:    150,             //Specifies the copy rate. The rate value can be 0 - 150;attribute value:141 - 150, Data copied/sec:2 GB, 256 KB grains/sec:8192,64 KB grains/sec:32768
+			GrainSize:   256,
+			Incremental: true,
+			AutoDelete:  true, //Specifies that a mapping is to be deleted when the background copy completes
+			//ConsistGrp:  "test_fcgrp",
+		}
 
-		//Create mhost map
+		// Create the FlashCopy mapping
+		if err := svcclient.Mkfcmap(fcmapping); err != nil {
+			log.Fatalf("Mkfcmap error: %v", err)
+		} else {
+			fmt.Printf("Successfully created FlashCopy mapping with name: %s\n", fcmapping.Name)
+		}
+
+		mappings, err := svcclient.Lsfcmap(fcmapping.Name)
+		if err != nil {
+			log.Fatalf("Lsfcmap error: %v", err)
+		}
+		if len(mappings) == 0 {
+			log.Fatalf("No FlashCopy mapping found with name: %s", fcmapping.Name)
+		}
+		fmt.Printf("Found FlashCopy mapping: %s\n", fcmapping.Name)
+
+		// Create a FlashCopyMappingStart instance
+		//id := mappings[0].ID
+		//Id, err := strconv.Atoi(id)
+		fmapping := svc.FlashCopyMappingStart{
+			ID:      fcmapping.Name,
+			Prep:    true, // Prepare the mapping before starting
+			Restore: true, // Force start if target is in use
+		}
+
+		// Start the FlashCopy mapping
+		if err := svcclient.Startfcmap(fmapping); err != nil {
+			log.Fatalf("Startfcmap error: %v", err)
+		} else {
+			fmt.Printf("Successfully started FlashCopy mapping with ID: %s\n", mappings[0].Name)
+		}
+
+		// MAPPING VOLUME TO HOST
+
 		// Create a VolumeHostMap instance
 		mapping := svc.VolumeHostMap{
 			Host: host.Name, // Host name or ID
-			SCSI: "1",       // Optional SCSI LUN ID
+			SCSI: "",       // Optional SCSI LUN ID
+			//SCSI: "1",       // Optional SCSI LUN ID
 
 			Force: true,           // Optional force flag
 			VDisk: "test_volume2", // Volume name or ID
 		}
-
+fmt.Printf("Host information that is going to be mapped: %s\n", mapping.Host)
 		// Create the volume to host mapping
-		if err := client1.Mkvdiskhostmap(mapping); err != nil {
+		if err := svcclient.Mkvdiskhostmap(mapping); err != nil {
 			log.Fatalf("Mkvdiskhostmap error: %v", err)
 		} else {
 			fmt.Printf("Successfully created volume host mapping for volume: %s to host: %s\n", mapping.VDisk, mapping.Host)
 
 		}
-		vol, err := client1.LsVdisk(volume.Name)
-		if err != nil {
-			log.Fatalf("LsVdisk error: %v", err)
-		}
 
 		// Define volume configs, structured like virtNetworkConfigs
 		volumeConfigs := []hmc.VolumeConfig{
-			{ViosName: "ltc13u29-vios1", VolumeName: vol[1].Name},
+			{ViosName: "ltc13u29-vios1", VolumeName: targetVol[1].Name},
 			// Add more as needed
 		}
 
@@ -367,7 +432,7 @@ func main() {
 				viosUUID, err = hmc.GetViosID(restClient, systemUUID, volConfig.ViosName, *verbose)
 				fmt.Printf("RETRURNED VIOSUUID: %s\n", viosUUID)
 				err := restClient.ConfigDevice(viosUUID, "", *verbose)
-				pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, vol[1].VdiskUID, *verbose)
+				pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, targetVol[1].VdiskUID, *verbose)
 				if err != nil {
 					log.Fatalf("Failed to identify free volume: %v", err)
 				}
@@ -434,23 +499,23 @@ func main() {
 		fmt.Printf("Partition creation job ID: %s\n", partUUID)
 
 		// Retrieve partition properties
-		partitionProps, err := restClient.QuickGetPartition(partUUID, *verbose)
+		partitionProps, err := restClient.GetLogicalPartitionQuick(partUUID, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to retrieve partition properties: %v", err)
 		}
 
 		// Add AssociatedManagedSystem
-		partitionProps["AssociatedManagedSystem"] = *systemName
+		//partitionProps["AssociatedManagedSystem"] = *systemName
 
 		clientMacAddress, err := getMacAdddress(restClient, systemUUID, partUUID, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to retrieve client network adapter: %v", err)
 		}
 		log.Printf("Mac Address: %s", clientMacAddress)
-		partitionProps["MacAddress"] = clientMacAddress
+		//partitionProps["MacAddress"] = clientMacAddress
 
 		profileUUID, err := restClient.GetPartitionProfile(partUUID, *verbose)
-		partitionProps["ProfileUUID"] = profileUUID
+		//partitionProps["ProfileUUID"] = profileUUID
 
 		// Powering on the partition created
 		_, err = PartitionPowerOn(restClient, systemUUID, partUUID, profileUUID, "manual", "", *osType, *verbose)
@@ -470,7 +535,7 @@ func main() {
 		if *verbose && len(configDict) > 0 {
 			log.Printf("Configuration dictionary: %+v", configDict)
 		}
-		_ = GetMagdSystems(restClient, *verbose)
+		_ = GetMagdSystemsByName(restClient,systemName, *verbose)
 		_ = GetMagdSystemsQuick(restClient, *verbose)
 		_ = GetMagdSystemQuick(restClient, systemUUID, *verbose)
 		_ = GetLgclPartitions(restClient, systemUUID, *verbose)
@@ -507,8 +572,8 @@ func GetMagdSystemsQuick(restClient *hmc.HmcRestClient, verbose bool) error {
 	}
 	return err
 }
-func GetMagdSystems(restClient *hmc.HmcRestClient, verbose bool) error {
-	_, err := restClient.GetManagedSystems(verbose)
+func GetMagdSystemsByName(restClient *hmc.HmcRestClient, systemName,verbose bool) error {
+	_, err := restClient.GetManagedSystemsByName(systemName,verbose)
 	if err != nil {
 		log.Fatalf("Failed to get Manged Systems, with error %v", err)
 	}

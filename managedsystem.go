@@ -77,7 +77,7 @@ func (c *HmcRestClient) GetManagedSystemQuick(systemUUID string, verbose bool) (
 }
 
 // GetManagedSystem fetches the managed system UUID and details by name
-func (c *HmcRestClient) GetManagedSystem(systemName string, verbose bool) (string, *etree.Element, error) {
+func (c *HmcRestClient) GetManagedSystemByName(systemName string, verbose bool) (string, *etree.Element, error) {
 	if systemName == "" {
 		return "", nil, fmt.Errorf("systemName cannot be empty")
 	}
@@ -311,3 +311,59 @@ func (c *HmcRestClient) GetManagedSystemsQuick(verbose bool) ([]ManagedSystemQui
 
 	return systems, nil
 }
+
+// GetIOAdapters retrieves all physical IO adapters for a managed system.
+func (c *HmcRestClient) GetManagedSystemInfo(systemUUID string, verbose bool) ([]*etree.Element, error) {
+    url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
+    if verbose {
+        hmcLogger.Printf("Fetching IO adapters for managed system UUID %s, URL: %s", systemUUID, url)
+    }
+
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create request: %v", err)
+    }
+    req.Header.Set("X-API-Session", c.session)
+    req.Header.Set("Accept", "application/atom+xml")
+
+    ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+    defer cancel()
+    req = req.WithContext(ctx)
+
+    resp, err := c.client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("HTTP request failed: %v", err)
+    }
+    defer resp.Body.Close()
+
+    if verbose {
+        hmcLogger.Printf("GetIOAdapters response status: %s", resp.Status)
+    }
+
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to read response body: %v", err)
+    }
+
+    if verbose {
+        hmcLogger.Printf("GetIOAdapters response body:\n%s", string(body))
+    }
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+    }
+
+    doc, err := xmlStripNamespace(body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+    }
+
+    //adapters := doc.FindElements("//ManagedSystem")
+	 adapters := doc.FindElements("//IOAdapters/IOAdapterChoice")
+    if verbose {
+        hmcLogger.Printf("Found %d IO adapters for managed system %s", len(adapters), systemUUID)
+    }
+
+    return adapters, nil
+}
+

@@ -1,6 +1,7 @@
 package hmc
 
 import (
+	"crypto/tls"
 	"encoding/xml"
 	"fmt"
 	"log"
@@ -8,6 +9,9 @@ import (
 
 	"github.com/beevik/etree"
 )
+
+// LPAR_TEMPLATE_NS is the namespace for PartitionTemplate as used in the Python code
+const LPAR_TEMPLATE_NS = `PartitionTemplate xmlns="http://www.ibm.com/xmlns/systems/power/firmware/templates/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2"`
 
 // LogonRequest represents the XML payload for HMC logon
 type LogonRequest struct {
@@ -64,15 +68,20 @@ type JobResponse struct {
 // Logger with prefix for HMC operations
 var hmcLogger = log.New(log.Writer(), "[HMC] ", log.LstdFlags)
 
-// HmcRestClient represents a client for interacting with the HMC REST API
+// HmcRestClient represents the REST client for HMC operations
 type HmcRestClient struct {
 	hmcIP   string
 	session string
 	client  *http.Client
 }
 
-// NewHmcRestClient initializes a new HmcRestClient
-func NewHmcRestClient(hmcIP string, client *http.Client) *HmcRestClient {
+// NewHmcRestClient initializes a new HmcRestClient with an insecure TLS HTTP client
+func NewHmcRestClient(hmcIP string) *HmcRestClient {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
 	return &HmcRestClient{
 		hmcIP:  hmcIP,
 		client: client,
@@ -88,12 +97,6 @@ type VirtualNetworkConfig struct {
 	NetworkName       string
 	SlotNumber        int
 	VirtualSlotNumber int
-}
-
-// VolumeConfig defines the configuration for a volume
-type VolumeConfig struct {
-	ViosName   string // Name of the VIOS managing the volume
-	VolumeName string // Name of the volume (e.g., hdisk1)
 }
 
 // VIOS represents a Virtual I/O Server
@@ -124,8 +127,35 @@ type PhysicalVolume struct {
 
 // LogicalPartitionQuick represents the structure of a partition in the quick list
 type LogicalPartitionQuick struct {
-	PartitionName string `json:"PartitionName"`
-	UUID          string `json:"UUID"`
+	ProgressState                  *string `json:"ProgressState"`
+	Description                    *string `json:"Description"`
+	MemoryMode                     string  `json:"MemoryMode"`
+	MigrationState                 string  `json:"MigrationState"`
+	PowerManagementMode            *string `json:"PowerManagementMode"`
+	OperatingSystemVersion         string  `json:"OperatingSystemVersion"`
+	PartitionID                    int     `json:"PartitionID"`
+	IsVirtualServiceAttentionLEDOn string  `json:"IsVirtualServiceAttentionLEDOn"`
+	AllocatedVirtualProcessors     int     `json:"AllocatedVirtualProcessors"`
+	PartitionState                 string  `json:"PartitionState"`
+	ResourceMonitoringIPAddress    *string `json:"ResourceMonitoringIPAddress"`
+	HasPhysicalIO                  string  `json:"HasPhysicalIO"`
+	SystemName                     string  `json:"SystemName"`
+	SharingMode                    string  `json:"SharingMode"`
+	MigrationDisable               bool    `json:"MigrationDisable"`
+	CurrentProcessors              int     `json:"CurrentProcessors"`
+	LastActivatedProfile           string  `json:"LastActivatedProfile"`
+	CurrentUncappedWeight          int     `json:"CurrentUncappedWeight"`
+	RemoteRestartState             string  `json:"RemoteRestartState"`
+	PartitionType                  string  `json:"PartitionType"`
+	PartitionName                  string  `json:"PartitionName"`
+	RMCState                       string  `json:"RMCState"`
+	OperatingSystemType            string  `json:"OperatingSystemType"`
+	CurrentMemory                  int     `json:"CurrentMemory"`
+	HasDedicatedProcessors         string  `json:"HasDedicatedProcessors"`
+	AssociatedManagedSystem        string  `json:"AssociatedManagedSystem"`
+	ReferenceCode                  string  `json:"ReferenceCode"`
+	CurrentProcessingUnits         int     `json:"CurrentProcessingUnits"`
+	UUID                           string  // Manually set, not from JSON
 }
 
 // xmlStripNamespace removes XML namespaces from the document to simplify XPath queries
@@ -157,6 +187,48 @@ type PartitionProfileQuick struct {
 
 // ManagedSystemQuick represents the structure of a managed system in the quick list
 type ManagedSystemQuick struct {
-	SystemName string `json:"SystemName"`
-	UUID       string `json:"UUID"`
+	SystemName            string      `json:"SystemName"`
+	UUID                  string      `json:"UUID"`
+	State                 string      `json:"State"`
+	IPAddress             string      `json:"IPAddress"`
+	MTMS                  string      `json:"MTMS"`
+	SystemType            string      `json:"SystemType"`
+	SystemFirmware        string      `json:"SystemFirmware"`
+	MaximumPartitions     int         `json:"MaximumPartitions"`
+	InstalledSystemMemory int         `json:"InstalledSystemMemory"`
+	InstalledSystemProcessors float64 `json:"InstalledSystemProcessorUnits"` // Use float64 for scientific notation like 6E+1
+	CurrentAvailableMemory     float64 `json:"CurrentAvailableSystemMemory"`
+	CurrentAvailableProcessors float64 `json:"CurrentAvailableSystemProcessorUnits"`
+}
+type Operation struct {
+	XMLName       xml.Name `xml:"Operation"`
+	OperationName string   `xml:"OperationName"`
+	GroupName     string   `xml:"GroupName"`
+	ProgressType  string   `xml:"ProgressType"`
+}
+
+type JobParameter struct {
+	XMLName xml.Name `xml:"JobParameter"`
+	Name    string   `xml:"name"`
+	Value   string   `xml:"value"`
+}
+
+type JobRequest struct {
+	XMLName       xml.Name       `xml:"JobRequest"`
+	SchemaVersion string         `xml:"schemaVersion,attr"`
+	Operation     Operation      `xml:"RequestedOperation>Operation"`
+	Parameters    []JobParameter `xml:"JobParameters>JobParameter"`
+}
+
+// Define the collection struct for unmarshaling
+type PhysicalVolumeCollection struct {
+	XMLName         xml.Name         `xml:"PhysicalVolume_Collection"`
+	PhysicalVolumes []PhysicalVolume `xml:"PhysicalVolume"`
+}
+
+
+type IOAdapterInfo struct {
+    Description                     string
+    LogicalPartitionAssignmentCapable bool
+    DeviceName                      string
 }

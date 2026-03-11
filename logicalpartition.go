@@ -12,101 +12,6 @@ import (
 	"github.com/beevik/etree"
 )
 
-// GetLogicalPartition retrieves the details of a logical partition by name or UUID
-func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partitionUUID string, verbose bool) (string, *etree.Element, error) {
-	var lparUUID string
-
-	// If partitionUUID is not provided, find it using partitionName
-	if partitionUUID == "" && partitionName != "" {
-		lparList, err := c.GetLogicalPartitionsQuick(systemUUID, verbose)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to fetch logical partitions: %v", err)
-		}
-		if lparList == nil {
-			if verbose {
-				hmcLogger.Printf("No logical partitions found for system UUID %s", systemUUID)
-			}
-			return "", nil, nil
-		}
-
-		for _, lpar := range lparList {
-			if lpar.PartitionName == partitionName {
-				lparUUID = lpar.UUID
-				if verbose {
-					hmcLogger.Printf("Found partition %s with UUID %s", partitionName, lparUUID)
-				}
-				break
-			}
-		}
-
-		if lparUUID == "" {
-			if verbose {
-				hmcLogger.Printf("Partition %s not found on system UUID %s", partitionName, systemUUID)
-			}
-			return "", nil, nil
-		}
-	} else if partitionUUID != "" {
-		lparUUID = partitionUUID
-	} else {
-		return "", nil, fmt.Errorf("either partitionName or partitionUUID must be provided")
-	}
-
-	// Fetch partition details
-	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching logical partition details for UUID %s, URL: %s", lparUUID, url)
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", nil, fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartition response status: %s", resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartition response body:\n%s", string(body))
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if verbose {
-			hmcLogger.Printf("Get of Logical Partition failed. Response code: %d", resp.StatusCode)
-		}
-		return "", nil, nil
-	}
-
-	doc, err := xmlStripNamespace(body)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
-	}
-
-	partitionElem := doc.FindElement("//LogicalPartition")
-	if partitionElem == nil {
-		return "", nil, fmt.Errorf("LogicalPartition element not found in response")
-	}
-
-	return lparUUID, partitionElem, nil
-}
-
 // PowerOnPartition powers on a logical partition and returns the job response
 func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (*etree.Document, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/do/PowerOn", c.hmcIP, systemUUID, lparUUID)
@@ -465,6 +370,9 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose b
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
+	// Manually set the UUID since it's not in the JSON response
+	partition.UUID = partitionUUID
+
 	if verbose {
 		hmcLogger.Printf("Found logical partition: Name=%s, UUID=%s", partition.PartitionName, partition.UUID)
 	}
@@ -654,9 +562,6 @@ func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (stri
 	return profileUUID, nil
 }
 
-// LPAR_TEMPLATE_NS is the namespace for PartitionTemplate as used in the Python code
-const LPAR_TEMPLATE_NS = `PartitionTemplate xmlns="http://www.ibm.com/xmlns/systems/power/firmware/templates/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2"`
-
 // GetClientNetworkAdapter retrieves the ClientNetworkAdapter details for a partition
 func (c *HmcRestClient) GetClientNetworkAdapter(systemUUID, lparUUID string, verbose bool) (*etree.Element, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
@@ -718,4 +623,66 @@ func (c *HmcRestClient) GetClientNetworkAdapter(systemUUID, lparUUID string, ver
 	}
 
 	return clientNetworkAdapter, nil
+}
+
+// DeleteLogicalPartition deletes a logical partition by its UUID.
+func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, partitionUUID)
+	if verbose {
+		hmcLogger.Printf("Deleting logical partition UUID %s, URL: %s", partitionUUID, url)
+	}
+
+	// Create and configure the DELETE request
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("DeleteLogicalPartition response status: %s", resp.Status)
+	}
+
+	// Read the response body (if any)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose && len(body) > 0 {
+		hmcLogger.Printf("DeleteLogicalPartition response body:\n%s", string(body))
+	}
+
+	// Check for success (204 No Content)
+	if resp.StatusCode != http.StatusNoContent {
+		// Attempt to parse error from body
+		doc, err := xmlStripNamespace(body)
+		if err == nil {
+			errorMsgs := doc.FindElements("//Message")
+			if len(errorMsgs) > 0 {
+				return fmt.Errorf("delete failed: %s, status: %s", errorMsgs[0].Text(), resp.Status)
+			}
+		}
+		return fmt.Errorf("delete failed with status %s: %s", resp.Status, string(body))
+	}
+
+	if verbose {
+		hmcLogger.Printf("Logical partition %s deleted successfully", partitionUUID)
+	}
+
+	return nil
 }

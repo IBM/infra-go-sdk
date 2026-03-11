@@ -1,10 +1,21 @@
 package hmc
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/beevik/etree"
 )
+
+// VolumeConfig defines the configuration for a volume
+type VolumeConfig struct {
+	ViosName   string // Name of the VIOS managing the volume
+	VolumeName string // Name of the volume (e.g., hdisk1)
+}
 
 // GetViosID retrieves the UUID of a Virtual I/O Server by its name using the provided rest client
 func GetViosID(restClient *HmcRestClient, systemUUID, viosName string, verbose bool) (string, error) {
@@ -442,4 +453,144 @@ func (c *HmcRestClient) UpdateVirtualNWSettingsToDom(templateXML *etree.Element,
 	}
 
 	return nil
+}
+
+// GetLogicalPartition retrieves the details of a logical partition by name or UUID
+func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partitionUUID string, verbose bool) (string, *etree.Element, error) {
+	var lparUUID string
+
+	// If partitionUUID is not provided, find it using partitionName
+	if partitionUUID == "" && partitionName != "" {
+		lparList, err := c.GetLogicalPartitionsQuick(systemUUID, verbose)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to fetch logical partitions: %v", err)
+		}
+		if lparList == nil {
+			if verbose {
+				hmcLogger.Printf("No logical partitions found for system UUID %s", systemUUID)
+			}
+			return "", nil, nil
+		}
+
+		for _, lpar := range lparList {
+			if lpar.PartitionName == partitionName {
+				lparUUID = lpar.UUID
+				if verbose {
+					hmcLogger.Printf("Found partition %s with UUID %s", partitionName, lparUUID)
+				}
+				break
+			}
+		}
+
+		if lparUUID == "" {
+			if verbose {
+				hmcLogger.Printf("Partition %s not found on system UUID %s", partitionName, systemUUID)
+			}
+			return "", nil, nil
+		}
+	} else if partitionUUID != "" {
+		lparUUID = partitionUUID
+	} else {
+		return "", nil, fmt.Errorf("either partitionName or partitionUUID must be provided")
+	}
+
+	// Fetch partition details
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching logical partition details for UUID %s, URL: %s", lparUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartition response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartition response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if verbose {
+			hmcLogger.Printf("Get of Logical Partition failed. Response code: %d", resp.StatusCode)
+		}
+		return "", nil, nil
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	partitionElem := doc.FindElement("//LogicalPartition")
+	if partitionElem == nil {
+		return "", nil, fmt.Errorf("LogicalPartition element not found in response")
+	}
+
+	return lparUUID, partitionElem, nil
+}
+
+
+func ParseIOAdapters(adapters []*etree.Element) []IOAdapterInfo {
+    var info []IOAdapterInfo
+
+    fmt.Printf("Raw adapters (len: %d):\n", len(adapters))
+    for i, adapter := range adapters {
+        var builder strings.Builder
+        adapter.WriteTo(&builder, &etree.WriteSettings{})
+        fmt.Printf("Adapter %d XML:\n%s\n", i+1, builder.String())
+    }
+
+    for _, adapter := range adapters {
+        // First find the nested IOAdapter element
+        ioAdapterElem := adapter.FindElement("IOAdapter")
+        if ioAdapterElem == nil {
+            continue
+        }
+
+        // Extract child elements under IOAdapter
+        desc := textOrEmpty(ioAdapterElem.FindElement("Description"))
+        devName := textOrEmpty(ioAdapterElem.FindElement("DeviceName"))
+
+        lpaElem := ioAdapterElem.FindElement("LogicalPartitionAssignmentCapable")
+        lpa := false
+        if lpaElem != nil {
+            lpa = strings.EqualFold(lpaElem.Text(), "true")
+        }
+
+        info = append(info, IOAdapterInfo{
+            Description:                     desc,
+            LogicalPartitionAssignmentCapable: lpa,
+            DeviceName:                      devName,
+        })
+    }
+
+    return info
+}
+
+func textOrEmpty(elem *etree.Element) string {
+    if elem == nil {
+        return ""
+    }
+    return elem.Text()
 }

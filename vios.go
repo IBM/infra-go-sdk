@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/beevik/etree"
 )
 
 // / ConfigDevice submits a job request to configure a device on a Virtual I/O Server.
@@ -334,12 +336,6 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]Physi
 		return nil, fmt.Errorf("failed to serialize stripped XML: %v", err)
 	}
 
-	// Define the collection struct for unmarshaling
-	type PhysicalVolumeCollection struct {
-		XMLName         xml.Name         `xml:"PhysicalVolume_Collection"`
-		PhysicalVolumes []PhysicalVolume `xml:"PhysicalVolume"`
-	}
-
 	var pvCollection PhysicalVolumeCollection
 	if err := xml.Unmarshal(strippedXML, &pvCollection); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal physical volumes XML: %v", err)
@@ -360,4 +356,142 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]Physi
 		}
 	}
 	return listPv, nil
+}
+
+// GetViosSCSIMappings retrieves the VSCSI mappings for a VIOS using the extended group.
+func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, verbose bool) ([]*etree.Element, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching VSCSI mappings for VIOS UUID %s, URL: %s", viosUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("GetViosSCSIMappings response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetViosSCSIMappings response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	mappings := doc.FindElements("//VirtualSCSIMapping")
+	if verbose {
+		hmcLogger.Printf("Found %d VSCSI mappings for VIOS %s", len(mappings), viosUUID)
+	}
+
+	return mappings, nil
+}
+
+// / RemoveVolumeLPARMapping removes the virtual SCSI mapping for a specific volume and LPAR on a VIOS.
+// It finds the matching VSCSI mapping and deletes the associated VirtualTargetDevice using constructed URL.
+func (c *HmcRestClient) RemoveVolumeLPARMapping(viosUUID, lparUUID, volumeName string, verbose bool) error {
+	mappings, err := c.GetViosSCSIMappings(viosUUID, verbose)
+	if err != nil {
+		return err
+	}
+
+	var vtdUDID string
+	for _, mapping := range mappings {
+		clientPartitionID := mapping.FindElement("ClientAdapter/LocalPartitionID")
+		backingVolumeNameElem := mapping.FindElement("Storage/PhysicalVolume/VolumeName")
+		uniqueDeviceIDElem := mapping.FindElement("TargetDevice/PhysicalVolumeVirtualTargetDevice/UniqueDeviceID")
+		associatedLogicalPartition := mapping.FindElement("//AssociatedLogicalPartition")
+		associatedPartitionUUID := ""
+		if associatedLogicalPartition != nil {
+			// get the href attribute
+
+			assopartitionText := associatedLogicalPartition.SelectAttrValue("href", "")
+			parts := strings.Split(assopartitionText, "/")
+			associatedPartitionUUID = parts[len(parts)-1]
+
+		}
+		fmt.Printf("FROM SDK, partiton: %s\n", associatedPartitionUUID)
+		if clientPartitionID != nil && backingVolumeNameElem != nil && uniqueDeviceIDElem != nil &&
+			associatedPartitionUUID == lparUUID && backingVolumeNameElem.Text() == volumeName {
+			vtdUDID = uniqueDeviceIDElem.Text()
+			break
+		}
+	}
+
+	if vtdUDID == "" {
+		return fmt.Errorf("no matching VSCSI mapping found for LPAR ID %s and volume %s on VIOS %s", lparUUID, volumeName, viosUUID)
+	}
+
+	// Construct the VirtualTargetDevice URL
+	vtdHref := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VirtualTargetDevice/%s", c.hmcIP, viosUUID, vtdUDID)
+
+	// Perform DELETE on the VirtualTargetDevice
+	if verbose {
+		hmcLogger.Printf("Deleting VirtualTargetDevice at %s", vtdHref)
+	}
+
+	req, err := http.NewRequest("DELETE", vtdHref, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=VirtualTargetDevice")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("RemoveVolumeLPARMapping response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose && len(body) > 0 {
+		hmcLogger.Printf("RemoveVolumeLPARMapping response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("delete failed with status %s: %s", resp.Status, string(body))
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully removed mapping for volume %s on LPAR %s from VIOS %s", volumeName, lparUUID, viosUUID)
+	}
+
+	return nil
 }
