@@ -380,8 +380,8 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose b
 	return &partition, nil
 }
 
-// QuickGetPartition retrieves quick properties of a partition as a map
-func (c *HmcRestClient) QuickGetPartition(lparUUID string, verbose bool) (map[string]interface{}, error) {
+// GetPartitionQuick retrieves quick properties of a partition as a map
+func (c *HmcRestClient) GetPartitionQuick(lparUUID string, verbose bool) (map[string]interface{}, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick", c.hmcIP, lparUUID)
 	if verbose {
 		hmcLogger.Printf("Fetching quick partition properties for UUID %s, URL: %s", lparUUID, url)
@@ -409,7 +409,7 @@ func (c *HmcRestClient) QuickGetPartition(lparUUID string, verbose bool) (map[st
 
 	// Log response status if verbose
 	if verbose {
-		hmcLogger.Printf("QuickGetPartition response status: %s", resp.Status)
+		hmcLogger.Printf("GetPartitionQuick response status: %s", resp.Status)
 	}
 
 	// Read the response body
@@ -420,7 +420,7 @@ func (c *HmcRestClient) QuickGetPartition(lparUUID string, verbose bool) (map[st
 
 	// Log response body if verbose
 	if verbose {
-		hmcLogger.Printf("QuickGetPartition response body:\n%s", string(body))
+		hmcLogger.Printf("GetPartitionQuick response body:\n%s", string(body))
 	}
 
 	// Check for non-200 status codes
@@ -437,8 +437,8 @@ func (c *HmcRestClient) QuickGetPartition(lparUUID string, verbose bool) (map[st
 	return partitionProps, nil
 }
 
-// GetLogicalPartitionsQuick retrieves the quick list of logical partitions for a system
-func (c *HmcRestClient) GetLogicalPartitionsQuick(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
+// GetLogicalPartitionsQuickAll retrieves the quick list of logical partitions for a system
+func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
 	if verbose {
 		hmcLogger.Printf("Fetching quick logical partitions for system UUID %s, URL: %s", systemUUID, url)
@@ -462,7 +462,7 @@ func (c *HmcRestClient) GetLogicalPartitionsQuick(systemUUID string, verbose boo
 	defer resp.Body.Close()
 
 	if verbose {
-		hmcLogger.Printf("GetLogicalPartitionsQuick response status: %s", resp.Status)
+		hmcLogger.Printf("GetLogicalPartitionsQuickAll response status: %s", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -471,7 +471,7 @@ func (c *HmcRestClient) GetLogicalPartitionsQuick(systemUUID string, verbose boo
 	}
 
 	if verbose {
-		hmcLogger.Printf("GetLogicalPartitionsQuick response body:\n%s", string(body))
+		hmcLogger.Printf("GetLogicalPartitionsQuickAll response body:\n%s", string(body))
 	}
 
 	if resp.StatusCode != http.StatusOK {

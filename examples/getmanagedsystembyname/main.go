@@ -11,7 +11,7 @@ func main() {
 	hmcIP      := "192.0.2.1"
 	username   := "REDACTED_HMC_USER<=="
 	password   := "REDACTED_HMC_PASS<=="
-	targetName := "LTC13U05"
+	targetName := "LTC13U29-Ranier"
 	verbose    := false
 
 	restClient := hmc.NewHmcRestClient(hmcIP)
