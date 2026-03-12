@@ -592,3 +592,217 @@ func (c *HmcRestClient) removeDeviceViaJob(viosUUID, deviceName string, verbose 
 	}
 	return fmt.Errorf("JobID not found")
 }
+// RemoveVIOSDevice executes the RemoveDevice job on the VIOS to delete a physical volume (e.g., hdisk3)
+func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, verbose bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/RemoveDevice", c.hmcIP, viosUUID)
+	
+	operation := map[string]string{
+		"OperationName": "RemoveDevice",
+		"GroupName":     "VirtualIOServer",
+		"ProgressType":  "DISCRETE",
+	}
+
+	params := map[string]string{
+		"devName": deviceName, 
+	}
+
+	payload, err := createJobRequestPayload(operation, params, "V1_1_0", verbose, true)
+	if err != nil { return err }
+
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	resp, err := c.client.Do(req.WithContext(ctx))
+	if err != nil { return err }
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("RemoveDevice failed with status %s: %s", resp.Status, string(body))
+	}
+
+	doc, _ := xmlStripNamespace(body)
+	if jobIDElem := doc.FindElement("//JobID"); jobIDElem != nil {
+		if verbose { hmcLogger.Printf("Removing device %s from VIOS (Job ID: %s)...", deviceName, jobIDElem.Text()) }
+		// Wait for the VIOS to finish deleting the disk
+		_, err = c.FetchJobStatus(jobIDElem.Text(), false, 5, verbose)
+		return err
+	}
+	
+	return fmt.Errorf("JobID not found in RemoveDevice response")
+}
+
+// RunVIOSCommand executes an OS-level command by tunneling it through the HMC CLIRunner job via viosvrcmd.
+func (c *HmcRestClient) RunVIOSCommand(sysName, viosName, diskName string, verbose bool) error {
+	// 1. Fetch the Management Console UUID
+	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
+	
+	req, err := http.NewRequest("GET", mcURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+	req.Header.Set("Accept", "*/*")
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	
+	resp, err := c.client.Do(req.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to fetch Management Console: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %v", err)
+	}
+	
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get Management Console (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	mcDoc, err := xmlStripNamespace(body)
+	if err != nil {
+		return fmt.Errorf("failed to parse Management Console XML: %v", err)
+	}
+	
+	// Extract the Management Console UUID from the entry element
+	// The feed has its own <id>, but we need the <entry><id> which is the actual MC UUID
+	var mcUUID string
+	if entryElem := mcDoc.FindElement("//entry/id"); entryElem != nil {
+		mcUUID = entryElem.Text()
+	} else if uuidElem := mcDoc.FindElement("//ManagementConsole/Metadata/Atom/AtomID"); uuidElem != nil {
+		mcUUID = uuidElem.Text()
+	} else if uuidElem := mcDoc.FindElement("//UUID"); uuidElem != nil {
+		mcUUID = uuidElem.Text()
+	}
+
+	if mcUUID == "" {
+		if verbose {
+			hmcLogger.Printf("Management Console response:\n%s", string(body))
+		}
+		return fmt.Errorf("could not resolve Management Console UUID from response")
+	}
+	
+	if verbose {
+		hmcLogger.Printf("Resolved Management Console UUID: %s", mcUUID)
+	}
+
+	// 2. Target the Management Console's CLIRunner Job endpoint
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/%s/do/CLIRunner", c.hmcIP, mcUUID)
+
+	// 3. Construct the exact viosvrcmd string with proper quoting
+	cmdString := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s "`, sysName, viosName, diskName)
+
+	if verbose {
+		hmcLogger.Printf("Executing HMC CLI Command: %s", cmdString)
+	}
+
+	// 4. Create the CLIRunner Job Payload with required acknowledgeThisAPIMayGoAwayInTheFuture parameter
+	// Using schemaVersion="V1_0" as confirmed working in Postman
+	payload := fmt.Sprintf(`<JobRequest:JobRequest xmlns:JobRequest="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2" schemaVersion="V1_0">
+	   <Metadata>
+	       <Atom/>
+	   </Metadata>
+	   <RequestedOperation kxe="false" kb="CUR" schemaVersion="V1_0">
+	       <Metadata>
+	           <Atom/>
+	       </Metadata>
+	       <OperationName kxe="false" kb="ROR">CLIRunner</OperationName>
+	       <GroupName kxe="false" kb="ROR">ManagementConsole</GroupName>
+	   </RequestedOperation>
+	   <JobParameters kxe="false" kb="CUR" schemaVersion="V1_0">
+	       <Metadata>
+	           <Atom/>
+	       </Metadata>
+	       <JobParameter schemaVersion="V1_0">
+	           <Metadata>
+	               <Atom/>
+	           </Metadata>
+	           <ParameterName kxe="false" kb="ROR">cmd</ParameterName>
+	           <ParameterValue kxe="false" kb="CUR">%s</ParameterValue>
+	       </JobParameter>
+	       <JobParameter schemaVersion="V1_0">
+	           <Metadata>
+	               <Atom/>
+	           </Metadata>
+	           <ParameterName kxe="false" kb="ROR">acknowledgeThisAPIMayGoAwayInTheFuture</ParameterName>
+	           <ParameterValue kxe="false" kb="CUR">true</ParameterValue>
+	       </JobParameter>
+	   </JobParameters>
+</JobRequest:JobRequest>`, cmdString)
+
+	if verbose {
+		hmcLogger.Printf("CLIRunner payload:\n%s", payload)
+		hmcLogger.Printf("CLIRunner URL: %s", url)
+	}
+
+	// 5. Submit the JobRequest via PUT (Jobs in HMC REST API use PUT)
+	req2, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create CLIRunner request: %v", err)
+	}
+	req2.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req2.Header.Set("X-API-Session", c.session)
+	req2.Header.Set("Accept", "application/atom+xml")
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel2()
+
+	resp2, err := c.client.Do(req2.WithContext(ctx2))
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	body2, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read CLIRunner response: %v", err)
+	}
+
+	// Look for success status codes
+	if resp2.StatusCode != http.StatusOK && resp2.StatusCode != http.StatusAccepted && resp2.StatusCode != http.StatusCreated {
+		return fmt.Errorf("CLIRunner failed with status %s: %s", resp2.Status, string(body2))
+	}
+
+	if verbose {
+		hmcLogger.Printf("CLIRunner response (HTTP %d):\n%s", resp2.StatusCode, string(body2))
+	}
+
+	// Wait for the job to complete
+	doc2, err := xmlStripNamespace(body2)
+	if err != nil {
+		return fmt.Errorf("failed to parse CLIRunner response XML: %v", err)
+	}
+
+	jobIDElem := doc2.FindElement("//JobID")
+	if jobIDElem == nil {
+		// Try alternative path
+		jobIDElem = doc2.FindElement("//JobResponse/JobID")
+	}
+	
+	if jobIDElem != nil {
+		jobID := jobIDElem.Text()
+		if verbose {
+			hmcLogger.Printf("CLIRunner Job submitted (Job ID: %s), waiting for completion...", jobID)
+		}
+		_, err = c.FetchJobStatus(jobID, false, 10, verbose)
+		if err != nil {
+			return fmt.Errorf("CLIRunner job failed: %v", err)
+		}
+		if verbose {
+			hmcLogger.Printf("✅ CLIRunner job completed successfully")
+		}
+	} else {
+		return fmt.Errorf("JobID not found in CLIRunner response: %s", string(body2))
+	}
+
+	return nil
+}

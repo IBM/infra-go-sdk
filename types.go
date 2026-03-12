@@ -236,8 +236,11 @@ type IOAdapterInfo struct {
 
 // StorageMap holds the dynamically discovered VIOS and Volume details for an LPAR
 type StorageMap struct {
-	ViosUUID   string
-	ViosName   string
-	VolumeName string
-	VolumeUDID string // Very useful for matching against SVC VDisk UID
+	ViosUUID        string
+	ViosName        string
+	VolumeName      string
+	VolumeUDID      string // Very useful for matching against SVC VDisk UID
+	ServerAdapter   string // Virtual SCSI adapter on VIOS side (e.g., vhost0)
+	ClientAdapter   string // Virtual SCSI adapter on client/LPAR side (e.g., vtscsi0)
+	ClientSlotNumber string // Client adapter slot number
 }

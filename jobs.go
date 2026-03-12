@@ -138,9 +138,26 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 			if verbose {
 				hmcLogger.Printf("Job completed with error")
 			}
-			resultElem := doc.FindElement("//Results/JobParameter/ParameterValue")
-			if resultElem != nil {
-				errMsg := strings.TrimSpace(resultElem.Text())
+			// Look for the 'result' parameter specifically, not just any ParameterValue
+			var errMsg string
+			for _, param := range doc.FindElements("//Results/JobParameter") {
+				nameElem := param.FindElement("ParameterName")
+				valueElem := param.FindElement("ParameterValue")
+				if nameElem != nil && valueElem != nil {
+					paramName := strings.TrimSpace(nameElem.Text())
+					if paramName == "result" {
+						errMsg = strings.TrimSpace(valueElem.Text())
+						break
+					}
+				}
+			}
+			if errMsg == "" {
+				// Fallback to first ParameterValue if 'result' not found
+				if resultElem := doc.FindElement("//Results/JobParameter/ParameterValue"); resultElem != nil {
+					errMsg = strings.TrimSpace(resultElem.Text())
+				}
+			}
+			if errMsg != "" {
 				if verbose {
 					hmcLogger.Printf("Error message: %s", errMsg)
 				}
