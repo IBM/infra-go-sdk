@@ -246,14 +246,13 @@ func (c *HmcRestClient) PowerOffPartition(systemUUID, lparUUID, shutdownOption s
 	return jobDoc, nil
 }
 
-// GetLogicalPartitions retrieves the list of logical partitions for a managed system as an XML document
-func (c *HmcRestClient) GetLogicalPartitions(systemUUID string, verbose bool) (*etree.Element, error) {
+// GetLogicalPartitions retrieves the advanced list of logical partitions for a managed system as a slice of XML elements.
+func (c *HmcRestClient) GetLogicalPartitions(systemUUID string, verbose bool) ([]*etree.Element, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
 	if verbose {
-		hmcLogger.Printf("Fetching logical partitions for system UUID %s, URL: %s", systemUUID, url)
+		hmcLogger.Printf("Fetching advanced logical partitions for system UUID %s, URL: %s", systemUUID, url)
 	}
 
-	// Create and configure the GET request
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -261,53 +260,48 @@ func (c *HmcRestClient) GetLogicalPartitions(systemUUID string, verbose bool) (*
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
 
-	// Set timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
+	// Set a slightly longer timeout for Advanced XML as it can be heavy
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
 	if verbose {
 		hmcLogger.Printf("GetLogicalPartitions response status: %s", resp.Status)
 	}
 
-	// Check for non-200 status codes
-
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.ReadAll(resp.Body)
-		if verbose {
-			hmcLogger.Printf("Get of Logical Partitions failed. Response code: %d", resp.StatusCode)
-		}
-		return nil, nil
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	// Log response body if verbose
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartitions response body:\n%s", string(body))
-	}
-
-	// Parse XML response
+	// Parse XML response and strip namespaces to make querying easier
 	doc, err := xmlStripNamespace(body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
-	logicalPartitions := doc.FindElement("//LogicalPartition")
-	if logicalPartitions == nil {
-		return nil, fmt.Errorf("LogicalPartition element not found in response")
+	// FIX: Use FindElements (plural) to capture all partitions in the Atom feed
+	logicalPartitions := doc.FindElements("//LogicalPartition")
+	if len(logicalPartitions) == 0 {
+		if verbose {
+			hmcLogger.Printf("No LogicalPartition elements found in the response feed.")
+		}
+		return []*etree.Element{}, nil // Return empty slice instead of error if none exist
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully parsed %d partitions from Advanced XML.", len(logicalPartitions))
 	}
 
 	return logicalPartitions, nil
@@ -489,79 +483,6 @@ func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose 
 	return lparList, nil
 }
 
-// GetPartitionProfile retrieves the UUID of a partition profile for a logical partition
-func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (string, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/quick/All", c.hmcIP, lparUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching partition profile for partition UUID %s, URL: %s", lparUUID, url)
-	}
-
-	// Create and configure the GET request
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=LogicalPartitionProfile")
-	req.Header.Set("Accept", "*/*")
-
-	// Set timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	// Send the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("GetPartitionProfile response status: %s", resp.Status)
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != err {
-		return "", fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// Log response body if verbose
-	if verbose {
-		hmcLogger.Printf("GetPartitionProfile response body:\n%s", string(body))
-	}
-
-	// Check for non-200 status codes
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
-	}
-
-	// Parse JSON response
-	var profiles []PartitionProfileQuick
-	if err := json.Unmarshal(body, &profiles); err != nil {
-		return "", fmt.Errorf("failed to parse JSON response: %v", err)
-	}
-
-	// Check if any profiles were found
-	if len(profiles) == 0 {
-		return "", fmt.Errorf("no partition profiles found for partition UUID %s", lparUUID)
-	}
-
-	// Return the UUID of the first profile
-	profileUUID := profiles[0].UUID
-	if profileUUID == "" {
-		return "", fmt.Errorf("profile UUID not found in response for partition UUID %s", lparUUID)
-	}
-
-	if verbose {
-		hmcLogger.Printf("Found partition profile %s with UUID %s", profiles[0].ProfileName, profileUUID)
-	}
-
-	return profileUUID, nil
-}
-
 // GetClientNetworkAdapter retrieves the ClientNetworkAdapter details for a partition
 func (c *HmcRestClient) GetClientNetworkAdapter(systemUUID, lparUUID string, verbose bool) (*etree.Element, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
@@ -685,4 +606,69 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose boo
 	}
 
 	return nil
+}
+
+// GetLogicalPartitionsAdv retrieves the advanced list of logical partitions for a managed system as a slice of XML elements.
+func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool) ([]*etree.Element, error) {
+    url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
+    if verbose {
+        hmcLogger.Printf("Fetching advanced logical partitions for system UUID %s, URL: %s", systemUUID, url)
+    }
+
+    // Create and configure the GET request
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create request: %v", err)
+    }
+    req.Header.Set("X-API-Session", c.session)
+    req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
+
+    // Set a slightly longer timeout for Advanced XML as payloads can be heavy
+    ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+    defer cancel()
+    req = req.WithContext(ctx)
+
+    // Send the request
+    resp, err := c.client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("HTTP request failed: %v", err)
+    }
+    defer resp.Body.Close()
+
+    if verbose {
+        hmcLogger.Printf("GetLogicalPartitionsAdv response status: %s", resp.Status)
+    }
+
+    // Check for non-200 status codes
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+    }
+
+    // Read the response body
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to read response body: %v", err)
+    }
+
+    // Parse XML response and strip namespaces to make querying easier
+    doc, err := xmlStripNamespace(body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+    }
+
+    // Use FindElements (plural) to capture ALL partitions in the Atom feed
+    logicalPartitions := doc.FindElements("//LogicalPartition")
+    if len(logicalPartitions) == 0 {
+        if verbose {
+            hmcLogger.Printf("No LogicalPartition elements found in the response feed.")
+        }
+        return []*etree.Element{}, nil // Return empty slice instead of error if none exist
+    }
+
+    if verbose {
+        hmcLogger.Printf("Successfully parsed %d partitions from Advanced XML.", len(logicalPartitions))
+    }
+
+    return logicalPartitions, nil
 }

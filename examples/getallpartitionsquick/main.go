@@ -46,12 +46,13 @@ func main() {
 	fmt.Println(strings.Repeat("-", 65))
 
 	for i, p := range partitions {
-		fmt.Printf("%-3d | %-4d | %-20s | %-15s | %-12s\n", 
+		fmt.Printf("%-3d | %-4d | %-20s | %-15s | %-12s | %-15s\n", 
 			i+1, 
 			p.PartitionID, 
 			p.PartitionName, 
 			p.PartitionState, 
 			p.OperatingSystemType,
+			p.UUID,
 		)
 	}
 }

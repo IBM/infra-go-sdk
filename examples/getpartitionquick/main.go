@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -8,11 +9,13 @@ import (
 )
 
 func main() {
-	hmcIP := "192.0.2.3"
+	// --- Configuration ---
+	hmcIP    := "192.0.2.1"
 	username := "REDACTED_HMC_USER<=="
 	password := "REDACTED_HMC_PASS<=="
-	verbose := false
-	partUUID := "0DE0C178-F78D-4965-8C7C-B25E37DD44D1"
+	sysName  := "LTC09U31-ZZ" // Enter the System Name here
+	lparName := "test-test-test"       // Enter the Partition Name here
+	verbose  := false
 
 	// Initialize HmcRestClient
 	restClient := hmc.NewHmcRestClient(hmcIP)
@@ -32,11 +35,50 @@ func main() {
 		}
 	}()
 
-	// Retrieve partition properties
-	partition, err := restClient.GetLogicalPartitionQuick(partUUID, verbose)
+	// 1. Resolve System Name to UUID
+	fmt.Printf("Step 1: Resolving System Name '%s'...\n", sysName)
+	sysUUID, _, err := restClient.GetManagedSystemByName(sysName, verbose)
+	if err != nil {
+		log.Fatalf("Error resolving system name: %v", err)
+	}
+	if sysUUID == "" {
+		log.Fatalf("System '%s' not found.", sysName)
+	}
+
+	// 2. Fetch all partitions for this system to find the target partition's UUID
+	fmt.Printf("Step 2: Searching for Partition '%s'...\n", lparName)
+	partitions, err := restClient.GetLogicalPartitionsQuickAll(sysUUID, verbose)
+	if err != nil {
+		log.Fatalf("Failed to fetch partitions: %v", err)
+	}
+
+	// 3. Find the matching partition UUID
+	var targetLparUUID string
+	for _, p := range partitions {
+		if p.PartitionName == lparName {
+			targetLparUUID = p.UUID
+			break
+		}
+	}
+
+	if targetLparUUID == "" {
+		log.Fatalf("Partition '%s' not found on system '%s'.", lparName, sysName)
+	}
+
+	// 4. Fetch Quick details for the specific partition using your function
+	fmt.Printf("Step 3: Fetching complete details for UUID: %s...\n\n", targetLparUUID)
+	partition, err := restClient.GetLogicalPartitionQuick(targetLparUUID, verbose)
 	if err != nil {
 		log.Fatalf("Failed to retrieve partition properties: %v", err)
 	}
-	fmt.Printf("Partition ID: %s; Partitoin Name: %s\n", partition.UUID, partition.PartitionName)
 
+	// 5. Print ALL details elegantly using JSON Marshaling
+	// This takes your LogicalPartitionQuick struct and formats it cleanly
+	prettyJSON, err := json.MarshalIndent(partition, "", "    ")
+	if err != nil {
+		log.Fatalf("Failed to marshal partition details: %v", err)
+	}
+
+	fmt.Printf("--- Details for Partition: %s ---\n", partition.PartitionName)
+	fmt.Println(string(prettyJSON))
 }

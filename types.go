@@ -154,7 +154,7 @@ type LogicalPartitionQuick struct {
 	HasDedicatedProcessors         string  `json:"HasDedicatedProcessors"`
 	AssociatedManagedSystem        string  `json:"AssociatedManagedSystem"`
 	ReferenceCode                  string  `json:"ReferenceCode"`
-	CurrentProcessingUnits         int     `json:"CurrentProcessingUnits"`
+	CurrentProcessingUnits         float64 `json:"CurrentProcessingUnits"`
 	UUID                           string  // Manually set, not from JSON
 }
 
@@ -231,4 +231,13 @@ type IOAdapterInfo struct {
     Description                     string
     LogicalPartitionAssignmentCapable bool
     DeviceName                      string
+}
+// --- Append Below to logicalpartition.go ---
+
+// StorageMap holds the dynamically discovered VIOS and Volume details for an LPAR
+type StorageMap struct {
+	ViosUUID   string
+	ViosName   string
+	VolumeName string
+	VolumeUDID string // Very useful for matching against SVC VDisk UID
 }

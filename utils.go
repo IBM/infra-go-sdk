@@ -397,23 +397,26 @@ func (c *HmcRestClient) UpdateVirtualNWSettingsToDom(templateXML *etree.Element,
                 <VirtualSlotNumber kb="CUD" kxe="false">%d</VirtualSlotNumber>`, eachVN.VirtualSlotNumber)
 		}
 		vnPayload += fmt.Sprintf(`
-            <ClientNetworkAdapter schemaVersion="V1_0">
-                <Metadata>
-                    <Atom/>
-                </Metadata>
-                %s
-                <clientVirtualNetworks kb="CUD" kxe="false" schemaVersion="V1_0">
-                    <Metadata>
-                        <Atom/>
-                    </Metadata>
-                    <ClientVirtualNetwork schemaVersion="V1_0">
-                        <Metadata>
-                            <Atom/>
-                        </Metadata>
-                        <name kxe="false" kb="CUD">%s</name>
-                    </ClientVirtualNetwork>
-                </clientVirtualNetworks>
-            </ClientNetworkAdapter>`, vsnPayload, eachVN.NetworkName)
+		          <ClientNetworkAdapter schemaVersion="V1_0">
+		              <Metadata>
+		                  <Atom/>
+		              </Metadata>
+		              %s
+		              <clientVirtualNetworks kb="CUD" kxe="false" schemaVersion="V1_0">
+		                  <Metadata>
+		                      <Atom/>
+		                  </Metadata>
+		                  <ClientVirtualNetwork schemaVersion="V1_0">
+		                      <Metadata>
+		                          <Atom/>
+		                      </Metadata>
+		                      <name kxe="false" kb="CUD">%s</name>
+		                      <vlanId kxe="false" kb="CUD">1</vlanId>
+		                      <isTagged kxe="false" kb="CUD">false</isTagged>
+		                      <associatedSwitchName kxe="false" kb="CUD">%s</associatedSwitchName>
+		                  </ClientVirtualNetwork>
+		              </clientVirtualNetworks>
+		          </ClientNetworkAdapter>`, vsnPayload, eachVN.NetworkName, eachVN.NetworkName)
 	}
 
 	vnwPayload := fmt.Sprintf(`
@@ -593,4 +596,167 @@ func textOrEmpty(elem *etree.Element) string {
         return ""
     }
     return elem.Text()
+}
+
+
+// fetchAndParseHMCXML is a private helper to reuse standard HTTP and XML stripping logic
+func (c *HmcRestClient) fetchAndParseHMCXML(url string, verbose bool) (*etree.Document, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := c.client.Do(req.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	return xmlStripNamespace(body)
+}
+// GetAttachedVolumes traces vSCSI mappings on all VIOSes to find backing storage for an LPAR
+func (c *HmcRestClient) GetAttachedVolumes(systemUUID, lparUUID string, verbose bool) ([]StorageMap, error) {
+	var attachedStorage []StorageMap
+
+	if verbose {
+		hmcLogger.Printf("Scanning all VIOSes for storage attached to LPAR %s...", lparUUID)
+	}
+
+	// 1. Fetch the list of ALL VIOSes on the Managed System (No groups, just basic list)
+	viosListURL := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
+	viosListDoc, err := c.fetchAndParseHMCXML(viosListURL, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch VIOS list: %v", err)
+	}
+
+	viosElements := viosListDoc.FindElements(".//*[local-name()='VirtualIOServer']")
+	if len(viosElements) == 0 {
+		if verbose {
+			hmcLogger.Printf("No Virtual I/O Servers found on system %s", systemUUID)
+		}
+		return attachedStorage, nil
+	}
+
+	targetLparLower := strings.ToLower(lparUUID)
+
+	// 2. Loop through every VIOS
+	for _, vios := range viosElements {
+		viosName := "unknown-vios"
+		if nameElem := vios.FindElement(".//*[local-name()='PartitionName']"); nameElem != nil {
+			viosName = nameElem.Text()
+		}
+
+		viosUUID := "unknown-uuid"
+		if uuidElem := vios.FindElement(".//*[local-name()='PartitionUUID']"); uuidElem != nil {
+			viosUUID = uuidElem.Text()
+		}
+
+		if viosUUID == "unknown-uuid" {
+			continue
+		}
+
+		// 3. Query the VIOS with ViosSCSIMapping group to get all VSCSI mappings
+		mappingsURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+		mappingsDoc, err := c.fetchAndParseHMCXML(mappingsURL, verbose)
+		if err != nil {
+			if verbose {
+				hmcLogger.Printf("Failed to fetch VSCSI mappings for VIOS %s: %v", viosName, err)
+			}
+			continue
+		}
+
+		// 4. Search the mappings for our target LPAR
+		mappings := mappingsDoc.FindElements(".//*[local-name()='VirtualSCSIMapping']")
+		if verbose {
+			hmcLogger.Printf("Found %d VSCSI mapping(s) on VIOS %s", len(mappings), viosName)
+		}
+		
+		for _, mapping := range mappings {
+			
+			assocLpar := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
+			if assocLpar == nil {
+				continue
+			}
+
+			href := strings.ToLower(assocLpar.SelectAttrValue("href", ""))
+			
+			// Does this mapping belong to our target LPAR?
+			if strings.HasSuffix(href, targetLparLower) {
+				if verbose {
+					hmcLogger.Printf("✓ Found matching LPAR mapping on %s!", viosName)
+				}
+				
+				// Look for the disk name in either ServerAdapter or Storage blocks
+				backingDevice := mapping.FindElement(".//*[local-name()='ServerAdapter']/*[local-name()='BackingDeviceName']")
+				storageVolName := mapping.FindElement(".//*[local-name()='Storage']/*[local-name()='PhysicalVolume']/*[local-name()='VolumeName']")
+				storageUDID := mapping.FindElement(".//*[local-name()='Storage']/*[local-name()='PhysicalVolume']/*[local-name()='VolumeUniqueID']")
+
+				vName := ""
+				vUDID := "unknown"
+
+				if backingDevice != nil && backingDevice.Text() != "" {
+					vName = backingDevice.Text()
+				} else if storageVolName != nil && storageVolName.Text() != "" {
+					vName = storageVolName.Text()
+				}
+
+				if vName == "" {
+					if verbose {
+						hmcLogger.Printf("No volume name found in mapping (virtual adapter without storage), skipping")
+					}
+					continue // Virtual adapter exists, but no disk is mapped yet
+				}
+
+				if storageUDID != nil && storageUDID.Text() != "" {
+					vUDID = storageUDID.Text()
+				} else {
+					// CRITICAL FIX: Explicitly request the ViosStorage group to ensure PhysicalVolumes are returned
+					if verbose {
+						hmcLogger.Printf("UDID missing in mapping. Querying VIOS Storage for volume %s...", vName)
+					}
+					pvURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosStorage", c.hmcIP, viosUUID)
+					viosStorageDoc, _ := c.fetchAndParseHMCXML(pvURL, false)
+					if viosStorageDoc != nil {
+						pvs := viosStorageDoc.FindElements(".//*[local-name()='PhysicalVolume']")
+						for _, pv := range pvs {
+							pvName := pv.FindElement(".//*[local-name()='VolumeName']")
+							if pvName != nil && pvName.Text() == vName {
+								pvUDID := pv.FindElement(".//*[local-name()='VolumeUniqueID']")
+								if pvUDID != nil {
+									vUDID = pvUDID.Text()
+									if verbose {
+										hmcLogger.Printf("✓ Found UDID via fallback: %s", vUDID)
+									}
+								}
+								break
+							}
+						}
+					}
+				}
+
+				if verbose {
+					hmcLogger.Printf("Discovered Volume: %s (UDID: %s) on VIOS %s", vName, vUDID, viosName)
+				}
+
+				attachedStorage = append(attachedStorage, StorageMap{
+					ViosUUID:   viosUUID,
+					ViosName:   viosName,
+					VolumeName: vName,
+					VolumeUDID: vUDID,
+				})
+			}
+		}
+	}
+
+	return attachedStorage, nil
 }

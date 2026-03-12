@@ -411,87 +411,184 @@ func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, verbose bool) ([]*e
 
 	return mappings, nil
 }
-
-// / RemoveVolumeLPARMapping removes the virtual SCSI mapping for a specific volume and LPAR on a VIOS.
-// It finds the matching VSCSI mapping and deletes the associated VirtualTargetDevice using constructed URL.
+// RemoveVolumeLPARMapping severs the storage connection by deleting the VirtualSCSIClientAdapter on the LPAR.
+// The HMC will automatically orchestrate the cleanup of the VIOS vhost and vtscsi devices.
 func (c *HmcRestClient) RemoveVolumeLPARMapping(viosUUID, lparUUID, volumeName string, verbose bool) error {
-	mappings, err := c.GetViosSCSIMappings(viosUUID, verbose)
+	// =====================================================================
+	// STEP 1: Read the VIOS mapping to find the LPAR's Client Slot Number
+	// =====================================================================
+	mappingsURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+	mappingsDoc, err := c.fetchAndParseHMCXML(mappingsURL, verbose)
 	if err != nil {
 		return err
 	}
 
-	var vtdUDID string
-	for _, mapping := range mappings {
-		clientPartitionID := mapping.FindElement("ClientAdapter/LocalPartitionID")
-		backingVolumeNameElem := mapping.FindElement("Storage/PhysicalVolume/VolumeName")
-		uniqueDeviceIDElem := mapping.FindElement("TargetDevice/PhysicalVolumeVirtualTargetDevice/UniqueDeviceID")
-		associatedLogicalPartition := mapping.FindElement("//AssociatedLogicalPartition")
-		associatedPartitionUUID := ""
-		if associatedLogicalPartition != nil {
-			// get the href attribute
+	var clientSlotNum string
+	targetLparLower := strings.ToLower(lparUUID)
 
-			assopartitionText := associatedLogicalPartition.SelectAttrValue("href", "")
-			parts := strings.Split(assopartitionText, "/")
-			associatedPartitionUUID = parts[len(parts)-1]
-
+	for _, mapping := range mappingsDoc.FindElements(".//*[local-name()='VirtualSCSIMapping']") {
+		assocLpar := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
+		if assocLpar == nil {
+			continue
 		}
-		fmt.Printf("FROM SDK, partiton: %s\n", associatedPartitionUUID)
-		if clientPartitionID != nil && backingVolumeNameElem != nil && uniqueDeviceIDElem != nil &&
-			associatedPartitionUUID == lparUUID && backingVolumeNameElem.Text() == volumeName {
-			vtdUDID = uniqueDeviceIDElem.Text()
+
+		href := strings.ToLower(assocLpar.SelectAttrValue("href", ""))
+		if strings.HasSuffix(href, targetLparLower) {
+			
+			backingDevElem := mapping.FindElement(".//*[local-name()='ServerAdapter']/*[local-name()='BackingDeviceName']")
+			storageVolElem := mapping.FindElement(".//*[local-name()='Storage']/*[local-name()='PhysicalVolume']/*[local-name()='VolumeName']")
+
+			vName := ""
+			if backingDevElem != nil && backingDevElem.Text() != "" {
+				vName = backingDevElem.Text()
+			} else if storageVolElem != nil && storageVolElem.Text() != "" {
+				vName = storageVolElem.Text()
+			}
+
+			if vName == volumeName {
+				// We found the mapping! Now, extract the CLIENT slot number on the LPAR
+				clientSlotElem := mapping.FindElement(".//*[local-name()='ClientAdapter']/*[local-name()='VirtualSlotNumber']")
+				if clientSlotElem != nil {
+					clientSlotNum = clientSlotElem.Text()
+				}
+				break
+			}
+		}
+	}
+
+	if clientSlotNum == "" {
+		return fmt.Errorf("could not find LPAR Client Slot for volume %s mapped to VIOS %s", volumeName, viosUUID)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Volume %s is mapped to LPAR Client Adapter Slot: %s", volumeName, clientSlotNum)
+	}
+
+	// =====================================================================
+	// STEP 2: Fetch the LPAR's Client Adapters to get the DELETE URL
+	// =====================================================================
+	clientAdaptersURL := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualSCSIClientAdapter", c.hmcIP, lparUUID)
+	clientAdaptersDoc, err := c.fetchAndParseHMCXML(clientAdaptersURL, verbose)
+	if err != nil {
+		return err
+	}
+
+	var deleteURL string
+	entries := clientAdaptersDoc.FindElements("//entry")
+	for _, entry := range entries {
+		slotElem := entry.FindElement(".//VirtualSlotNumber")
+		if slotElem != nil && slotElem.Text() == clientSlotNum {
+			// Found the correct Client Adapter! Grab its SELF link.
+			links := entry.FindElements("./link")
+			for _, link := range links {
+				if link.SelectAttrValue("rel", "") == "SELF" {
+					deleteURL = link.SelectAttrValue("href", "")
+					break
+				}
+			}
 			break
 		}
 	}
 
-	if vtdUDID == "" {
-		return fmt.Errorf("no matching VSCSI mapping found for LPAR ID %s and volume %s on VIOS %s", lparUUID, volumeName, viosUUID)
+	if deleteURL == "" {
+		return fmt.Errorf("failed to resolve DELETE URL for Client Adapter Slot %s", clientSlotNum)
 	}
 
-	// Construct the VirtualTargetDevice URL
-	vtdHref := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VirtualTargetDevice/%s", c.hmcIP, viosUUID, vtdUDID)
-
-	// Perform DELETE on the VirtualTargetDevice
+	// =====================================================================
+	// STEP 3: DELETE the Client Adapter (HMC handles the rest!)
+	// =====================================================================
 	if verbose {
-		hmcLogger.Printf("Deleting VirtualTargetDevice at %s", vtdHref)
+		hmcLogger.Printf("Deleting Client Adapter via URL: %s", deleteURL)
 	}
 
-	req, err := http.NewRequest("DELETE", vtdHref, nil)
+	reqDel, err := http.NewRequest("DELETE", deleteURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
+		return fmt.Errorf("failed to create DELETE request: %v", err)
 	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=VirtualTargetDevice")
+	reqDel.Header.Set("X-API-Session", c.session)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	reqDel = reqDel.WithContext(ctx)
 
-	resp, err := c.client.Do(req)
+	respDel, err := c.client.Do(reqDel)
 	if err != nil {
-		return fmt.Errorf("HTTP request failed: %v", err)
+		return fmt.Errorf("HTTP DELETE request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer respDel.Body.Close()
 
 	if verbose {
-		hmcLogger.Printf("RemoveVolumeLPARMapping response status: %s", resp.Status)
+		hmcLogger.Printf("Client Adapter DELETE response status: %s", respDel.Status)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %v", err)
+	delBody, _ := io.ReadAll(respDel.Body)
+
+	if respDel.StatusCode != http.StatusNoContent && respDel.StatusCode != http.StatusOK && respDel.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("delete failed with status %s: %s", respDel.Status, string(delBody))
 	}
 
-	if verbose && len(body) > 0 {
-		hmcLogger.Printf("RemoveVolumeLPARMapping response body:\n%s", string(body))
-	}
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("delete failed with status %s: %s", resp.Status, string(body))
+	// Wait for the HMC to finish tearing down the VIOS infrastructure
+	if len(delBody) > 0 {
+		delDoc, _ := xmlStripNamespace(delBody)
+		if delDoc != nil {
+			if jobIDElem := delDoc.FindElement(".//*[local-name()='JobID']"); jobIDElem != nil && jobIDElem.Text() != "" {
+				if verbose {
+					hmcLogger.Printf("HMC is tearing down the VIOS connections (Job ID: %s)...", jobIDElem.Text())
+				}
+				_, _ = c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+			}
+		}
+	} else {
+		// If no job ID is returned, just give the HMC a few seconds to process the backend teardown
+		time.Sleep(5 * time.Second)
 	}
 
 	if verbose {
-		hmcLogger.Printf("Successfully removed mapping for volume %s on LPAR %s from VIOS %s", volumeName, lparUUID, viosUUID)
+		hmcLogger.Printf("✅ Successfully removed storage mapping for %s via Client Adapter deletion", volumeName)
 	}
 
 	return nil
+}
+
+// removeDeviceViaJob removes a specific device from VIOS using the RemoveDevice job operation
+func (c *HmcRestClient) removeDeviceViaJob(viosUUID, deviceName string, verbose bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/RemoveDevice", c.hmcIP, viosUUID)
+	
+	operation := map[string]string{
+		"OperationName": "RemoveDevice",
+		"GroupName":     "VirtualIOServer",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// devName MUST be the vtscsi mapping name, not the hdisk!
+	params := map[string]string{
+		"devName": deviceName, 
+	}
+
+	payload, err := createJobRequestPayload(operation, params, "V1_1_0", verbose, true)
+	if err != nil { return err }
+
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+
+	resp, err := c.client.Do(req.WithContext(ctx))
+	if err != nil { return err }
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("RemoveDevice job submission failed with status %s", resp.Status)
+	}
+
+	doc, _ := xmlStripNamespace(body)
+	if jobIDElem := doc.FindElement("//JobID"); jobIDElem != nil {
+		_, err = c.FetchJobStatus(jobIDElem.Text(), false, 5, verbose)
+		return err
+	}
+	return fmt.Errorf("JobID not found")
 }

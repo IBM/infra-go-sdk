@@ -2,6 +2,7 @@ package hmc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,4 +145,77 @@ fmt.Printf("TEST\n")
         hmcLogger.Printf("Successfully updated profile %s for partition %s", profileName, partitionUUID)
     }
     return nil
+}
+
+// GetPartitionProfile retrieves the UUID of a partition profile for a logical partition
+func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/quick/All", c.hmcIP, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching partition profile for partition UUID %s, URL: %s", lparUUID, url)
+	}
+
+	// Create and configure the GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=LogicalPartitionProfile")
+	req.Header.Set("Accept", "*/*")
+
+	// Set timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Log response status if verbose
+	if verbose {
+		hmcLogger.Printf("GetPartitionProfile response status: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != err {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Log response body if verbose
+	if verbose {
+		hmcLogger.Printf("GetPartitionProfile response body:\n%s", string(body))
+	}
+
+	// Check for non-200 status codes
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+	}
+
+	// Parse JSON response
+	var profiles []PartitionProfileQuick
+	if err := json.Unmarshal(body, &profiles); err != nil {
+		return "", fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	// Check if any profiles were found
+	if len(profiles) == 0 {
+		return "", fmt.Errorf("no partition profiles found for partition UUID %s", lparUUID)
+	}
+
+	// Return the UUID of the first profile
+	profileUUID := profiles[0].UUID
+	if profileUUID == "" {
+		return "", fmt.Errorf("profile UUID not found in response for partition UUID %s", lparUUID)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Found partition profile %s with UUID %s", profiles[0].ProfileName, profileUUID)
+	}
+
+	return profileUUID, nil
 }

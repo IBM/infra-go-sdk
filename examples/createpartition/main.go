@@ -56,7 +56,7 @@ func main() {
 	var systemUUID string
 	configDict := make(map[string]string) // Initialize configDict
 	if *systemName != "" {
-		uuid, systemElem, err := restClient.GetManagedSystem(*systemName, *verbose)
+		uuid, systemElem, err := restClient.GetManagedSystemByName(*systemName, *verbose)
 		if err != nil {
 			log.Fatalf("Failed to get managed system: %v", err)
 		}
@@ -78,7 +78,7 @@ func main() {
 		fmt.Printf("Maximum Partitions for system %s: %s\n", systemUUID, maxLpars.Text())
 
 		// Hardcoded values as per your request
-		vmName := "test-test"
+		vmName := "test-test-test"
 		proc := 2
 		procUnit := 2
 		mem := 2048
@@ -95,7 +95,7 @@ func main() {
 		configDict["min_proc"] = "1"                         // Reasonable default
 		configDict["proc_unit"] = strconv.Itoa(procUnit)     // Convert to string
 		configDict["max_proc_unit"] = strconv.Itoa(procUnit) // Default to proc_unit
-		configDict["min_proc_unit"] = "1"                    // Reasonable default
+		configDict["min_proc_unit"] = ".1"                    // Reasonable default
 		configDict["mem"] = strconv.Itoa(mem)
 		configDict["max_mem"] = strconv.Itoa(mem) // Default to mem value
 		configDict["min_mem"] = "1024"            // Reasonable default
@@ -282,7 +282,7 @@ func main() {
 		// Define the host parameters
 		host := svc.Host{
 			Name:     "host2",
-			Fcwwpn:   []string{"100000620B42EB0A", "100000620B42EB09"},
+			Fcwwpn:   []string{"10000090FADC7453", "10000090FADC7454"},
 			Type:     "generic",
 			Protocol: "scsi",
 		}
@@ -308,20 +308,19 @@ func main() {
 		}
 
 		targetHost := host.Name
-    	fmt.Printf("Searching for host: %s...\n", targetHost)
+		  	fmt.Printf("Searching for host: %s...\n", targetHost)
 
-    	target_host, err := svcclient.LshostByTarget(targetHost)
-    	if err != nil {
-        if strings.Contains(err.Error(), "CMMVC5754E") {
-            fmt.Printf("❌ Host '%s' not found (CMMVC5754E)\n", targetHost)
-        } else {
-            log.Fatalf("Error: %v", err)
-        }
-		} else {
-			// 'host' is now a direct pointer to the object
-			fmt.Printf("✅ Found Host: %s (ID: %s)\n", target_host.Name, target_host.ID)
-			fmt.Printf("   Status: %s, Protocol: %s, Portset: %s\n", target_host.Status, host.Protocol, target_host.PortsetName)
+		  	target_host, err := svcclient.LshostByTarget(targetHost)
+		  	if err != nil {
+		      if strings.Contains(err.Error(), "CMMVC5754E") {
+		          log.Fatalf("❌ Host '%s' not found (CMMVC5754E)\n", targetHost)
+		      } else {
+		          log.Fatalf("Error: %v", err)
+		      }
 		}
+		// 'target_host' is now a direct pointer to the object
+		fmt.Printf("✅ Found Host: %s (ID: %s)\n", target_host.Name, target_host.ID)
+		fmt.Printf("   Status: %s, Protocol: %s, Portset: %s\n", target_host.Status, host.Protocol, target_host.PortsetName)
 		host.Name = target_host.ID
 
 		//Create Volume
@@ -344,21 +343,22 @@ func main() {
 		} else {
 			fmt.Printf("Successfully created disk with name: %s\n", volume.Name)
 		}
-		sourceVol, err := svcclient.LsVdisk("image-ibm-default-centos-10")
+
+		sourceVol, err := svcclient.LsVdiskByName("image-ibm-default-centos-10")
 		if err != nil {
 			log.Fatalf("LsVdisk error: %v", err)
 		}
-		fmt.Printf("SOURCE VOLUEME: %s\n", sourceVol[0].ID)
-		targetVol, err := svcclient.LsVdisk(volume.Name)
+		fmt.Printf("SOURCE VOLUEME: %s\n", sourceVol.ID)
+		targetVol, err := svcclient.LsVdiskByName(volume.Name)
 		if err != nil {
 			log.Fatalf("LsVdisk error: %v", err)
 		}
-		fmt.Printf("TARGET VOLUEME: %s\n", targetVol[0].ID)
+		fmt.Printf("TARGET VOLUEME: %s\n", targetVol.ID)
 		// Create a FlashCopyMapping instance
 		fcmapping := svc.FlashCopyMapping{
 			Name:        "test_fcmap",
-			Source:      sourceVol[0].ID, //Soure volume ID
-			Target:      targetVol[0].ID, //Target Volume ID
+			Source:      sourceVol.ID, //Soure volume ID
+			Target:      targetVol.ID, //Target Volume ID
 			CopyRate:    150,             //Specifies the copy rate. The rate value can be 0 - 150;attribute value:141 - 150, Data copied/sec:2 GB, 256 KB grains/sec:8192,64 KB grains/sec:32768
 			GrainSize:   256,
 			Incremental: true,
@@ -420,7 +420,7 @@ fmt.Printf("Host information that is going to be mapped: %s\n", mapping.Host)
 
 		// Define volume configs, structured like virtNetworkConfigs
 		volumeConfigs := []hmc.VolumeConfig{
-			{ViosName: "ltc13u29-vios1", VolumeName: targetVol[1].Name},
+			{ViosName: "ltc09u31-vios1", VolumeName: targetVol.Name},
 			// Add more as needed
 		}
 
@@ -432,7 +432,7 @@ fmt.Printf("Host information that is going to be mapped: %s\n", mapping.Host)
 				viosUUID, err = hmc.GetViosID(restClient, systemUUID, volConfig.ViosName, *verbose)
 				fmt.Printf("RETRURNED VIOSUUID: %s\n", viosUUID)
 				err := restClient.ConfigDevice(viosUUID, "", *verbose)
-				pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, targetVol[1].VdiskUID, *verbose)
+				pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, targetVol.VdiskUID, *verbose)
 				if err != nil {
 					log.Fatalf("Failed to identify free volume: %v", err)
 				}
@@ -535,7 +535,7 @@ fmt.Printf("Host information that is going to be mapped: %s\n", mapping.Host)
 		if *verbose && len(configDict) > 0 {
 			log.Printf("Configuration dictionary: %+v", configDict)
 		}
-		_ = GetMagdSystemsByName(restClient,systemName, *verbose)
+		_ = GetMagdSystemsByName(restClient, *systemName, *verbose)
 		_ = GetMagdSystemsQuick(restClient, *verbose)
 		_ = GetMagdSystemQuick(restClient, systemUUID, *verbose)
 		_ = GetLgclPartitions(restClient, systemUUID, *verbose)
@@ -572,12 +572,13 @@ func GetMagdSystemsQuick(restClient *hmc.HmcRestClient, verbose bool) error {
 	}
 	return err
 }
-func GetMagdSystemsByName(restClient *hmc.HmcRestClient, systemName,verbose bool) error {
-	_, err := restClient.GetManagedSystemsByName(systemName,verbose)
-	if err != nil {
-		log.Fatalf("Failed to get Manged Systems, with error %v", err)
-	}
-	return err
+func GetMagdSystemsByName(restClient *hmc.HmcRestClient, systemName string, verbose bool) error {
+    // 2. Call the correct singular method from your library, passing the systemName
+    _, _, err := restClient.GetManagedSystemByName(systemName, verbose)
+    if err != nil {
+        log.Fatalf("Failed to get Managed System by name, with error %v", err)
+    }
+    return err
 }
 func TransormTemp(restClient *hmc.HmcRestClient, tempUUID, systemUUID string, verbose bool) error {
 	_, err := restClient.TransformPartitionTemplate(tempUUID, systemUUID, verbose)
