@@ -638,7 +638,7 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, verbose bo
 }
 
 // RunVIOSCommand executes an OS-level command by tunneling it through the HMC CLIRunner job via viosvrcmd.
-func (c *HmcRestClient) RunVIOSCommand(sysName, viosName, diskName string, verbose bool) error {
+func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) error {
 	// 1. Fetch the Management Console UUID
 	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
 	
@@ -699,7 +699,7 @@ func (c *HmcRestClient) RunVIOSCommand(sysName, viosName, diskName string, verbo
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/%s/do/CLIRunner", c.hmcIP, mcUUID)
 
 	// 3. Construct the exact viosvrcmd string with proper quoting
-	cmdString := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s "`, sysName, viosName, diskName)
+	//cmdString := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s "`, sysName, viosName, diskName)
 
 	if verbose {
 		hmcLogger.Printf("Executing HMC CLI Command: %s", cmdString)
@@ -805,4 +805,359 @@ func (c *HmcRestClient) RunVIOSCommand(sysName, viosName, diskName string, verbo
 	}
 
 	return nil
+}
+
+
+
+// =====================================================================
+// HELPER FUNCTIONS
+// =====================================================================
+
+// getElementText safely returns the text of an XML element if it exists, otherwise an empty string.
+func getElementText(root *etree.Element, path string) string {
+	if root == nil {
+		return ""
+	}
+	elem := root.FindElement(path)
+	if elem != nil {
+		return elem.Text()
+	}
+	return ""
+}
+
+// =====================================================================
+// VIOS METHODS
+// =====================================================================
+
+/// GetVirtualIOServers retrieves detailed, comprehensive information for all Virtual I/O Servers of a managed system.
+func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]VirtualIOServerDetails, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching comprehensive VIOS details for system UUID %s, URL: %s", systemUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetVirtualIOServers HTTP response status: %s", resp.Status)
+	}
+	if verbose {
+		hmcLogger.Printf("GetVirtualIOServers HTTP response status: %s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	// Strip XML namespaces to make path searching easier with etree
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	var viosList []VirtualIOServerDetails
+
+	// Find all VirtualIOServer elements in the stripped XML
+	entries := doc.FindElements("//VirtualIOServer")
+	if verbose {
+		hmcLogger.Printf("Found %d potential VirtualIOServer XML elements", len(entries))
+	}
+
+	for _, entry := range entries {
+		// Ensure it is a primary VIOS element by checking for PartitionID
+		partitionID := getElementText(entry, "PartitionID")
+		if partitionID == "" {
+			continue
+		}
+
+		partitionName := getElementText(entry, "PartitionName")
+		if verbose {
+			hmcLogger.Printf("\n--- Processing VIOS: %s (Partition ID: %s) ---", partitionName, partitionID)
+		}
+
+		vios := VirtualIOServerDetails{
+			UUID:                        getElementText(entry, "PartitionUUID"),
+			PartitionID:                 partitionID,
+			PartitionName:               partitionName,
+			PartitionState:              getElementText(entry, "PartitionState"),
+			PartitionType:               getElementText(entry, "PartitionType"),
+			SystemName:                  getElementText(entry, "SystemName"),
+			OperatingSystemVersion:      getElementText(entry, "OperatingSystemVersion"),
+			ResourceMonitoringIPAddress: getElementText(entry, "ResourceMonitoringIPAddress"),
+			LogicalSerialNumber:         getElementText(entry, "LogicalSerialNumber"),
+			IsBootable:                  getElementText(entry, "IsBootable"),
+			Uptime:                      getElementText(entry, "Uptime"),
+		}
+
+		// 1. Parse Memory Configuration
+		memConfig := entry.FindElement("PartitionMemoryConfiguration")
+		if memConfig != nil {
+			if verbose {
+				hmcLogger.Printf("  [%s] Parsing Memory Configuration", partitionName)
+			}
+			vios.Memory = VIOSMemoryConfig{
+				DesiredMemory: getElementText(memConfig, "DesiredMemory"),
+				MaximumMemory: getElementText(memConfig, "MaximumMemory"),
+				MinimumMemory: getElementText(memConfig, "MinimumMemory"),
+			}
+		}
+
+		// 2. Parse Processor Configuration
+		procConfig := entry.FindElement("PartitionProcessorConfiguration")
+		if procConfig != nil {
+			if verbose {
+				hmcLogger.Printf("  [%s] Parsing Processor Configuration", partitionName)
+			}
+			vios.Processor = VIOSProcessorConfig{
+				HasDedicatedProcessors: getElementText(procConfig, "HasDedicatedProcessors"),
+				SharingMode:            getElementText(procConfig, "SharingMode"),
+			}
+
+			if dedProc := procConfig.FindElement("DedicatedProcessorConfiguration"); dedProc != nil {
+				vios.Processor.DesiredProcessors = getElementText(dedProc, "DesiredProcessors")
+				vios.Processor.MaximumProcessors = getElementText(dedProc, "MaximumProcessors")
+				vios.Processor.MinimumProcessors = getElementText(dedProc, "MinimumProcessors")
+			}
+		}
+
+		// 3. Parse Storage Configuration (PVs, VFC Mappings, and Physical FC Ports)
+		pvs := entry.FindElements("PhysicalVolumes/PhysicalVolume")
+		if verbose {
+			hmcLogger.Printf("  [%s] Found %d Physical Volumes", partitionName, len(pvs))
+		}
+		for _, pv := range pvs {
+			vios.Storage.PhysicalVolumes = append(vios.Storage.PhysicalVolumes, VIOSPhysicalVolume{
+				VolumeName:     getElementText(pv, "VolumeName"),
+				VolumeCapacity: getElementText(pv, "VolumeCapacity"),
+				VolumeState:    getElementText(pv, "VolumeState"),
+				UniqueDeviceID: getElementText(pv, "UniqueDeviceID"),
+				LocationCode:   getElementText(pv, "LocationCode"),
+			})
+		}
+		
+		vfcs := entry.FindElements("VirtualFibreChannelMappings/VirtualFibreChannelMapping")
+		if verbose {
+			hmcLogger.Printf("  [%s] Found %d Virtual Fibre Channel Mappings", partitionName, len(vfcs))
+		}
+		for _, vfc := range vfcs {
+			vios.Storage.VFCMappings = append(vios.Storage.VFCMappings, VIOSVFCMapping{
+				ServerAdapterSlot: getElementText(vfc, "ServerAdapter/VirtualSlotNumber"),
+				ClientPartitionID: getElementText(vfc, "ServerAdapter/ConnectingPartitionID"),
+				ClientAdapterSlot: getElementText(vfc, "ServerAdapter/ConnectingVirtualSlotNumber"),
+				MapPort:           getElementText(vfc, "ServerAdapter/MapPort"),
+				PortWWPN:          getElementText(vfc, "Port/WWPN"),
+				PortWWNN:          getElementText(vfc, "Port/WWNN"),
+			})
+		}
+
+		// Use a deep search to find all PhysicalFibreChannelPort nodes regardless of exact PCI slot nesting
+		fcPorts := entry.FindElements(".//PhysicalFibreChannelPort")
+		if verbose {
+			hmcLogger.Printf("  [%s] Found %d Physical Fibre Channel Ports", partitionName, len(fcPorts))
+		}
+		for _, fcPort := range fcPorts {
+			portName := getElementText(fcPort, "PortName")
+			wwpn := getElementText(fcPort, "WWPN")
+			
+			if verbose {
+				hmcLogger.Printf("    -> Extracted Port: %-5s | WWPN: %s", portName, wwpn)
+			}
+			
+			vios.Storage.FibreChannelPorts = append(vios.Storage.FibreChannelPorts, VIOSFibreChannelPort{
+				PortName:     portName,
+				LocationCode: getElementText(fcPort, "LocationCode"),
+				WWPN:         wwpn,
+				WWNN:         getElementText(fcPort, "WWNN"),
+			})
+		}
+
+		// 4. Parse Network Configuration (Shared Ethernet Adapters and Trunks)
+		seas := entry.FindElements("SharedEthernetAdapters/SharedEthernetAdapter")
+		if verbose {
+			hmcLogger.Printf("  [%s] Found %d Shared Ethernet Adapters", partitionName, len(seas))
+		}
+		for _, sea := range seas {
+			vios.Network.SharedEthernetAdapters = append(vios.Network.SharedEthernetAdapters, VIOSSharedEthernetAdapter{
+				DeviceName:         getElementText(sea, "DeviceName"),
+				HighAvailability:   getElementText(sea, "HighAvailabilityMode"),
+				PortVLANID:         getElementText(sea, "PortVLANID"),
+				BackingDevice:      getElementText(sea, "BackingDeviceChoice/EthernetBackingDevice/DeviceName"),
+				ConfigurationState: getElementText(sea, "ConfigurationState"),
+			})
+		}
+		
+		trunks := entry.FindElements("TrunkAdapters/TrunkAdapter")
+		if verbose {
+			hmcLogger.Printf("  [%s] Found %d Trunk Adapters", partitionName, len(trunks))
+		}
+		for _, trunk := range trunks {
+			vios.Network.TrunkAdapters = append(vios.Network.TrunkAdapters, VIOSTrunkAdapter{
+				DeviceName:        getElementText(trunk, "DeviceName"),
+				MACAddress:        getElementText(trunk, "MACAddress"),
+				PortVLANID:        getElementText(trunk, "PortVLANID"),
+				VirtualSlotNumber: getElementText(trunk, "VirtualSlotNumber"),
+			})
+		}
+
+		viosList = append(viosList, vios)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully parsed %d valid Virtual I/O Servers with complete details", len(viosList))
+	}
+
+	return viosList, nil
+}
+// GetVirtualIOServer retrieves detailed information for a specific Virtual I/O Server using its UUID.
+func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, verbose bool) (*VirtualIOServerDetails, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching VIOS details for UUID %s, URL: %s", viosUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	// Strip XML namespaces
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// When querying a single item, the root or an entry contains the VirtualIOServer node
+	entry := doc.FindElement("//VirtualIOServer")
+	if entry == nil {
+		return nil, fmt.Errorf("could not find VirtualIOServer in response")
+	}
+
+	vios := &VirtualIOServerDetails{
+		UUID:                        getElementText(entry, "PartitionUUID"),
+		PartitionID:                 getElementText(entry, "PartitionID"),
+		PartitionName:               getElementText(entry, "PartitionName"),
+		PartitionState:              getElementText(entry, "PartitionState"),
+		PartitionType:               getElementText(entry, "PartitionType"),
+		SystemName:                  getElementText(entry, "SystemName"),
+		OperatingSystemVersion:      getElementText(entry, "OperatingSystemVersion"),
+		ResourceMonitoringIPAddress: getElementText(entry, "ResourceMonitoringIPAddress"),
+		LogicalSerialNumber:         getElementText(entry, "LogicalSerialNumber"),
+		IsBootable:                  getElementText(entry, "IsBootable"),
+		Uptime:                      getElementText(entry, "Uptime"),
+	}
+
+	// 1. Parse Memory Configuration
+	if memConfig := entry.FindElement("PartitionMemoryConfiguration"); memConfig != nil {
+		vios.Memory = VIOSMemoryConfig{
+			DesiredMemory: getElementText(memConfig, "DesiredMemory"),
+			MaximumMemory: getElementText(memConfig, "MaximumMemory"),
+			MinimumMemory: getElementText(memConfig, "MinimumMemory"),
+		}
+	}
+
+	// 2. Parse Processor Configuration
+	if procConfig := entry.FindElement("PartitionProcessorConfiguration"); procConfig != nil {
+		vios.Processor = VIOSProcessorConfig{
+			HasDedicatedProcessors: getElementText(procConfig, "HasDedicatedProcessors"),
+			SharingMode:            getElementText(procConfig, "SharingMode"),
+		}
+		if dedProc := procConfig.FindElement("DedicatedProcessorConfiguration"); dedProc != nil {
+			vios.Processor.DesiredProcessors = getElementText(dedProc, "DesiredProcessors")
+			vios.Processor.MaximumProcessors = getElementText(dedProc, "MaximumProcessors")
+			vios.Processor.MinimumProcessors = getElementText(dedProc, "MinimumProcessors")
+		}
+	}
+
+	// 3. Parse Storage Configuration
+	for _, pv := range entry.FindElements("PhysicalVolumes/PhysicalVolume") {
+		vios.Storage.PhysicalVolumes = append(vios.Storage.PhysicalVolumes, VIOSPhysicalVolume{
+			VolumeName:     getElementText(pv, "VolumeName"),
+			VolumeCapacity: getElementText(pv, "VolumeCapacity"),
+			VolumeState:    getElementText(pv, "VolumeState"),
+			UniqueDeviceID: getElementText(pv, "UniqueDeviceID"),
+			LocationCode:   getElementText(pv, "LocationCode"),
+		})
+	}
+	for _, vfc := range entry.FindElements("VirtualFibreChannelMappings/VirtualFibreChannelMapping") {
+		vios.Storage.VFCMappings = append(vios.Storage.VFCMappings, VIOSVFCMapping{
+			ServerAdapterSlot: getElementText(vfc, "ServerAdapter/VirtualSlotNumber"),
+			ClientPartitionID: getElementText(vfc, "ServerAdapter/ConnectingPartitionID"),
+			ClientAdapterSlot: getElementText(vfc, "ServerAdapter/ConnectingVirtualSlotNumber"),
+			MapPort:           getElementText(vfc, "ServerAdapter/MapPort"),
+			PortWWPN:          getElementText(vfc, "Port/WWPN"),
+			PortWWNN:          getElementText(vfc, "Port/WWNN"),
+		})
+	}
+	for _, fcPort := range entry.FindElements(".//PhysicalFibreChannelPort") {
+		vios.Storage.FibreChannelPorts = append(vios.Storage.FibreChannelPorts, VIOSFibreChannelPort{
+			PortName:     getElementText(fcPort, "PortName"),
+			LocationCode: getElementText(fcPort, "LocationCode"),
+			WWPN:         getElementText(fcPort, "WWPN"),
+			WWNN:         getElementText(fcPort, "WWNN"),
+		})
+	}
+
+	// 4. Parse Network Configuration
+	for _, sea := range entry.FindElements("SharedEthernetAdapters/SharedEthernetAdapter") {
+		vios.Network.SharedEthernetAdapters = append(vios.Network.SharedEthernetAdapters, VIOSSharedEthernetAdapter{
+			DeviceName:         getElementText(sea, "DeviceName"),
+			HighAvailability:   getElementText(sea, "HighAvailabilityMode"),
+			PortVLANID:         getElementText(sea, "PortVLANID"),
+			BackingDevice:      getElementText(sea, "BackingDeviceChoice/EthernetBackingDevice/DeviceName"),
+			ConfigurationState: getElementText(sea, "ConfigurationState"),
+		})
+	}
+	for _, trunk := range entry.FindElements("TrunkAdapters/TrunkAdapter") {
+		vios.Network.TrunkAdapters = append(vios.Network.TrunkAdapters, VIOSTrunkAdapter{
+			DeviceName:        getElementText(trunk, "DeviceName"),
+			MACAddress:        getElementText(trunk, "MACAddress"),
+			PortVLANID:        getElementText(trunk, "PortVLANID"),
+			VirtualSlotNumber: getElementText(trunk, "VirtualSlotNumber"),
+		})
+	}
+
+	return vios, nil
 }

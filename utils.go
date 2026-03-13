@@ -764,3 +764,11 @@ func (c *HmcRestClient) GetAttachedVolumes(systemUUID, lparUUID string, verbose 
 
     return attachedStorage, nil
 }
+
+func (c *HmcRestClient) GetSvcUidFixed(viosId string) string {
+    // Logic for 33213: Header is 5 chars, 32-char UID follows
+    if len(viosId) >= 37 && viosId[0:5] == "33213" {
+        return strings.ToUpper(viosId[5 : 5+32])
+    }
+    return ""
+}

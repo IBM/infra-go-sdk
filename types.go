@@ -244,3 +244,91 @@ type StorageMap struct {
 	ClientAdapter   string // Virtual SCSI adapter on client/LPAR side (e.g., vtscsi0)
 	ClientSlotNumber string // Client adapter slot number
 }
+
+// =====================================================================
+// DATA STRUCTURES FOR COMPREHENSIVE VIOS DETAILS
+// =====================================================================
+
+// VirtualIOServerDetails represents detailed information about a Virtual I/O Server.
+type VirtualIOServerDetails struct {
+	UUID                        string
+	PartitionID                 string
+	PartitionName               string
+	PartitionState              string
+	PartitionType               string
+	SystemName                  string
+	OperatingSystemVersion      string
+	ResourceMonitoringIPAddress string
+	LogicalSerialNumber         string
+	IsBootable                  string
+	Uptime                      string
+
+	Memory    VIOSMemoryConfig
+	Processor VIOSProcessorConfig
+	Storage   VIOSStorageConfig
+	Network   VIOSNetworkConfig
+}
+
+type VIOSMemoryConfig struct {
+	DesiredMemory string
+	MaximumMemory string
+	MinimumMemory string
+}
+
+type VIOSProcessorConfig struct {
+	HasDedicatedProcessors string
+	SharingMode            string
+	DesiredProcessors      string
+	MaximumProcessors      string
+	MinimumProcessors      string
+}
+
+type VIOSStorageConfig struct {
+	PhysicalVolumes   []VIOSPhysicalVolume
+	VFCMappings       []VIOSVFCMapping
+	FibreChannelPorts []VIOSFibreChannelPort
+}
+
+type VIOSPhysicalVolume struct {
+	VolumeName     string
+	VolumeCapacity string
+	VolumeState    string
+	UniqueDeviceID string
+	LocationCode   string
+}
+
+type VIOSFibreChannelPort struct {
+	PortName     string
+	LocationCode string
+	WWPN         string
+	WWNN         string
+}
+
+type VIOSVFCMapping struct {
+	ServerAdapterSlot string
+	ClientPartitionID string
+	ClientAdapterSlot string
+	MapPort           string
+	PortWWPN          string
+	PortWWNN          string
+}
+
+type VIOSNetworkConfig struct {
+	SharedEthernetAdapters []VIOSSharedEthernetAdapter
+	TrunkAdapters          []VIOSTrunkAdapter
+}
+
+type VIOSSharedEthernetAdapter struct {
+	DeviceName         string
+	HighAvailability   string
+	PortVLANID         string
+	BackingDevice      string
+	ConfigurationState string
+}
+
+type VIOSTrunkAdapter struct {
+	DeviceName        string
+	MACAddress        string
+	PortVLANID        string
+	VirtualSlotNumber string
+}
