@@ -53,19 +53,19 @@ func main() {
 		}
 
 		// 2. Get the Mappings to find which ones belong to our LPAR
-		mappings, err := restClient.GetViosSCSIMappings(v.UUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMapping(v.UUID,targetLparLower, *verbose)
 		if err != nil {
 			continue
 		}
 
 		for _, mapping := range mappings {
-			assocLpar := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
-			if assocLpar == nil { continue }
+			//assocLpar := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
+			//if assocLpar == nil { continue }
 			
-			href := strings.ToLower(assocLpar.SelectAttrValue("href", ""))
-			if !strings.HasSuffix(href, targetLparLower) {
-				continue
-			}
+			//href := strings.ToLower(assocLpar.SelectAttrValue("href", ""))
+			//if !strings.HasSuffix(href, targetLparLower) {
+			//	continue
+			//}
 
 			// --- EXTRACT DATA FROM MAPPING ---
 			

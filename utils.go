@@ -772,3 +772,34 @@ func (c *HmcRestClient) GetSvcUidFixed(viosId string) string {
     }
     return ""
 }
+
+// DeleteHMCResource executes a DELETE request against a specific HMC REST API URL.
+func (c *HmcRestClient) DeleteHMCResource(resourceURL string, verbose bool) error {
+	if verbose { hmcLogger.Printf("Executing DELETE on Resource URL: %s", resourceURL) }
+	
+	req, err := http.NewRequest("DELETE", resourceURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-API-Session", c.session)
+	
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("Resource DELETE Status: %s", resp.Status)
+		if len(body) > 0 {
+			hmcLogger.Printf("Resource DELETE Response:\n%s", string(body))
+		}
+	}
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("failed to delete resource. Status: %s, Response: %s", resp.Status, string(body))
+	}
+	return nil
+}

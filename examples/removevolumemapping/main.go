@@ -29,7 +29,7 @@ func main() {
 	}
 
 	// Remove the volume-LPAR mapping
-	err := restClient.RemoveVolumeLPARMapping(viosUUID, lparUUID, volumeName, verbose)
+	_,_,err := restClient.RemoveVolumeLPARMapping(viosUUID, lparUUID, volumeName, verbose)
 	if err != nil {
 		log.Fatalf("Failed to remove volume-LPAR mapping: %v", err)
 	}

@@ -332,3 +332,19 @@ type VIOSTrunkAdapter struct {
 	PortVLANID        string
 	VirtualSlotNumber string
 }
+
+
+// VirtualSCSIServerAdapter represents a Virtual SCSI Server Adapter (vhost) on a VIOS.
+type VirtualSCSIServerAdapter struct {
+	UUID                                string
+	AdapterURI                          string // The direct URL to this specific adapter (useful for DELETE operations)
+	AdapterType                         string
+	DynamicReconfigurationConnectorName string
+	LocationCode                        string
+	LocalPartitionID                    string
+	RequiredAdapter                     string
+	VariedOn                            string
+	VirtualSlotNumber                   string
+	RemoteLogicalPartitionID            string
+	RemoteSlotNumber                    string
+}
