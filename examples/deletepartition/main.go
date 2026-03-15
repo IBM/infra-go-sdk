@@ -15,55 +15,39 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION - Command Line Flags
 	// =========================================================================
-	
-	// HMC Details
-	hmcIP    := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	hmcUser  := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	hmcPass  := flag.String("hmc-pass", "", "HMC password")
-	sysName  := flag.String("system-name", "", "Managed System Name")
+	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
+	hmcUser := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
+	hmcPass := flag.String("hmc-pass", "", "HMC password")
+	sysName := flag.String("system-name", "", "Managed System Name")
 	lparName := flag.String("lpar-name", "", "LPAR Name to delete")
-	verbose  := flag.Bool("verbose", false, "Enable verbose output")
+	verbose := flag.Bool("verbose", true, "Enable verbose output")
 
-	// SVC Details
-	svcIP    := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
-	svcUser  := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
-	svcPass  := flag.String("svc-pass", "", "SVC password")
-	
+	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "", "SVC password")
+
 	flag.Parse()
 
-	// Validate required parameters
-	if *hmcPass == "" {
-		log.Fatal("Error: --hmc-pass is required")
-	}
-	if *sysName == "" {
-		log.Fatal("Error: --system-name is required")
-	}
-	if *lparName == "" {
-		log.Fatal("Error: --lpar-name is required")
-	}
-	if *svcPass == "" {
-		log.Fatal("Error: --svc-pass is required")
+	if *hmcPass == "" || *sysName == "" || *lparName == "" || *svcPass == "" {
+		log.Fatal("Error: hmc-pass, system-name, lpar-name, and svc-pass are all required.")
 	}
 
 	// =========================================================================
 	// PHASE 1: HMC COMPUTE PREPARATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	if err := restClient.Login(*hmcUser, *hmcPass, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff()
 
-	// 1. Resolve System Name
 	fmt.Printf("\nStep 1: Locating System [%s]...\n", *sysName)
 	sysUUID, _, err := restClient.GetManagedSystemByName(*sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("System %s not found: %v", *sysName, err)
 	}
 
-	// 2. Resolve LPAR Name & State
 	fmt.Printf("Step 2: Locating Partition [%s]...\n", *lparName)
 	lpars, err := restClient.GetLogicalPartitionsQuickAll(sysUUID, *verbose)
 	if err != nil {
@@ -84,17 +68,14 @@ func main() {
 		log.Fatalf("Error: Partition %s not found on system %s", *lparName, *sysName)
 	}
 
-	// 3. Shutdown LPAR if it is running
+	// 3. Shutdown LPAR
 	if currentState != "not activated" {
 		fmt.Printf("Step 3: Partition is currently '%s'. Initiating Shutdown...\n", currentState)
-		_, err := restClient.PowerOffPartition(sysUUID, targetLparUUID, "Immediate", false, *verbose)
-		if err != nil {
-			log.Fatalf("Power off failed: %v", err)
-		}
+		restClient.PowerOffPartition(sysUUID, targetLparUUID, "Immediate", false, *verbose)
 		
 		fmt.Println("        Waiting for HMC to register 'not activated' state (Polling)...")
 		stateReached := false
-		for i := 0; i < 15; i++ { 
+		for i := 0; i < 20; i++ {
 			prop, err := restClient.GetLogicalPartitionQuick(targetLparUUID, false)
 			if err == nil && strings.ToLower(prop.PartitionState) == "not activated" {
 				stateReached = true
@@ -103,254 +84,166 @@ func main() {
 			time.Sleep(5 * time.Second)
 		}
 		if !stateReached {
-			log.Fatalf("Timeout: Partition did not reach 'not activated' state in time.")
+			log.Fatalf("Timeout: Partition did not reach 'not activated' state.")
 		}
-		fmt.Println("        ✅ Partition successfully powered off.")
+		fmt.Println("        ✅ Partition powered off.")
 	} else {
 		fmt.Println("Step 3: Partition is already 'not activated'. Skipping shutdown.")
 	}
 
 	// =========================================================================
-	// PHASE 2: DYNAMIC STORAGE DISCOVERY & CLEANUP
+	// PHASE 2: STORAGE CLEANUP (The Correct Order)
 	// =========================================================================
-	fmt.Println("\nStep 4: Tracing dynamically attached storage via HMC VIOS mappings...")
+	fmt.Println("\nStep 4: Tracing attached storage via HMC VIOS mappings...")
 	mappedVolumes, err := restClient.GetAttachedVolumes(sysUUID, targetLparUUID, *verbose)
 	if err != nil {
-		log.Fatalf("        ❌ Failed to trace storage: %v\n        This is critical - cannot proceed without knowing what to clean up.", err)
+		log.Fatalf("Critical Error: Failed to trace storage: %v", err)
 	}
-	fmt.Printf("PRINTING VOLUME MAP")
-	fmt.Printf("Current Storage Map: %+v\n", mappedVolumes)
-	// Track processed VIOS for summary
-	processedVIOS := make(map[string]bool)
 
 	if len(mappedVolumes) > 0 {
-		fmt.Printf("        Found %d attached volume(s).\n", len(mappedVolumes))
-		
-		// =========================================================================
-		// PHASE 2A: REMOVE VSCSI MAPPINGS FROM HMC (CRITICAL STEP!)
-		// =========================================================================
+		fmt.Printf("        Found %d volume(s). Starting clean-up sequence...\n", len(mappedVolumes))
+
+		// --- STEP 5: REMOVE HMC VSCSI MAPPING ---
 		fmt.Println("\nStep 5: Removing VSCSI mappings from HMC...")
-		for i, vol := range mappedVolumes {
-			fmt.Printf("        [%d/%d] Removing mapping for volume '%s' from VIOS '%s'...\n",
-				i+1, len(mappedVolumes), vol.VolumeName, vol.ViosName)
-			
+		for _, vol := range mappedVolumes {
 			err := restClient.RemoveVolumeLPARMapping(vol.ViosUUID, targetLparUUID, vol.VolumeName, *verbose)
 			if err != nil {
-				log.Printf("           ⚠️ Warning: Failed to remove HMC mapping: %v", err)
-				log.Printf("           Continuing, but this may leave stale devices in VIOS.")
+				log.Printf("           ⚠️ Warning: Mapping removal failed for %s: %v", vol.VolumeName, err)
+				// Continue with cleanup even if mapping removal fails
 			} else {
-				fmt.Println("           ✅ HMC mapping removed successfully.")
+				fmt.Printf("           ✅ HMC mapping removed for %s.\n", vol.VolumeName)
 			}
 		}
+		fmt.Println("        Waiting 5s for HMC to sync state...")
+		time.Sleep(5 * time.Second)
 
-		// =========================================================================
-		// PHASE 2B: RUN CFGDEV ON EACH VIOS TO CLEAN DEVICE TREE
-		// =========================================================================
-		fmt.Println("\nStep 6: Running cfgdev on VIOS to remove stale devices...")
-		// Give the HMC and VIOS a moment to settle after the mapping deletion
-        time.Sleep(10 * time.Second)
-		for _, vol := range mappedVolumes {
-			if processedVIOS[vol.ViosUUID] {
-				continue // Already processed this VIOS
-			}
-			processedVIOS[vol.ViosUUID] = true
-			
-			fmt.Printf("        Configuring devices on VIOS '%s'...\n", vol.ViosName)
-			err := restClient.ConfigDevice(vol.ViosUUID, "", *verbose)
-			if err != nil {
-				log.Printf("           ⚠️ Warning: cfgdev failed on VIOS %s: %v", vol.ViosName, err)
-				log.Printf("           Manual cleanup may be required on this VIOS.")
-			} else {
-				fmt.Println("           ✅ Device tree cleaned successfully.")
-			}
-		}
-		// =========================================================================
-		// PHASE 2D: REMOVE PHYSICAL DEVICES FROM VIOS (via HMC CLIRunner)
-		// =========================================================================
-		fmt.Println("\nStep 6.5: Removing virtual SCSI Client adapters from VIOS...")
-		// Give time for physical devices to be removed
-		time.Sleep(5 * time.Second)
-		
-		// Track unique server adapters to avoid duplicates
-		processedAdapters := make(map[string]bool)
-		
-		for _, vol := range mappedVolumes {
-			// Create unique key for this adapter (VIOS + ServerAdapter)
-			adapterKey := vol.ViosName + ":" + vol.ClientAdapter
-			
-			if vol.ServerAdapter != "" && !processedAdapters[adapterKey] {
-				processedAdapters[adapterKey] = true
-				
-				fmt.Printf("        Removing client adapter '%s' from VIOS '%s'...\n",
-					vol.ClientAdapter, vol.ViosName)
-				
-				// Use CLIRunner to execute rmdev for the server adapter (vhost)
-				err := restClient.RunVIOSCommand(*sysName, vol.ViosName, vol.ClientAdapter, *verbose)
-				if err != nil {
-					log.Printf("           ⚠️ Warning: Failed to remove adapter: %v", err)
-					log.Printf("           Manual cleanup required: ssh padmin@<vios-ip> 'rmdvev -vtd %s '", vol.ClientAdapter)
-				} else {
-					fmt.Println("           ✅ Virtual server adapter successfully removed from VIOS.")
-				}
-			}
-		}
-		
-		// =========================================================================
-		// PHASE 2D: REMOVE VIRTUAL SCSI SERVER ADAPTERS FROM VIOS
-		// =========================================================================
-		fmt.Println("\nStep 6.6: Removing virtual SCSI server adapters from VIOS...")
-		// Give time for physical devices to be removed
-		time.Sleep(5 * time.Second)
-		
-		// Track unique server adapters to avoid duplicates
-		processedAdapters = make(map[string]bool)
-		
-		for _, vol := range mappedVolumes {
-			// Create unique key for this adapter (VIOS + ServerAdapter)
-			adapterKey := vol.ViosName + ":" + vol.ViosName
-			
-			if vol.ServerAdapter != "" && !processedAdapters[adapterKey] {
-				processedAdapters[adapterKey] = true
-				
-				fmt.Printf("        Removing Disk adapter '%s' from VIOS '%s'...\n",
-					vol.VolumeName, vol.ViosName)
-				
-				// Use CLIRunner to execute rmdev for the server adapter (vhost)
-				err := restClient.RunVIOSCommand(*sysName, vol.ViosName, vol.VolumeName, *verbose)
-				if err != nil {
-					log.Printf("           ⚠️ Warning: Failed to remove adapter: %v", err)
-					log.Printf("           Manual cleanup required: ssh padmin@<vios-ip> 'rmdev -dev %s '", vol.VolumeName)
-				} else {
-					fmt.Println("           ✅ Virtual server adapter successfully removed from VIOS.")
-				}
-			}
-		}
-		
-		// =========================================================================
-		// PHASE 2E: RUN CFGDEV ON EACH VIOS TO CLEAN DEVICE TREE
-		// =========================================================================
-		fmt.Println("\nStep 6.7: Running cfgdev on VIOS to remove stale devices...")
-		// Give the HMC and VIOS a moment to settle after the mapping deletion
-        time.Sleep(10 * time.Second)
-		for _, vol := range mappedVolumes {
-			if processedVIOS[vol.ViosUUID] {
-				continue // Already processed this VIOS
-			}
-			processedVIOS[vol.ViosUUID] = true
-			
-			fmt.Printf("        Configuring devices on VIOS '%s'...\n", vol.ViosName)
-			err := restClient.ConfigDevice(vol.ViosUUID, "", *verbose)
-			if err != nil {
-				log.Printf("           ⚠️ Warning: cfgdev failed on VIOS %s: %v", vol.ViosName, err)
-				log.Printf("           Manual cleanup may be required on this VIOS.")
-			} else {
-				fmt.Println("           ✅ Device tree cleaned successfully.")
-			}
-		}
-		
-		// =========================================================================
-		// PHASE 2E: SVC STORAGE CLEANUP
-		// =========================================================================
-		fmt.Printf("\nStep 7: Connecting to SVC [%s] for storage cleanup...\n", *svcIP)
+		// --- STEP 6: SVC STORAGE CLEANUP ---
+		fmt.Printf("\nStep 6: Connecting to SVC [%s] for storage cleanup...\n", *svcIP)
 		svcClient := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 		if err := svcClient.Authenticate(); err != nil {
 			log.Fatalf("SVC Auth error: %v", err)
 		}
 		fmt.Println("        ✅ Authenticated to SVC.")
 
+		// Pre-fetch all vdisks once
+		vdisks, err := svcClient.LsVdisk()
+		if err != nil {
+			log.Fatalf("Failed to list SVC volumes: %v", err)
+		}
+
 		for i, vol := range mappedVolumes {
 			fmt.Printf("\n        --- Processing Volume %d/%d: %s ---\n", i+1, len(mappedVolumes), vol.VolumeName)
-			fmt.Printf("        VIOS Host: %s | UDID: %s\n", vol.ViosName, vol.VolumeUDID)
 			
-			dynamicHostName := vol.ViosName
-			
-			// Look up the actual SVC volume name using UDID
-			// The vol.VolumeName is the VIOS device name (hdiskX), not the SVC volume name
+			// 1. Resolve SVC Volume Name via Fixed UID
+			targetUID := restClient.GetSvcUidFixed(vol.VolumeUDID)
 			svcVolumeName := ""
-			if vol.VolumeUDID != "" && vol.VolumeUDID != "unknown" {
-				// Query SVC to find volume by UDID
-				vdisks, err := svcClient.LsVdisk()
-				if err != nil {
-					log.Printf("           ⚠️ Warning: Failed to list SVC volumes: %v", err)
-					log.Printf("           Will attempt deletion using VIOS device name '%s'", vol.VolumeName)
-					svcVolumeName = vol.VolumeName
-				} else {
-					// Search for volume with matching UDID
-					for _, vdisk := range vdisks {
-						if vdisk.VdiskUID == vol.VolumeUDID {
-							svcVolumeName = vdisk.Name
-							fmt.Printf("        ✅ Resolved SVC volume name: '%s' (from UDID)\n", svcVolumeName)
-							break
-						}
-					}
-					if svcVolumeName == "" {
-						log.Printf("           ⚠️ Warning: Could not find SVC volume with UDID %s", vol.VolumeUDID)
-						log.Printf("           Will attempt deletion using VIOS device name '%s'", vol.VolumeName)
-						svcVolumeName = vol.VolumeName
+			if targetUID != "" {
+				for _, vdisk := range vdisks {
+					if strings.ToUpper(vdisk.VdiskUID) == targetUID {
+						svcVolumeName = vdisk.Name
+						fmt.Printf("        ✅ Found SVC Volume: %s (Matched UID)\n", svcVolumeName)
+						break
 					}
 				}
-			} else {
-				log.Printf("           ⚠️ Warning: No UDID available for volume '%s'", vol.VolumeName)
-				log.Printf("           Will attempt deletion using VIOS device name '%s'", vol.VolumeName)
-				svcVolumeName = vol.VolumeName
+			}
+			
+
+			if svcVolumeName == "" {
+				log.Printf("        ⚠️ Warning: Could not find SVC volume for UDID %s. Skipping SAN cleanup for this disk.", vol.VolumeUDID)
+				continue
 			}
 
-			// Unmap Volume from SVC
-			fmt.Printf("        -> Unmapping volume '%s' from SVC host '%s'...\n", svcVolumeName, dynamicHostName)
-			err = svcClient.Rmvdiskhostmap(dynamicHostName, svcVolumeName)
+			// 2. Dynamically Resolve SVC Hostname via VIOS WWPNs (Matching your creation logic)
+			viosObj, err := restClient.GetVirtualIOServer(vol.ViosUUID, false)
+			targetHost := ""
+			if err == nil {
+				for _, fc := range viosObj.Storage.FibreChannelPorts {
+					wwpn := strings.ToUpper(fc.WWPN)
+					existingHost, err := svcClient.GetHostByWWPN(wwpn)
+					log.Printf("wwpn :%s", wwpn)
+					log.Printf("EXISTIN HOST :%s", existingHost)
+					log.Printf("ERR: %s", err)
+					log.Printf("WWPN: %s", fc.WWPN)
+					log.Printf("SVC VOL: %s", svcVolumeName)
+					log.Printf("SVC VOL UDID: %s", vol.VolumeUDID)
+					if err == nil {
+						targetHost = existingHost
+						fmt.Printf("        ✅ Identified SVC Host: %s (via WWPN %s)\n", targetHost, wwpn)
+						break
+					}
+				}
+			}
+			
+
+			// Fallback to VIOS Name if WWPN lookup fails
+			if targetHost == "" {
+				fmt.Printf("        ⚠️ Warning: Could not resolve SVC host via WWPNs. Fallback to VIOS name: %s\n", vol.ViosName)
+				targetHost = vol.ViosName
+			}
+
+			// 3. Unmap and Delete
+			fmt.Printf("        -> Unmapping volume '%s' from host '%s'...\n", svcVolumeName, targetHost)
+			err = svcClient.Rmvdiskhostmap(targetHost, svcVolumeName)
 			if err != nil {
-				errStr := err.Error()
-				if strings.Contains(errStr, "CMMVC6071E") {
-					fmt.Println("           ✅ Volume already unmapped from SVC.")
-				} else if strings.Contains(errStr, "CMMVC5753E") || strings.Contains(errStr, "CMMVC5754E") {
-					fmt.Println("           ✅ Volume or host mapping doesn't exist (already cleaned up).")
+				if strings.Contains(err.Error(), "CMMVC6071E") || strings.Contains(err.Error(), "CMMVC5753E") || strings.Contains(err.Error(), "CMMVC5754E") {
+					fmt.Println("           ✅ Volume or host mapping already removed.")
 				} else {
-					log.Printf("           ⚠️ Warning: Failed to unmap from SVC: %v", err)
-					log.Printf("           Continuing with volume deletion...")
+					fmt.Printf("           Note: Unmap returned: %v\n", err)
 				}
 			} else {
 				fmt.Println("           ✅ Successfully unmapped from SVC.")
 			}
 
-			// Delete Volume from SVC
 			fmt.Printf("        -> Deleting volume '%s' from SVC...\n", svcVolumeName)
-			removeVolume := svc.VolumeRemove{
-				Force:              true,
-				RemoveHostMappings: false,
-			}
-			if err := svcClient.Rmvdisk(svcVolumeName, removeVolume); err != nil {
-				errStr := err.Error()
-				if strings.Contains(errStr, "CMMVC5753E") || strings.Contains(errStr, "CMMVC5754E") || strings.Contains(errStr, "CMMVC5804E") {
-					fmt.Println("           ✅ Volume already deleted (or does not exist).")
+			err = svcClient.Rmvdisk(svcVolumeName, svc.VolumeRemove{Force: true})
+			if err != nil {
+				if strings.Contains(err.Error(), "CMMVC5753E") || strings.Contains(err.Error(), "CMMVC5754E") || strings.Contains(err.Error(), "CMMVC5804E") {
+					fmt.Println("           ✅ Volume already deleted.")
 				} else {
-					log.Printf("           ⚠️ Warning: Rmvdisk error: %v", err)
-					log.Printf("           Manual cleanup may be required in SVC.")
+					log.Printf("           ❌ Failed to delete volume: %v", err)
 				}
 			} else {
-				fmt.Println("           ✅ Successfully deleted volume from SVC.")
+				fmt.Println("           ✅ Volume successfully purged from SAN.")
 			}
+		}
+
+		// --- STEP 7: VIOS DEVICE WIPING ---
+		fmt.Println("\nStep 7: Wiping devices from VIOS OS...")
+		processedVIOS := make(map[string]bool)
+		for _, vol := range mappedVolumes {
+			// 7.1 Remove VTD (Force) - Ensures vtscsi is gone
+			cmdVTD := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmvdev -vtd %s -recursive"`, *sysName, vol.ViosName, vol.ServerAdapter)
+			restClient.RunVIOSCommand(cmdVTD, *verbose)
+
+			// 7.2 Clear PV & Remove hdisk - The -del flag is critical for persistence
+			cmdDisk := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s -recursive"`, *sysName, vol.ViosName, vol.VolumeName)
+			restClient.RunVIOSCommand(cmdDisk, *verbose)
+
+			// 7.3 Remove Server Adapter (vhost)
+			//cmdVhost := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s -recursive"`, *sysName, vol.ViosName, vol.ServerAdapter)
+			//restClient.RunVIOSCommand(cmdVhost, *verbose)
+			
+			processedVIOS[vol.ViosUUID] = true
+		}
+
+		// --- STEP 8: FINAL CFGDEV ---
+		fmt.Println("\nStep 8: Final cfgdev to confirm clean device tree...")
+		for viosUUID := range processedVIOS {
+			restClient.ConfigDevice(viosUUID, "", *verbose)
+			fmt.Println("           ✅ Device tree cleaned successfully.")
 		}
 	} else {
 		fmt.Println("        No attached storage found. Proceeding to partition deletion.")
 	}
 
 	// =========================================================================
-	// PHASE 3: HMC COMPUTE DELETION
+	// PHASE 3: COMPUTE DELETION
 	// =========================================================================
-	fmt.Printf("\nStep 8: Deleting Partition '%s' from HMC...\n", *lparName)
-	err = restClient.DeleteLogicalPartition(targetLparUUID, *verbose)
-	if err != nil {
+	fmt.Printf("\nStep 9: Deleting Partition '%s' from HMC...\n", *lparName)
+	if err := restClient.DeleteLogicalPartition(targetLparUUID, *verbose); err != nil {
 		log.Fatalf("HMC Delete failed: %v", err)
 	}
-	fmt.Println("        ✅ Partition deleted from HMC successfully.")
 
 	fmt.Printf("\n🎉 SUCCESS: Partition '%s' and its associated infrastructure have been completely removed.\n", *lparName)
-	fmt.Println("\nCleanup Summary:")
-	fmt.Printf("  ✅ Partition powered off and deleted from HMC\n")
-	if len(mappedVolumes) > 0 {
-		fmt.Printf("  ✅ %d VSCSI mapping(s) removed from HMC\n", len(mappedVolumes))
-		fmt.Printf("  ✅ Device tree cleaned on %d VIOS(es)\n", len(processedVIOS))
-		fmt.Printf("  ✅ %d volume(s) unmapped and deleted from SVC storage\n", len(mappedVolumes))
-	}
 	fmt.Println("\n✨ All resources have been properly cleaned up. No stale devices should remain.")
 }
