@@ -280,7 +280,6 @@ func (c *HmcRestClient) UpdateProcMemSettingsToDom(templateXML *etree.Element, c
 			for i, child := range parent.Child {
 				if child == sharingModeTag {
 					// Insert sharedConfigElement immediately after sharingModeTag
-					fmt.Printf("Type of sharedConfigElement: %T\n", sharedConfigElement)
 					parent.InsertChildAt(i+1, sharedConfigElement)
 					break
 				}

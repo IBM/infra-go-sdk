@@ -11,26 +11,15 @@ import (
 
 	"github.com/beevik/etree"
 	hmc "github.com/sudeeshjohn/PowerHMC"
-	"github.com/sudeeshjohn/svc-go-sdk/svc"
+	svc "github.com/sudeeshjohn/svc-go-sdk"
 )
-
-// VolumeConfig defines the configuration for a volume
-type VolumeConfig struct {
-	ViosName   string // Name of the VIOS managing the volume
-	VolumeName string // Name of the volume (e.g., hdisk1)
-}
-
-// PartitionConfig holds the high-level configuration for the deployment
-type PartitionConfig struct {
-	OSType string
-}
 
 func main() {
 	// --- Command-line flags with hardcoded defaults ---
 	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
 	username := flag.String("username", "REDACTED_HMC_USER<==", "Username")
 	password := flag.String("password", "REDACTED_HMC_PASS<==", "Password")
-	verbose := flag.Bool("verbose", true, "Enable verbose output")
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	osType := flag.String("os-type", "linux", "OS type (aix, linux, aix_linux, ibmi)")
 	systemName := flag.String("system-name", "LTC09U31-ZZ", "Managed system name")
 
@@ -42,62 +31,81 @@ func main() {
 
 	flag.Parse()
 
+	if *verbose {
+		log.Println("======================================================")
+		log.Println(" Starting PowerVM LPAR Creation & SAN Provisioning")
+		log.Println("======================================================")
+	}
+
 	// --- 1. Validate OS Type & Determine Reference Template immediately ---
 	var referenceTemplate string
 	if *systemName != "" && *osType != "" {
+		if *verbose {
+			log.Printf("[INIT] Validating OS type: %s", *osType)
+		}
 		switch *osType {
 		case "aix", "linux", "aix_linux":
 			referenceTemplate = "QuickStart_lpar_rpa_2"
 		case "ibmi":
 			referenceTemplate = "QuickStart_lpar_IBMi_2"
 		default:
-			log.Fatalf("invalid os-type: %s (must be aix, linux, aix_linux, or ibmi)", *osType)
+			log.Fatalf("[INIT] Error: invalid os-type: %s (must be aix, linux, aix_linux, or ibmi)", *osType)
+		}
+		if *verbose {
+			log.Printf("[INIT] Selected Reference Template: %s", referenceTemplate)
 		}
 	}
 
 	// --- Initialize & Authenticate HMC ---
 	restClient := hmc.NewHmcRestClient(*hmcIP)
 	if *verbose {
-		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
+		log.Printf("[HMC-AUTH] Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
 	}
 	if err := restClient.Login(*username, *password, *verbose); err != nil {
-		log.Fatalf("Logon failed: %v", err)
+		log.Fatalf("[HMC-AUTH] Logon failed: %v", err)
 	}
 	defer func() {
+		if *verbose {
+			log.Printf("[HMC-AUTH] Initiating HMC Logoff sequence...")
+		}
 		if err := restClient.Logoff(); err != nil {
-			log.Printf("Logoff failed: %v", err)
+			log.Printf("[HMC-AUTH] Logoff failed: %v", err)
 		} else if *verbose {
-			log.Println("Logged off successfully")
+			log.Println("[HMC-AUTH] Logged off successfully")
 		}
 	}()
-
-	// --- Optional Verbose Info ---
-	if *verbose {
-		handleListTemplates(restClient, *verbose)
-	}
 
 	// --- Main Partition Creation Workflow ---
 	if *systemName != "" && *osType != "" {
 		systemUUID := resolveSystemUUID(restClient, *systemName, *verbose)
-		configDict := buildLparConfigDict()
+		configDict := buildLparConfigDict(*verbose)
 
 		// 2. Check if LPAR already exists
 		ensureLparDoesNotExist(restClient, systemUUID, configDict["vm_name"], *verbose)
 
-		// 3. Prepare the Partition Template (passing the determined referenceTemplate)
+		// 3. Prepare the Partition Template
 		tempUUID, tempTemplateName, tempTemplateDoc, err := prepareLparTemplate(restClient, referenceTemplate, configDict, *verbose)
 		if err != nil {
-			log.Fatalf("Template preparation failed: %v", err)
+			log.Fatalf("[HMC] Template preparation failed: %v", err)
 		}
 
-		// 4. Provision SVC Storage
-		targetVol := provisionSVCStorage(*svcIP, *svcUser, *svcPass, *baseImageName)
+		// 4. Discover VIOS WWPNs from HMC
+		viosWwpnMap := getViosWwpnMap(restClient, systemUUID, *verbose)
 
-		// 5. Configure VSCSI and update the template
-		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, *verbose)
+		// 5. Provision SVC Storage
+		targetVol, selectedViosName := provisionSVCStorage(*svcIP, *svcUser, *svcPass, *baseImageName, viosWwpnMap, *verbose)
 
-		// 6. Deploy, Start, and Cleanup
+		// 6. Configure VSCSI and update the template
+		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, *verbose)
+
+		// 7. Deploy, Start, and Cleanup
 		deployAndStartPartition(restClient, systemUUID, tempUUID, tempTemplateName, configDict, *osType, *verbose)
+
+		if *verbose {
+			log.Println("======================================================")
+			log.Printf(" ✅ Workflow Complete! LPAR '%s' is up and running.", configDict["vm_name"])
+			log.Println("======================================================")
+		}
 	}
 }
 
@@ -105,38 +113,31 @@ func main() {
 // WORKFLOW HELPER FUNCTIONS
 // =========================================================================
 
-func handleListTemplates(restClient *hmc.HmcRestClient, verbose bool) {
-	if verbose { log.Printf("Listing all partition template IDs") }
-	ids, err := restClient.ListPartitionTemplateIDs(verbose)
-	if err != nil {
-		log.Fatalf("Failed to list partition template IDs: %v", err)
-	}
-	fmt.Println("Partition Template IDs:")
-	for i, id := range ids {
-		fmt.Printf("%d: %s\n", i+1, id)
-	}
-}
-
 func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
+	if verbose {
+		log.Printf("[HMC] Resolving Managed System UUID for name: %s", systemName)
+	}
 	uuid, systemElem, err := restClient.GetManagedSystemByName(systemName, verbose)
 	if err != nil {
-		log.Fatalf("Failed to get managed system: %v", err)
+		log.Fatalf("[HMC] Failed to get managed system: %v", err)
 	}
 	if uuid == "" {
-		log.Fatalf("Given system '%s' is not present", systemName)
+		log.Fatalf("[HMC] Given system '%s' is not present", systemName)
 	}
 	if verbose {
-		fmt.Printf("Managed System UUID: %s\n", uuid)
+		log.Printf("[HMC] Successfully resolved Managed System UUID: %s", uuid)
 		maxLpars := systemElem.FindElement("//MaximumPartitions")
 		if maxLpars != nil {
-			fmt.Printf("Maximum Partitions for system %s: %s\n", uuid, maxLpars.Text())
+			log.Printf("[HMC] Maximum Partitions allowed for system %s: %s", uuid, maxLpars.Text())
 		}
 	}
 	return uuid
 }
 
-func buildLparConfigDict() map[string]string {
-	// Centralized hardcoded LPAR defaults
+func buildLparConfigDict(verbose bool) map[string]string {
+	if verbose {
+		log.Println("[CONFIG] Building LPAR configuration dictionary with default values...")
+	}
 	proc, procUnit, mem, maxVirtualSlots := 2, 2, 2048, 50
 	
 	configDict := make(map[string]string)
@@ -152,41 +153,56 @@ func buildLparConfigDict() map[string]string {
 	configDict["min_mem"] = "1024"
 	configDict["max_virtual_slots"] = strconv.Itoa(maxVirtualSlots)
 	configDict["proc_mode"] = "uncapped"
-	configDict["weight"] = "128" // Assuming uncapped
+	configDict["weight"] = "128"
 	configDict["proc_comp_mode"] = "Default"
 	configDict["shared_proc_pool"] = "0"
+	
+	if verbose {
+		log.Printf("[CONFIG] LPAR Name: %s | CPU: %d | Mem: %dMB", configDict["vm_name"], proc, mem)
+	}
 	return configDict
 }
 
 func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName string, verbose bool) {
-	if verbose { log.Printf("Checking for existing LPAR with name %s", vmName) }
+	if verbose {
+		log.Printf("[HMC] Verifying LPAR name '%s' is unique on system...", vmName)
+	}
 	existingUUID, _, err := restClient.GetLogicalPartition(systemUUID, vmName, "", verbose)
 	if err != nil {
-		log.Fatalf("Failed to check for existing LPAR: %v", err)
+		log.Fatalf("[HMC] Failed to check for existing LPAR: %v", err)
 	}
 	if existingUUID != "" {
-		log.Fatalf("LPAR with name %s already exists with UUID %s", vmName, existingUUID)
+		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
+	}
+	if verbose {
+		log.Printf("[HMC] Validation passed: LPAR name '%s' is available.", vmName)
 	}
 }
 
 func prepareLparTemplate(restClient *hmc.HmcRestClient, referenceTemplate string, configDict map[string]string, verbose bool) (string, string, *etree.Element, error) {
-	// Verify the reference template exists on the HMC
-	if verbose { log.Printf("Verifying existence of reference template: %s", referenceTemplate) }
+	if verbose {
+		log.Printf("[HMC-TMPL] Verifying existence of reference template: %s", referenceTemplate)
+	}
 	if _, err := restClient.GetPartitionTemplateID(referenceTemplate, verbose); err != nil {
 		return "", "", nil, fmt.Errorf("reference template '%s' not found on the HMC: %v", referenceTemplate, err)
 	}
 
-	// Generate a unique temporary template name
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	tempTemplateName := fmt.Sprintf("hmctool_powervm_create_%04d", rng.Intn(9000)+1000)
 
-	// Copy template
+	if verbose {
+		log.Printf("[HMC-TMPL] Copying reference template to temporary template: %s", tempTemplateName)
+	}
 	if err := restClient.CopyPartitionTemplate(referenceTemplate, tempTemplateName, verbose); err != nil {
 		return "", "", nil, fmt.Errorf("failed to copy template from %s to %s: %v", referenceTemplate, tempTemplateName, err)
 	}
-	fmt.Printf("Successfully copied template to %s\n", tempTemplateName)
+	if verbose {
+		log.Printf("[HMC-TMPL] Successfully copied template.")
+	}
 
-	// Retrieve XML
+	if verbose {
+		log.Printf("[HMC-TMPL] Retrieving XML structure for template: %s", tempTemplateName)
+	}
 	tempTemplateDoc, err := restClient.GetPartitionTemplate("", tempTemplateName, verbose)
 	if err != nil || tempTemplateDoc == nil {
 		return "", "", nil, fmt.Errorf("failed to retrieve temporary template %s: %v", tempTemplateName, err)
@@ -197,8 +213,13 @@ func prepareLparTemplate(restClient *hmc.HmcRestClient, referenceTemplate string
 		return "", "", nil, fmt.Errorf("AtomID not found for temporary template") 
 	}
 	tempUUID := atomIDs[0].Text()
+	if verbose {
+		log.Printf("[HMC-TMPL] Temporary Template UUID resolved: %s", tempUUID)
+	}
 
-	// Update XML Settings
+	if verbose {
+		log.Printf("[HMC-TMPL] Injecting target LPAR configurations into XML DOM...")
+	}
 	if err := restClient.UpdateLparNameAndIDToDom(tempTemplateDoc, configDict); err != nil {
 		return "", "", nil, fmt.Errorf("failed to update template XML name/ID: %v", err)
 	}
@@ -211,140 +232,280 @@ func prepareLparTemplate(restClient *hmc.HmcRestClient, referenceTemplate string
 		return "", "", nil, fmt.Errorf("failed to update virtual network settings: %v", err)
 	}
 
+	if verbose {
+		log.Printf("[HMC-TMPL] XML DOM successfully updated for template: %s", tempTemplateName)
+	}
 	return tempUUID, tempTemplateName, tempTemplateDoc, nil
 }
 
-func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string) *svc.Vdisk {
-	svcclient := svc.NewClient(svcIP, svcUser, svcPass).WithTLSInsecure()
-	if err := svcclient.Authenticate(); err != nil {
-		log.Fatalf("SVC auth error: %v", err)
+func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) map[string][]string {
+	if verbose {
+		log.Printf("[HMC] Fetching all Virtual I/O Servers for system UUID: %s to discover WWPNs...", systemUUID)
 	}
-	fmt.Println("✅ Authenticated to SVC")
-
-	host := svc.Host{
-		Name:     "host2",
-		Fcwwpn:   []string{"10000090FADC7453", "10000090FADC7454"},
-		Type:     "generic",
-		Protocol: "scsi",
+	viosList, err := restClient.GetVirtualIOServers(systemUUID, verbose)
+	if err != nil {
+		log.Fatalf("[HMC] Failed to fetch VIOS details: %v", err)
 	}
 
-	// Host logic
-	for _, wwpn := range host.Fcwwpn {
-		existingHost, err := svcclient.GetHostByWWPN(wwpn)
-		if err == nil {
-			fmt.Printf("WWPN %s is already associated with host: %s\n", wwpn, existingHost)
-			host.Name = existingHost
-		} else if !strings.Contains(err.Error(), "not found") {
-			err = svcclient.Mkhost(svc.Host{Name: "host1", Fcwwpn: []string{"100000620B42EB09", "100000620B42EB0A"}, Type: "generic", Protocol: "scsi"})
-			if err != nil && !strings.Contains(err.Error(), "already exists") {
-				log.Fatalf("Mkhost error: %v", err)
+	viosMap := make(map[string][]string)
+	for _, vios := range viosList {
+		var wwpns []string
+		for _, port := range vios.Storage.FibreChannelPorts {
+			if port.WWPN != "" {
+				wwpns = append(wwpns, strings.ToUpper(port.WWPN))
 			}
+		}
+		if len(wwpns) > 0 {
+			viosMap[vios.PartitionName] = wwpns
+			if verbose {
+				log.Printf("[HMC] Discovered VIOS '%s' with %d Fibre Channel WWPN(s).", vios.PartitionName, len(wwpns))
+			}
+		} else if verbose {
+			log.Printf("[HMC] Skipped VIOS '%s' (No FC WWPNs found).", vios.PartitionName)
 		}
 	}
 
-	target_host, err := svcclient.LshostByTarget(host.Name)
-	if err != nil {
-		log.Fatalf("Error finding host: %v", err)
+	if len(viosMap) == 0 {
+		log.Fatalf("[HMC] Critical Error: No Fibre Channel WWPNs found on any VIOS on this system.")
 	}
-	host.Name = target_host.ID
+	return viosMap
+}
 
-	// Create Volume
+func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string) {
+	if verbose {
+		log.Printf("[SVC] Connecting to SVC Cluster at %s...", svcIP)
+	}
+	svcclient := svc.NewClient(svcIP, svcUser, svcPass).WithTLSInsecure()
+	if err := svcclient.Authenticate(); err != nil {
+		log.Fatalf("[SVC] Auth error: %v", err)
+	}
+	if verbose {
+		log.Printf("[SVC] Authentication Successful.")
+	}
+
+	var selectedViosName string
+	var selectedHostName string
+	var selectedWWPNs []string
+	hostExists := false
+
+	if verbose {
+		log.Println("[SVC] Cross-referencing HMC VIOS WWPNs against SVC Hosts...")
+	}
+	
+	// --- 1. Check if any VIOS is already a host on SVC ---
+	for viosName, wwpns := range viosWwpnMap {
+		existingHost, matchedWWPN, err := svcclient.GetHostByWWPN(wwpns)
+		if err == nil && existingHost != "" {
+			if verbose {
+				log.Printf("[SVC] ✅ Match Found! VIOS '%s' is mapped to SVC Host '%s' via WWPN %s", viosName, existingHost, matchedWWPN)
+			}
+			selectedViosName = viosName
+			selectedHostName = existingHost
+			selectedWWPNs = wwpns
+			hostExists = true
+			break
+		}
+	}
+
+	// --- 2. Fallback: Create new host if none exist ---
+	if !hostExists {
+		if verbose {
+			log.Println("[SVC] ⚠️ No matching SVC host found. Preparing to create a new host mapping...")
+		}
+		for viosName, wwpns := range viosWwpnMap {
+			selectedViosName = viosName
+			selectedHostName = viosName
+			selectedWWPNs = wwpns
+			break
+		}
+
+		if verbose {
+			log.Printf("[SVC] Creating new SVC host '%s' using WWPNs: %v", selectedHostName, selectedWWPNs)
+		}
+		newHost := svc.Host{
+			Name:     selectedHostName,
+			Fcwwpn:   selectedWWPNs,
+			Type:     "generic",
+			Protocol: "scsi",
+		}
+		if err := svcclient.Mkhost(newHost); err != nil && !strings.Contains(err.Error(), "already exists") {
+			log.Fatalf("[SVC] Mkhost error: %v", err)
+		}
+		if verbose {
+			log.Printf("[SVC] Host '%s' created successfully.", selectedHostName)
+		}
+	}
+
+	// Retrieve final SVC host ID
+	target_host, err := svcclient.LshostByTarget(selectedHostName)
+	if err != nil {
+		log.Fatalf("[SVC] Error finding host %s: %v", selectedHostName, err)
+	}
+	finalHostID := target_host.ID
+
+	// --- 3. Create Volume ---
+	if verbose {
+		log.Printf("[SVC] Provisioning new VDisk (Volume)...")
+	}
 	volume := svc.Volume{
-		Name: "test_volume2", MdiskGrp: "0", Size: 120, Unit: "gb", 
+		Name: "test_volume2", MdiskGrp: "0", Size: 120, Unit: "gb",
 		RSize: "2%", Warning: "80%", AutoExpand: true, GrainSize: 256,
 	}
 	if err := svcclient.Mkvdisk(volume); err != nil {
-		log.Fatalf("Mkvdisk error: %v", err)
+		log.Fatalf("[SVC] Mkvdisk error: %v", err)
 	}
-	fmt.Printf("Successfully created disk: %s\n", volume.Name)
+	if verbose {
+		log.Printf("[SVC] Successfully created volume: %s", volume.Name)
+	}
 
+	if verbose {
+		log.Printf("[SVC] Locating Source Base Image: %s", baseImageName)
+	}
 	sourceVol, _ := svcclient.LsVdiskByName(baseImageName)
 	targetVol, _ := svcclient.LsVdiskByName(volume.Name)
 
-	// FlashCopy
+	// --- 4. FlashCopy ---
+	if verbose {
+		log.Printf("[SVC] Setting up FlashCopy Mapping from %s -> %s", sourceVol.Name, targetVol.Name)
+	}
 	fcmapping := svc.FlashCopyMapping{
-		Name: "test_fcmap", Source: sourceVol.ID, Target: targetVol.ID, 
+		Name: "test_fcmap", Source: sourceVol.ID, Target: targetVol.ID,
 		CopyRate: 150, GrainSize: 256, Incremental: true, AutoDelete: true,
 	}
 	if err := svcclient.Mkfcmap(fcmapping); err != nil {
-		log.Fatalf("Mkfcmap error: %v", err)
+		log.Fatalf("[SVC] Mkfcmap error: %v", err)
 	}
 
+	if verbose {
+		log.Printf("[SVC] Starting FlashCopy operation...")
+	}
 	fmapping := svc.FlashCopyMappingStart{ID: fcmapping.Name, Prep: true, Restore: true}
 	if err := svcclient.Startfcmap(fmapping); err != nil {
-		log.Fatalf("Startfcmap error: %v", err)
+		log.Fatalf("[SVC] Startfcmap error: %v", err)
 	}
 
-	// Map to Host
-	mapping := svc.VolumeHostMap{Host: host.Name, Force: true, VDisk: "test_volume2"}
+	// --- 5. Map to Host ---
+	if verbose {
+		log.Printf("[SVC] Mapping Target Volume '%s' to Host '%s'", volume.Name, finalHostID)
+	}
+	mapping := svc.VolumeHostMap{Host: finalHostID, Force: true, VDisk: volume.Name}
 	if err := svcclient.Mkvdiskhostmap(mapping); err != nil {
-		log.Fatalf("Mkvdiskhostmap error: %v", err)
+		log.Fatalf("[SVC] Mkvdiskhostmap error: %v", err)
 	}
 
-	return targetVol
+	return targetVol, selectedViosName
 }
 
-func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, verbose bool) {
+func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, verbose bool) {
+	if verbose {
+		log.Printf("[HMC-VSCSI] Beginning VSCSI Configuration on VIOS: %s", viosName)
+	}
+	
 	volumeConfigs := []hmc.VolumeConfig{
-		{ViosName: "ltc09u31-vios1", VolumeName: targetVol.Name},
+		{ViosName: viosName, VolumeName: targetVol.Name},
 	}
 
 	vscsiClientsPayload := ""
 	for _, volConfig := range volumeConfigs {
+		if verbose {
+			log.Printf("[HMC-VSCSI] Resolving UUID for VIOS: %s", volConfig.ViosName)
+		}
 		viosUUID, err := hmc.GetViosID(restClient, systemUUID, volConfig.ViosName, verbose)
-		if err != nil { log.Fatalf("Failed to get VIOS ID: %v", err) }
+		if err != nil { log.Fatalf("[HMC-VSCSI] Failed to get VIOS ID: %v", err) }
 		
+		if verbose {
+			log.Printf("[HMC-VSCSI] Running ConfigDevice (cfgdev) on VIOS %s to scan for new SVC disks...", volConfig.ViosName)
+		}
 		restClient.ConfigDevice(viosUUID, "", verbose)
 		
+		if verbose {
+			log.Printf("[HMC-VSCSI] Correlating SVC VdiskUID (%s) to an HMC Physical Volume...", targetVol.VdiskUID)
+		}
 		pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, targetVol.VdiskUID, verbose)
-		if err != nil { log.Fatalf("Failed to identify free volume: %v", err) }
+		if err != nil { log.Fatalf("[HMC-VSCSI] Failed to identify free volume: %v", err) }
 		
+		if verbose {
+			log.Printf("[HMC-VSCSI] Matched VdiskUID to HMC Volume: %s. Generating XML Payload.", pv)
+		}
 		vscsiClientsPayload += hmc.AddVSCSIPayload(volConfig, pv, verbose)
 	}
 
 	if vscsiClientsPayload != "" {
+		if verbose {
+			log.Printf("[HMC-VSCSI] Injecting VSCSI Payload into Template XML...")
+		}
 		if err := hmc.AddVSCSI(tempTemplateDoc, vscsiClientsPayload); err != nil {
-			log.Fatalf("Failed to add VSCSI to template XML: %v", err)
+			log.Fatalf("[HMC-VSCSI] Failed to add VSCSI to template XML: %v", err)
+		}
+		
+		if verbose {
+			log.Printf("[HMC-VSCSI] Pushing updated Template XML back to HMC...")
 		}
 		if err := restClient.UpdatePartitionTemplate(tempUUID, tempTemplateDoc, verbose); err != nil {
-			log.Fatalf("Failed to update partition template with VSCSI: %v", err)
+			log.Fatalf("[HMC-VSCSI] Failed to update partition template with VSCSI: %v", err)
+		}
+		if verbose {
+			log.Printf("[HMC-VSCSI] VSCSI Configuration successfully saved to Template.")
 		}
 	}
 }
 
 func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID, tempTemplateName string, configDict map[string]string, osType string, verbose bool) {
-	// Transform & Check Template
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Transforming Partition Template (UUID: %s) for System Deployment...", tempUUID)
+	}
 	if _, err := restClient.TransformPartitionTemplate(tempUUID, systemUUID, verbose); err != nil {
-		log.Fatalf("Template transform failed: %v", err)
+		log.Fatalf("[HMC-DEPLOY] Template transform failed: %v", err)
+	}
+	
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Running pre-deployment Check on Template...")
 	}
 	if _, err := restClient.CheckPartitionTemplate(tempTemplateName, systemUUID, verbose); err != nil {
-		log.Fatalf("Template check failed: %v", err)
+		log.Fatalf("[HMC-DEPLOY] Template check failed: %v", err)
 	}
 
-	// Deploy Partition
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Executing Partition Deployment Job...")
+	}
 	partUUID, err := restClient.DeployPartitionTemplate(tempUUID, systemUUID, verbose)
 	if err != nil {
-		log.Fatalf("Failed to deploy partition: %v", err)
+		log.Fatalf("[HMC-DEPLOY] Failed to deploy partition: %v", err)
 	}
-	fmt.Printf("Partition deployed successfully. UUID: %s\n", partUUID)
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Partition deployed successfully. New LPAR UUID: %s", partUUID)
+		log.Printf("[HMC-DEPLOY] Fetching active Partition Profile UUID...")
+	}
 
 	profileUUID, _ := restClient.GetPartitionProfile(partUUID, verbose)
 
-	// Power On
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Powering on LPAR (UUID: %s) with Profile: %s", partUUID, profileUUID)
+	}
 	if _, err := restClient.PowerOnPartition(systemUUID, partUUID, profileUUID, "manual", "", osType, verbose); err != nil {
-		log.Fatalf("Failed to PowerOn Partition: %v", err)
+		log.Fatalf("[HMC-DEPLOY] Failed to PowerOn Partition: %v", err)
 	}
-	log.Printf("Rebooted successfully")
+	if verbose {
+		log.Printf("[HMC-DEPLOY] LPAR is booting up.")
+	}
 
-	// Cleanup Temp Template
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Cleaning up temporary Partition Template: %s", tempTemplateName)
+	}
 	if err := restClient.DeletePartitionTemplate(tempTemplateName, verbose); err != nil {
-		log.Fatalf("Failed to Delete Partition Template: %v", err)
+		log.Fatalf("[HMC-DEPLOY] Failed to Delete temporary Partition Template: %v", err)
 	}
 
-	// Sleep and Restart
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Waiting 10 seconds before initiating final Restart sequence...")
+	}
 	time.Sleep(10 * time.Second)
+	
+	if verbose {
+		log.Printf("[HMC-DEPLOY] Triggering 'Immediate' PowerOff/Restart on LPAR...")
+	}
 	if _, err := restClient.PowerOffPartition(systemUUID, partUUID, "Immediate", true, verbose); err != nil {
-		log.Fatalf("Failed to Restart Partition: %v", err)
+		log.Fatalf("[HMC-DEPLOY] Failed to Restart Partition: %v", err)
 	}
 }
 
@@ -354,6 +515,10 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 
 func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
 	viosName := volConfig.ViosName
+	if verbose {
+		log.Printf("[HMC-UTIL] Identifying free volume on VIOS '%s' matching UID '%s'", viosName, VdiskUID)
+	}
+	
 	viosUUID, err := hmc.GetViosID(restClient, systemUUID, viosName, verbose)
 	if err != nil { return "", err }
 
@@ -362,9 +527,12 @@ func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volCon
 
 	for _, pv := range pvList {
 		if strings.Contains(pv.VolumeUniqueID, VdiskUID) {
+			if verbose {
+				log.Printf("[HMC-UTIL] Match found! UID %s maps to Physical Volume %s", VdiskUID, pv.VolumeName)
+			}
 			return pv.VolumeName, nil
 		}
 	}
 	if len(pvList) == 0 { return "", fmt.Errorf("no free physical volumes found on VIOS %s", viosName) }
-	return "", fmt.Errorf("volume %s not found", volConfig.VolumeName)
+	return "", fmt.Errorf("volume %s not found on VIOS", volConfig.VolumeName)
 }
