@@ -32,10 +32,28 @@ func main() {
 	password := flag.String("password", "REDACTED_HMC_PASS<==", "Password")
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	osType := flag.String("os-type", "linux", "OS type (aix, linux, aix_linux, ibmi)")
-	listTemplate := flag.Bool("list-template", true, "List all partition template IDs")
-	templateName := flag.String("template-name", "", "Get AtomID for a specific partition template name")
 	systemName := flag.String("system-name", "LTC09U31-ZZ", "Managed system name")
+
+	// --- SVC Configuration Flags ---
+	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC Username")
+	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC Password")
+	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
+
 	flag.Parse()
+
+	// --- 1. Validate OS Type & Determine Reference Template immediately ---
+	var referenceTemplate string
+	if *systemName != "" && *osType != "" {
+		switch *osType {
+		case "aix", "linux", "aix_linux":
+			referenceTemplate = "QuickStart_lpar_rpa_2"
+		case "ibmi":
+			referenceTemplate = "QuickStart_lpar_IBMi_2"
+		default:
+			log.Fatalf("invalid os-type: %s (must be aix, linux, aix_linux, or ibmi)", *osType)
+		}
+	}
 
 	// --- Initialize & Authenticate HMC ---
 	restClient := hmc.NewHmcRestClient(*hmcIP)
@@ -53,12 +71,9 @@ func main() {
 		}
 	}()
 
-	// --- Handle Template Listing/Querying ---
-	if *listTemplate {
+	// --- Optional Verbose Info ---
+	if *verbose {
 		handleListTemplates(restClient, *verbose)
-	}
-	if *templateName != "" {
-		handleGetTemplateID(restClient, *templateName, *verbose)
 	}
 
 	// --- Main Partition Creation Workflow ---
@@ -66,30 +81,23 @@ func main() {
 		systemUUID := resolveSystemUUID(restClient, *systemName, *verbose)
 		configDict := buildLparConfigDict()
 
-		config := PartitionConfig{
-			OSType: *osType,
-		}
-
-		// 1. Check if LPAR already exists
+		// 2. Check if LPAR already exists
 		ensureLparDoesNotExist(restClient, systemUUID, configDict["vm_name"], *verbose)
 
-		// 2. Prepare the Partition Template
-		tempUUID, tempTemplateName, tempTemplateDoc, err := prepareLparTemplate(restClient, config, configDict, *verbose)
+		// 3. Prepare the Partition Template (passing the determined referenceTemplate)
+		tempUUID, tempTemplateName, tempTemplateDoc, err := prepareLparTemplate(restClient, referenceTemplate, configDict, *verbose)
 		if err != nil {
 			log.Fatalf("Template preparation failed: %v", err)
 		}
 
-		// 3. Provision SVC Storage
-		targetVol := provisionSVCStorage()
+		// 4. Provision SVC Storage
+		targetVol := provisionSVCStorage(*svcIP, *svcUser, *svcPass, *baseImageName)
 
-		// 4. Configure VSCSI and update the template
+		// 5. Configure VSCSI and update the template
 		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, *verbose)
 
-		// 5. Deploy, Start, and Cleanup
+		// 6. Deploy, Start, and Cleanup
 		deployAndStartPartition(restClient, systemUUID, tempUUID, tempTemplateName, configDict, *osType, *verbose)
-		
-		// 6. Run end-of-workflow verifications
-		runVerificationTests(restClient, systemUUID, *systemName, *verbose)
 	}
 }
 
@@ -107,15 +115,6 @@ func handleListTemplates(restClient *hmc.HmcRestClient, verbose bool) {
 	for i, id := range ids {
 		fmt.Printf("%d: %s\n", i+1, id)
 	}
-}
-
-func handleGetTemplateID(restClient *hmc.HmcRestClient, templateName string, verbose bool) {
-	if verbose { log.Printf("Retrieving AtomID for template name: %s", templateName) }
-	id, err := restClient.GetPartitionTemplateID(templateName, verbose)
-	if err != nil {
-		log.Fatalf("Failed to get template ID for %s: %v", templateName, err)
-	}
-	fmt.Printf("Template ID for %s: %s\n", templateName, id)
 }
 
 func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
@@ -170,16 +169,11 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 	}
 }
 
-func prepareLparTemplate(restClient *hmc.HmcRestClient, config PartitionConfig, configDict map[string]string, verbose bool) (string, string, *etree.Element, error) {
-	var referenceTemplate string
-	
-	switch config.OSType {
-	case "aix", "linux", "aix_linux":
-		referenceTemplate = "QuickStart_lpar_rpa_2"
-	case "ibmi":
-		referenceTemplate = "QuickStart_lpar_IBMi_2"
-	default:
-		return "", "", nil, fmt.Errorf("invalid os-type: %s (must be aix, linux, aix_linux, or ibmi)", config.OSType)
+func prepareLparTemplate(restClient *hmc.HmcRestClient, referenceTemplate string, configDict map[string]string, verbose bool) (string, string, *etree.Element, error) {
+	// Verify the reference template exists on the HMC
+	if verbose { log.Printf("Verifying existence of reference template: %s", referenceTemplate) }
+	if _, err := restClient.GetPartitionTemplateID(referenceTemplate, verbose); err != nil {
+		return "", "", nil, fmt.Errorf("reference template '%s' not found on the HMC: %v", referenceTemplate, err)
 	}
 
 	// Generate a unique temporary template name
@@ -220,11 +214,7 @@ func prepareLparTemplate(restClient *hmc.HmcRestClient, config PartitionConfig, 
 	return tempUUID, tempTemplateName, tempTemplateDoc, nil
 }
 
-func provisionSVCStorage() *svc.Vdisk {
-	// Centralized SVC Configs
-	svcIP, svcUser, svcPass := "192.0.2.8", "REDACTED_SVC_USER<==", "REDACTED_HMC_PASS<=="
-	baseImageName := "image-ibm-default-centos-10"
-
+func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string) *svc.Vdisk {
 	svcclient := svc.NewClient(svcIP, svcUser, svcPass).WithTLSInsecure()
 	if err := svcclient.Authenticate(); err != nil {
 		log.Fatalf("SVC auth error: %v", err)
@@ -324,10 +314,10 @@ func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, 
 
 func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID, tempTemplateName string, configDict map[string]string, osType string, verbose bool) {
 	// Transform & Check Template
-	if err := TransormTemp(restClient, tempUUID, systemUUID, verbose); err != nil {
+	if _, err := restClient.TransformPartitionTemplate(tempUUID, systemUUID, verbose); err != nil {
 		log.Fatalf("Template transform failed: %v", err)
 	}
-	if err := CheckTemp(restClient, tempTemplateName, systemUUID, verbose); err != nil {
+	if _, err := restClient.CheckPartitionTemplate(tempTemplateName, systemUUID, verbose); err != nil {
 		log.Fatalf("Template check failed: %v", err)
 	}
 
@@ -341,81 +331,27 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 	profileUUID, _ := restClient.GetPartitionProfile(partUUID, verbose)
 
 	// Power On
-	PartitionPowerOn(restClient, systemUUID, partUUID, profileUUID, "manual", "", osType, verbose)
+	if _, err := restClient.PowerOnPartition(systemUUID, partUUID, profileUUID, "manual", "", osType, verbose); err != nil {
+		log.Fatalf("Failed to PowerOn Partition: %v", err)
+	}
+	log.Printf("Rebooted successfully")
 
 	// Cleanup Temp Template
-	DeleteTempPartitionTemplate(restClient, tempTemplateName, verbose)
+	if err := restClient.DeletePartitionTemplate(tempTemplateName, verbose); err != nil {
+		log.Fatalf("Failed to Delete Partition Template: %v", err)
+	}
 
 	// Sleep and Restart
 	time.Sleep(10 * time.Second)
-	PowerOff(restClient, systemUUID, partUUID, "Immediate", true, verbose)
-}
-
-func runVerificationTests(restClient *hmc.HmcRestClient, systemUUID, systemName string, verbose bool) {
-	_ = GetMagdSystemsByName(restClient, systemName, verbose)
-	_ = GetMagdSystemsQuick(restClient, verbose)
-	_ = GetMagdSystemQuick(restClient, systemUUID, verbose)
-	_ = GetLgclPartitions(restClient, systemUUID, verbose)
+	if _, err := restClient.PowerOffPartition(systemUUID, partUUID, "Immediate", true, verbose); err != nil {
+		log.Fatalf("Failed to Restart Partition: %v", err)
+	}
 }
 
 // =========================================================================
 // PRE-EXISTING WRAPPER FUNCTIONS (Preserved Functionality)
 // =========================================================================
 
-func GetLgclPartitionQuick(restClient *hmc.HmcRestClient, partUUID string, verbose bool) error {
-	_, err := restClient.GetLogicalPartitionQuick(partUUID, verbose)
-	if err != nil { log.Fatalf("Failed to get Logical partition Quick: %v", err) }
-	return err
-}
-func GetLgclPartitions(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) error {
-	_, err := restClient.GetLogicalPartitions(systemUUID, verbose)
-	if err != nil { log.Fatalf("Failed to get Logical partitions: %v", err) }
-	return err
-}
-func GetMagdSystemQuick(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) error {
-	_, err := restClient.GetManagedSystemQuick(systemUUID, verbose)
-	if err != nil { log.Fatalf("Failed to get Manged Systems Quick: %v", err) }
-	return err
-}
-func GetMagdSystemsQuick(restClient *hmc.HmcRestClient, verbose bool) error {
-	_, err := restClient.GetManagedSystemsQuick(verbose)
-	if err != nil { log.Fatalf("Failed to get Manged Systems: %v", err) }
-	return err
-}
-func GetMagdSystemsByName(restClient *hmc.HmcRestClient, systemName string, verbose bool) error {
-	_, _, err := restClient.GetManagedSystemByName(systemName, verbose)
-	if err != nil { log.Fatalf("Failed to get Managed System by name: %v", err) }
-	return err
-}
-func TransormTemp(restClient *hmc.HmcRestClient, tempUUID, systemUUID string, verbose bool) error {
-	_, err := restClient.TransformPartitionTemplate(tempUUID, systemUUID, verbose)
-	return err
-}
-func CheckTemp(restClient *hmc.HmcRestClient, tempTemplateName, systemUUID string, verbose bool) error {
-	_, err := restClient.CheckPartitionTemplate(tempTemplateName, systemUUID, verbose)
-	return err
-}
-func PartitionPowerOn(restClient *hmc.HmcRestClient, systemUUID, lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (string, error) {
-	_, err := restClient.PowerOnPartition(systemUUID, lparUUID, profileUUID, "manual", "", osType, verbose)
-	if err != nil { log.Fatalf("Failed to PowerOn Partition: %v", err) }
-	log.Printf("Rebooted successfully")
-	return "", nil
-}
-func PowerOff(restClient *hmc.HmcRestClient, systemUUID, lparUUID, shutdownOption string, restart bool, verbose bool) (*etree.Document, error) {
-	doc, err := restClient.PowerOffPartition(systemUUID, lparUUID, shutdownOption, restart, verbose)
-	if err != nil { log.Fatalf("Failed to Restart Partition: %v", err) }
-	return doc, err
-}
-func DeleteTempPartitionTemplate(restClient *hmc.HmcRestClient, templateName string, verbose bool) {
-	if err := restClient.DeletePartitionTemplate(templateName, verbose); err != nil {
-		log.Fatalf("Failed to Delete Partition Template: %v", err)
-	}
-}
-func getMacAdddress(restClient *hmc.HmcRestClient, systemUUID string, partUUID string, verbose bool) (string, error) {
-	clientNetAdapter, err := restClient.GetClientNetworkAdapter(systemUUID, partUUID, verbose)
-	if err != nil { log.Fatalf("Failed to retrieve client network adapter: %v", err) }
-	return clientNetAdapter.FindElement("//MACAddress").Text(), nil
-}
 func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
 	viosName := volConfig.ViosName
 	viosUUID, err := hmc.GetViosID(restClient, systemUUID, viosName, verbose)
