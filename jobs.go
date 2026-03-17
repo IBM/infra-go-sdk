@@ -99,16 +99,16 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 		if err != nil {
 			return nil, fmt.Errorf("HTTP request failed: %v", err)
 		}
-		defer resp.Body.Close()
 
 		// Read response body
 		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close() // Close immediately after reading, not deferred
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %v", err)
 		}
 
 		// Parse XML and strip namespaces
-		doc, err := xmlStripNamespace(body)
+		doc, err = xmlStripNamespace(body) // Don't shadow the outer doc variable
 		if err != nil {
 			return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 		}

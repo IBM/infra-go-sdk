@@ -106,29 +106,19 @@ func (c *HmcRestClient) UpdateLogicalPartitionProfile(partitionUUID string, prof
         1,
     )
 
-
-	//doc := etree.NewDocument()
-	//doc.SetRoot(profiles[0].Copy()) // Assuming at least one profile; adjust as needed
-
-	//xmlStr, err := doc.WriteToString()
-	if err != nil {
-		fmt.Printf("Error serializing XML: %v\n", err)
-	}
-fmt.Printf("TEST\n")
-	fmt.Println(replacedXML)
-
-    // STEP 3: POST the full updated LogicalPartition entry back
-    postReq, err := http.NewRequest("PUT", url, strings.NewReader(replacedXML))
-    if err != nil {
-        return fmt.Errorf("failed to create POST request: %v", err)
+    if verbose {
+        hmcLogger.Printf("Replaced profile XML for %s", profileName)
     }
 
-    //postReq.Header.Set("X-API-Session", c.session)
-    //postReq.Header.Set("Content-Type", "application/atom+xml")
-    //postReq.Header.Set("Accept", "application/atom+xml")
-	postReq.Header.Set("X-API-Session", c.session)
-	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartitionProfile")
-	postReq.Header.Set("Accept", "*/*")
+    // STEP 3: PUT the full updated LogicalPartition entry back
+    postReq, err := http.NewRequest("PUT", url, strings.NewReader(replacedXML))
+    if err != nil {
+        return fmt.Errorf("failed to create PUT request: %v", err)
+    }
+
+    postReq.Header.Set("X-API-Session", c.session)
+    postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartitionProfile")
+    postReq.Header.Set("Accept", "*/*")
 
     postResp, err := c.client.Do(postReq)
     if err != nil {
@@ -182,7 +172,7 @@ func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (stri
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
-	if err != err {
+	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
 

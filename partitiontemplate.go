@@ -141,10 +141,11 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 			if nameElem != nil && strings.TrimSpace(nameElem.Text()) == "PartitionUuid" {
 				partUUID := param.FindElement("ParameterValue")
 				if partUUID != nil {
-					fmt.Println("PartitionUuid:", partUUID.Text())
+				if verbose {
 					fmt.Printf("Partition creation completed successfully UUID %s\n", partUUID.Text())
 					return partUUID.Text(), nil
 				}
+			}
 			}
 		}
 

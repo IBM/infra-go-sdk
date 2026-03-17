@@ -7,12 +7,20 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/beevik/etree"
 	hmc "github.com/sudeeshjohn/PowerHMC"
 	svc "github.com/sudeeshjohn/svc-go-sdk"
 )
+
+// viosResult holds the result of VIOS WWPN discovery
+type viosResult struct {
+	wwpnMap  map[string][]string // VIOS name -> WWPNs
+	uuidMap  map[string]string   // VIOS name -> UUID
+	err      error
+}
 
 func main() {
 	// --- Command-line flags with hardcoded defaults ---
@@ -89,14 +97,26 @@ func main() {
 			log.Fatalf("[HMC] Template preparation failed: %v", err)
 		}
 
-		// 4. Discover VIOS WWPNs from HMC
-		viosWwpnMap := getViosWwpnMap(restClient, systemUUID, *verbose)
+		// 4. Discover VIOS WWPNs from HMC (parallel with SVC auth)
+		viosChan := make(chan viosResult, 1)
+		
+		// Start VIOS discovery in background
+		go func() {
+			if *verbose {
+				log.Println("[PARALLEL] Starting VIOS WWPN discovery in background...")
+			}
+			wwpnMap, uuidMap := getViosWwpnMap(restClient, systemUUID, *verbose)
+			viosChan <- viosResult{wwpnMap: wwpnMap, uuidMap: uuidMap}
+		}()
 
-		// 5. Provision SVC Storage
-		targetVol, selectedViosName := provisionSVCStorage(*svcIP, *svcUser, *svcPass, *baseImageName, viosWwpnMap, *verbose)
+		// 5. Provision SVC Storage (authenticate while VIOS discovery runs)
+		if *verbose {
+			log.Println("[PARALLEL] Starting SVC authentication in parallel...")
+		}
+		targetVol, selectedViosName, viosUuidMap := provisionSVCStorageParallel(*svcIP, *svcUser, *svcPass, *baseImageName, viosChan, *verbose)
 
-		// 6. Configure VSCSI and update the template
-		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, *verbose)
+		// 6. Configure VSCSI and update the template (with cached VIOS UUIDs)
+		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, viosUuidMap, *verbose)
 
 		// 7. Deploy, Start, and Cleanup
 		deployAndStartPartition(restClient, systemUUID, tempUUID, tempTemplateName, configDict, *osType, *verbose)
@@ -238,40 +258,55 @@ func prepareLparTemplate(restClient *hmc.HmcRestClient, referenceTemplate string
 	return tempUUID, tempTemplateName, tempTemplateDoc, nil
 }
 
-func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) map[string][]string {
+func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string) {
 	if verbose {
-		log.Printf("[HMC] Fetching all Virtual I/O Servers for system UUID: %s to discover WWPNs...", systemUUID)
+		log.Printf("[HMC] Fetching all Virtual I/O Servers for system UUID: %s to discover WWPNs and UUIDs...", systemUUID)
 	}
 	viosList, err := restClient.GetVirtualIOServers(systemUUID, verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to fetch VIOS details: %v", err)
 	}
 
-	viosMap := make(map[string][]string)
-	for _, vios := range viosList {
-		var wwpns []string
-		for _, port := range vios.Storage.FibreChannelPorts {
-			if port.WWPN != "" {
-				wwpns = append(wwpns, strings.ToUpper(port.WWPN))
+	viosWwpnMap := make(map[string][]string)
+	viosUuidMap := make(map[string]string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Process each VIOS in parallel
+	for i := range viosList {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			v := viosList[idx]
+			var wwpns []string
+			for _, port := range v.Storage.FibreChannelPorts {
+				if port.WWPN != "" {
+					wwpns = append(wwpns, strings.ToUpper(port.WWPN))
+				}
 			}
-		}
-		if len(wwpns) > 0 {
-			viosMap[vios.PartitionName] = wwpns
-			if verbose {
-				log.Printf("[HMC] Discovered VIOS '%s' with %d Fibre Channel WWPN(s).", vios.PartitionName, len(wwpns))
+			if len(wwpns) > 0 {
+				mu.Lock()
+				viosWwpnMap[v.PartitionName] = wwpns
+				viosUuidMap[v.PartitionName] = v.UUID
+				mu.Unlock()
+				if verbose {
+					log.Printf("[HMC] Discovered VIOS '%s' (UUID: %s) with %d Fibre Channel WWPN(s).", v.PartitionName, v.UUID, len(wwpns))
+				}
+			} else if verbose {
+				log.Printf("[HMC] Skipped VIOS '%s' (No FC WWPNs found).", v.PartitionName)
 			}
-		} else if verbose {
-			log.Printf("[HMC] Skipped VIOS '%s' (No FC WWPNs found).", vios.PartitionName)
-		}
+		}(i)
 	}
 
-	if len(viosMap) == 0 {
+	wg.Wait()
+
+	if len(viosWwpnMap) == 0 {
 		log.Fatalf("[HMC] Critical Error: No Fibre Channel WWPNs found on any VIOS on this system.")
 	}
-	return viosMap
+	return viosWwpnMap, viosUuidMap
 }
 
-func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string) {
+func provisionSVCStorageParallel(svcIP, svcUser, svcPass, baseImageName string, viosChan chan viosResult, verbose bool) (*svc.Vdisk, string, map[string]string) {
 	if verbose {
 		log.Printf("[SVC] Connecting to SVC Cluster at %s...", svcIP)
 	}
@@ -281,6 +316,20 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 	}
 	if verbose {
 		log.Printf("[SVC] Authentication Successful.")
+	}
+
+	// Wait for VIOS discovery to complete
+	if verbose {
+		log.Println("[PARALLEL] Waiting for VIOS WWPN discovery to complete...")
+	}
+	viosRes := <-viosChan
+	if viosRes.err != nil {
+		log.Fatalf("[SVC] VIOS discovery failed: %v", viosRes.err)
+	}
+	viosWwpnMap := viosRes.wwpnMap
+	viosUuidMap := viosRes.uuidMap
+	if verbose {
+		log.Printf("[PARALLEL] VIOS discovery complete. Found %d VIOS(es).", len(viosWwpnMap))
 	}
 
 	var selectedViosName string
@@ -393,10 +442,10 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 		log.Fatalf("[SVC] Mkvdiskhostmap error: %v", err)
 	}
 
-	return targetVol, selectedViosName
+	return targetVol, selectedViosName, viosUuidMap
 }
 
-func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, verbose bool) {
+func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, viosUuidMap map[string]string, verbose bool) {
 	if verbose {
 		log.Printf("[HMC-VSCSI] Beginning VSCSI Configuration on VIOS: %s", viosName)
 	}
@@ -407,11 +456,14 @@ func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, 
 
 	vscsiClientsPayload := ""
 	for _, volConfig := range volumeConfigs {
-		if verbose {
-			log.Printf("[HMC-VSCSI] Resolving UUID for VIOS: %s", volConfig.ViosName)
+		// Use cached VIOS UUID instead of calling GetViosID
+		viosUUID, exists := viosUuidMap[volConfig.ViosName]
+		if !exists {
+			log.Fatalf("[HMC-VSCSI] VIOS UUID not found in cache for: %s", volConfig.ViosName)
 		}
-		viosUUID, err := hmc.GetViosID(restClient, systemUUID, volConfig.ViosName, verbose)
-		if err != nil { log.Fatalf("[HMC-VSCSI] Failed to get VIOS ID: %v", err) }
+		if verbose {
+			log.Printf("[HMC-VSCSI] Using cached UUID for VIOS '%s': %s", volConfig.ViosName, viosUUID)
+		}
 		
 		if verbose {
 			log.Printf("[HMC-VSCSI] Running ConfigDevice (cfgdev) on VIOS %s to scan for new SVC disks...", volConfig.ViosName)
@@ -421,7 +473,7 @@ func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, 
 		if verbose {
 			log.Printf("[HMC-VSCSI] Correlating SVC VdiskUID (%s) to an HMC Physical Volume...", targetVol.VdiskUID)
 		}
-		pv, err := identifyFreeVolume(restClient, systemUUID, volConfig, targetVol.VdiskUID, verbose)
+		pv, err := identifyFreeVolume(restClient, viosUUID, volConfig, targetVol.VdiskUID, verbose)
 		if err != nil { log.Fatalf("[HMC-VSCSI] Failed to identify free volume: %v", err) }
 		
 		if verbose {
@@ -513,14 +565,11 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 // PRE-EXISTING WRAPPER FUNCTIONS (Preserved Functionality)
 // =========================================================================
 
-func identifyFreeVolume(restClient *hmc.HmcRestClient, systemUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
+func identifyFreeVolume(restClient *hmc.HmcRestClient, viosUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
 	viosName := volConfig.ViosName
 	if verbose {
-		log.Printf("[HMC-UTIL] Identifying free volume on VIOS '%s' matching UID '%s'", viosName, VdiskUID)
+		log.Printf("[HMC-UTIL] Identifying free volume on VIOS '%s' (UUID: %s) matching UID '%s'", viosName, viosUUID, VdiskUID)
 	}
-	
-	viosUUID, err := hmc.GetViosID(restClient, systemUUID, viosName, verbose)
-	if err != nil { return "", err }
 
 	pvList, err := restClient.GetFreePhyVolume(viosUUID, verbose)
 	if err != nil { pvList = []hmc.PhysicalVolume{} }
