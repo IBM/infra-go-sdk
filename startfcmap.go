@@ -18,7 +18,6 @@ func (c *Client) Startfcmap(reqBody FlashCopyMappingStart) error {
 	if reqBody.ID == "" {
 		return fmt.Errorf("id is required: CMMVC5701E No object ID was specified")
 	}
-	fmt.Printf("ID: %s\n", reqBody.ID)
 	// Convert FlashCopyMappingStart to a map for the post method
 	payload := make(map[string]interface{})
 	if reqBody.Prep {
