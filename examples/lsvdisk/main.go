@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mkumatag/svc-go-sdk" // Adjust if your package path differs
+	"github.com/sudeeshjohn/svc-go-sdk" // Adjust if your package path differs
 )
 
 func main() {

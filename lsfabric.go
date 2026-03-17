@@ -3,6 +3,7 @@ package svc
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // FabricLoginInfo represents an entry from lsfabric API response
@@ -21,7 +22,15 @@ type FabricLoginInfo struct {
 }
 
 // Lsfabric retrieves information about Fibre Channel fabric logins using the lsfabric API endpoint
+// This operation can take longer in large fabric environments, so we use an extended timeout
 func (c *Client) Lsfabric() ([]FabricLoginInfo, error) {
+	// Save original timeout and restore it after
+	originalTimeout := c.HTTPClient.Timeout
+	c.HTTPClient.Timeout = 300 * time.Second // 5 minutes for fabric operations
+	defer func() {
+		c.HTTPClient.Timeout = originalTimeout
+	}()
+
 	data, err := c.post("lsfabric", nil)
 	if err != nil {
 		var errResp ErrorResponse

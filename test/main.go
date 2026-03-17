@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/mkumatag/svc-go-sdk" // use correct import path
+	"github.com/sudeeshjohn/svc-go-sdk" // use correct import path
 )
 
 func main() {

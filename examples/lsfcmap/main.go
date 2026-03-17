@@ -5,7 +5,7 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/mkumatag/svc-go-sdk"
+	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {

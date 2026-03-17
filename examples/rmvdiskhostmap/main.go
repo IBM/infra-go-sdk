@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/mkumatag/svc-go-sdk" // Adjust if your package path differs
+	"github.com/sudeeshjohn/svc-go-sdk" // Adjust if your package path differs
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 	fmt.Println("✅ Authenticated")
 
 	// Define your targets
-	hostName := "ltc13u29_vios1_2"
+	hostName := "ltc09u31-vios1"
 	volName := "test_volume3" // Or "pvc-2.2.12" based on your earlier output
 
 	fmt.Printf("Attempting to unmap volume '%s' from host '%s'...\n", volName, hostName)

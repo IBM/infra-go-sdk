@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/mkumatag/svc-go-sdk"
+	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func GetSVCClient() *svc.Client {

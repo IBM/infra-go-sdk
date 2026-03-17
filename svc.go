@@ -24,7 +24,8 @@ type Client struct {
 
 const (
 	defaultPort        = 7443
-	defaultHTTPTimeout = 10 * time.Second
+	defaultHTTPTimeout = 120 * time.Second
+	fabricTimeout      = 300 * time.Second // Fabric operations can take longer
 )
 
 func NewClient(host, username, password string) *Client {

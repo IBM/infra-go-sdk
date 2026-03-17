@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/mkumatag/svc-go-sdk" // Adjust if your package path differs
+	"github.com/sudeeshjohn/svc-go-sdk" // Adjust if your package path differs
 )
 
 func main() {
@@ -25,7 +25,7 @@ func main() {
 	fmt.Printf("Total hosts found: %d\n", len(hosts))
 
 // 2. Specific Check for the host
-    targetHost := "ltc13u29_vios1_2"
+    targetHost := "ltc09u31-vios1"
     fmt.Printf("Searching for host: %s...\n", targetHost)
 
     host, err := client.LshostByTarget(targetHost)
