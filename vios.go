@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -653,43 +654,42 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, verbose bo
 }
 
 // RunVIOSCommand executes an OS-level command by tunneling it through the HMC CLIRunner job via viosvrcmd.
-func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) error {
+// It returns the stdout of the command as a string, and an error if the job fails.
+func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) (string, error) {
 	// 1. Fetch the Management Console UUID
 	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
-	
+
 	req, err := http.NewRequest("GET", mcURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
+		return "", fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
-	req.Header.Set("Accept", "*/*")
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	
+
 	resp, err := c.client.Do(req.WithContext(ctx))
 	if err != nil {
-		return fmt.Errorf("failed to fetch Management Console: %v", err)
+		return "", fmt.Errorf("failed to fetch Management Console: %v", err)
 	}
 	defer resp.Body.Close()
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response: %v", err)
+		return "", fmt.Errorf("failed to read response: %v", err)
 	}
-	
+
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to get Management Console (HTTP %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("failed to get Management Console (HTTP %d): %s", resp.StatusCode, string(body))
 	}
-	
+
 	mcDoc, err := xmlStripNamespace(body)
 	if err != nil {
-		return fmt.Errorf("failed to parse Management Console XML: %v", err)
+		return "", fmt.Errorf("failed to parse Management Console XML: %v", err)
 	}
-	
-	// Extract the Management Console UUID from the entry element
-	// The feed has its own <id>, but we need the <entry><id> which is the actual MC UUID
+
+	// Extract the Management Console UUID
 	var mcUUID string
 	if entryElem := mcDoc.FindElement("//entry/id"); entryElem != nil {
 		mcUUID = entryElem.Text()
@@ -703,9 +703,9 @@ func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) error {
 		if verbose {
 			hmcLogger.Printf("Management Console response:\n%s", string(body))
 		}
-		return fmt.Errorf("could not resolve Management Console UUID from response")
+		return "", fmt.Errorf("could not resolve Management Console UUID from response")
 	}
-	
+
 	if verbose {
 		hmcLogger.Printf("Resolved Management Console UUID: %s", mcUUID)
 	}
@@ -713,56 +713,47 @@ func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) error {
 	// 2. Target the Management Console's CLIRunner Job endpoint
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/%s/do/CLIRunner", c.hmcIP, mcUUID)
 
-	// 3. Construct the exact viosvrcmd string with proper quoting
-	//cmdString := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s "`, sysName, viosName, diskName)
-
 	if verbose {
 		hmcLogger.Printf("Executing HMC CLI Command: %s", cmdString)
 	}
 
-	// 4. Create the CLIRunner Job Payload with required acknowledgeThisAPIMayGoAwayInTheFuture parameter
-	// Using schemaVersion="V1_0" as confirmed working in Postman
+	// 3. Construct the CLIRunner Job Payload
 	payload := fmt.Sprintf(`<JobRequest:JobRequest xmlns:JobRequest="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2" schemaVersion="V1_0">
-	   <Metadata>
-	       <Atom/>
-	   </Metadata>
-	   <RequestedOperation kxe="false" kb="CUR" schemaVersion="V1_0">
-	       <Metadata>
-	           <Atom/>
-	       </Metadata>
-	       <OperationName kxe="false" kb="ROR">CLIRunner</OperationName>
-	       <GroupName kxe="false" kb="ROR">ManagementConsole</GroupName>
-	   </RequestedOperation>
-	   <JobParameters kxe="false" kb="CUR" schemaVersion="V1_0">
-	       <Metadata>
-	           <Atom/>
-	       </Metadata>
-	       <JobParameter schemaVersion="V1_0">
-	           <Metadata>
-	               <Atom/>
-	           </Metadata>
-	           <ParameterName kxe="false" kb="ROR">cmd</ParameterName>
-	           <ParameterValue kxe="false" kb="CUR">%s</ParameterValue>
-	       </JobParameter>
-	       <JobParameter schemaVersion="V1_0">
-	           <Metadata>
-	               <Atom/>
-	           </Metadata>
-	           <ParameterName kxe="false" kb="ROR">acknowledgeThisAPIMayGoAwayInTheFuture</ParameterName>
-	           <ParameterValue kxe="false" kb="CUR">true</ParameterValue>
-	       </JobParameter>
-	   </JobParameters>
+       <Metadata>
+           <Atom/>
+       </Metadata>
+       <RequestedOperation kxe="false" kb="CUR" schemaVersion="V1_0">
+           <Metadata>
+               <Atom/>
+           </Metadata>
+           <OperationName kxe="false" kb="ROR">CLIRunner</OperationName>
+           <GroupName kxe="false" kb="ROR">ManagementConsole</GroupName>
+       </RequestedOperation>
+       <JobParameters kxe="false" kb="CUR" schemaVersion="V1_0">
+           <Metadata>
+               <Atom/>
+           </Metadata>
+           <JobParameter schemaVersion="V1_0">
+               <Metadata>
+                   <Atom/>
+               </Metadata>
+               <ParameterName kxe="false" kb="ROR">cmd</ParameterName>
+               <ParameterValue kxe="false" kb="CUR">%s</ParameterValue>
+           </JobParameter>
+           <JobParameter schemaVersion="V1_0">
+               <Metadata>
+                   <Atom/>
+               </Metadata>
+               <ParameterName kxe="false" kb="ROR">acknowledgeThisAPIMayGoAwayInTheFuture</ParameterName>
+               <ParameterValue kxe="false" kb="CUR">true</ParameterValue>
+           </JobParameter>
+       </JobParameters>
 </JobRequest:JobRequest>`, cmdString)
 
-	if verbose {
-		hmcLogger.Printf("CLIRunner payload:\n%s", payload)
-		hmcLogger.Printf("CLIRunner URL: %s", url)
-	}
-
-	// 5. Submit the JobRequest via PUT (Jobs in HMC REST API use PUT)
+	// 4. Submit the JobRequest via PUT
 	req2, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("failed to create CLIRunner request: %v", err)
+		return "", fmt.Errorf("failed to create CLIRunner request: %v", err)
 	}
 	req2.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
 	req2.Header.Set("X-API-Session", c.session)
@@ -773,53 +764,67 @@ func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) error {
 
 	resp2, err := c.client.Do(req2.WithContext(ctx2))
 	if err != nil {
-		return fmt.Errorf("HTTP request failed: %v", err)
+		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp2.Body.Close()
 
 	body2, err := io.ReadAll(resp2.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read CLIRunner response: %v", err)
+		return "", fmt.Errorf("failed to read CLIRunner response: %v", err)
 	}
 
-	// Look for success status codes
 	if resp2.StatusCode != http.StatusOK && resp2.StatusCode != http.StatusAccepted && resp2.StatusCode != http.StatusCreated {
-		return fmt.Errorf("CLIRunner failed with status %s: %s", resp2.Status, string(body2))
+		return "", fmt.Errorf("CLIRunner failed with status %s: %s", resp2.Status, string(body2))
 	}
 
-	if verbose {
-		hmcLogger.Printf("CLIRunner response (HTTP %d):\n%s", resp2.StatusCode, string(body2))
-	}
-
-	// Wait for the job to complete
 	doc2, err := xmlStripNamespace(body2)
 	if err != nil {
-		return fmt.Errorf("failed to parse CLIRunner response XML: %v", err)
+		return "", fmt.Errorf("failed to parse CLIRunner response XML: %v", err)
 	}
 
 	jobIDElem := doc2.FindElement("//JobID")
 	if jobIDElem == nil {
-		// Try alternative path
 		jobIDElem = doc2.FindElement("//JobResponse/JobID")
 	}
-	
+
+	var cmdOutput string
+
 	if jobIDElem != nil {
 		jobID := jobIDElem.Text()
 		if verbose {
 			hmcLogger.Printf("CLIRunner Job submitted (Job ID: %s), waiting for completion...", jobID)
 		}
-		_, err = c.FetchJobStatus(jobID, false, 10, verbose)
+		
+		// 5. Wait for job completion and capture the resulting document
+		jobRespDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
 		if err != nil {
-			return fmt.Errorf("CLIRunner job failed: %v", err)
+			return "", fmt.Errorf("CLIRunner job failed: %v", err)
 		}
+
+		// 6. Extract the stdout from the Job Results
+		if jobRespDoc != nil {
+			for _, param := range jobRespDoc.FindElements("//JobParameter") {
+				nameElem := param.FindElement("ParameterName")
+				valElem := param.FindElement("ParameterValue")
+				
+				if nameElem != nil && valElem != nil {
+					if nameElem.Text() == "stdout" {
+						cmdOutput = valElem.Text()
+					} else if nameElem.Text() == "stderr" && valElem.Text() != "" && verbose {
+						hmcLogger.Printf("CLIRunner stderr output: %s", valElem.Text())
+					}
+				}
+			}
+		}
+
 		if verbose {
 			hmcLogger.Printf("✅ CLIRunner job completed successfully")
 		}
 	} else {
-		return fmt.Errorf("JobID not found in CLIRunner response: %s", string(body2))
+		return "", fmt.Errorf("JobID not found in CLIRunner response: %s", string(body2))
 	}
 
-	return nil
+	return cmdOutput, nil
 }
 
 
@@ -1408,4 +1413,903 @@ func (c *HmcRestClient) GetViosSCSIMapping(viosUUID, lparUUID string, verbose bo
 	}
 
 	return filteredMappings, nil
+}
+
+// GetViosSCSIMappingDetails retrieves and fully parses all VSCSI mappings for a specific VIOS.
+func (c *HmcRestClient) GetViosSCSIMappingDetails(viosUUID string, verbose bool) ([]ViosSCSIMappingDetails, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+
+	if verbose {
+		hmcLogger.Printf("Fetching VSCSI Mappings for VIOS UUID %s, URL: %s", viosUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	var mappingsList []ViosSCSIMappingDetails
+
+	mappings := doc.FindElements("//VirtualSCSIMapping")
+	for _, mapping := range mappings {
+		detail := ViosSCSIMappingDetails{}
+
+		// 1. Associated LPAR
+		if assocLpar := mapping.FindElement("AssociatedLogicalPartition"); assocLpar != nil {
+			detail.AssociatedLparURI = assocLpar.SelectAttrValue("href", "")
+		}
+
+		// 2. Client Adapter
+		if client := mapping.FindElement("ClientAdapter"); client != nil {
+			detail.ClientAdapter = VSCSIClientAdapter{
+				AdapterType:                         getElementText(client, "AdapterType"),
+				DynamicReconfigurationConnectorName: getElementText(client, "DynamicReconfigurationConnectorName"),
+				LocationCode:                        getElementText(client, "LocationCode"),
+				LocalPartitionID:                    getElementText(client, "LocalPartitionID"),
+				RequiredAdapter:                     getElementText(client, "RequiredAdapter"),
+				VariedOn:                            getElementText(client, "VariedOn"),
+				VirtualSlotNumber:                   getElementText(client, "VirtualSlotNumber"),
+				RemoteLogicalPartitionID:            getElementText(client, "RemoteLogicalPartitionID"),
+				RemoteSlotNumber:                    getElementText(client, "RemoteSlotNumber"),
+				ServerLocationCode:                  getElementText(client, "ServerLocationCode"),
+			}
+		}
+
+		// 3. Server Adapter
+		if server := mapping.FindElement("ServerAdapter"); server != nil {
+			detail.ServerAdapter = VSCSIServerAdapter{
+				AdapterType:                         getElementText(server, "AdapterType"),
+				DynamicReconfigurationConnectorName: getElementText(server, "DynamicReconfigurationConnectorName"),
+				LocationCode:                        getElementText(server, "LocationCode"),
+				LocalPartitionID:                    getElementText(server, "LocalPartitionID"),
+				RequiredAdapter:                     getElementText(server, "RequiredAdapter"),
+				VariedOn:                            getElementText(server, "VariedOn"),
+				VirtualSlotNumber:                   getElementText(server, "VirtualSlotNumber"),
+				AdapterName:                         getElementText(server, "AdapterName"),
+				BackingDeviceName:                   getElementText(server, "BackingDeviceName"),
+				RemoteLogicalPartitionID:            getElementText(server, "RemoteLogicalPartitionID"),
+				RemoteSlotNumber:                    getElementText(server, "RemoteSlotNumber"),
+				ServerLocationCode:                  getElementText(server, "ServerLocationCode"),
+				UniqueDeviceID:                      getElementText(server, "UniqueDeviceID"),
+			}
+		}
+
+		// 4. Storage Details
+		if storage := mapping.FindElement("Storage"); storage != nil {
+			if pv := storage.FindElement("PhysicalVolume"); pv != nil {
+				detail.Storage.StorageType = "PhysicalVolume"
+				detail.Storage.Description = getElementText(pv, "Description")
+				detail.Storage.LocationCode = getElementText(pv, "LocationCode")
+				detail.Storage.PersistentReserveKeyValue = getElementText(pv, "PersistentReserveKeyValue")
+				detail.Storage.ReservePolicy = getElementText(pv, "ReservePolicy")
+				detail.Storage.ReservePolicyAlgorithm = getElementText(pv, "ReservePolicyAlgorithm")
+				detail.Storage.UniqueDeviceID = getElementText(pv, "UniqueDeviceID")
+				detail.Storage.AvailableForUsage = getElementText(pv, "AvailableForUsage")
+				detail.Storage.VolumeCapacity = getElementText(pv, "VolumeCapacity")
+				detail.Storage.VolumeName = getElementText(pv, "VolumeName")
+				detail.Storage.VolumeState = getElementText(pv, "VolumeState")
+				detail.Storage.VolumeUniqueID = getElementText(pv, "VolumeUniqueID")
+				detail.Storage.IsFibreChannelBacked = getElementText(pv, "IsFibreChannelBacked")
+				detail.Storage.IsISCSIBacked = getElementText(pv, "IsISCSIBacked")
+				detail.Storage.StorageLabel = getElementText(pv, "StorageLabel")
+				detail.Storage.DescriptorPage83 = getElementText(pv, "DescriptorPage83")
+			} else if opt := storage.FindElement("VirtualOpticalMedia"); opt != nil {
+				detail.Storage.StorageType = "VirtualOpticalMedia"
+				detail.Storage.MediaName = getElementText(opt, "MediaName")
+				detail.Storage.MediaUDID = getElementText(opt, "MediaUDID")
+				detail.Storage.MountType = getElementText(opt, "MountType")
+				detail.Storage.Size = getElementText(opt, "Size")
+			}
+		}
+
+		// 5. Target Device
+		if target := mapping.FindElement("TargetDevice"); target != nil {
+			if vOpt := target.FindElement("VirtualOpticalTargetDevice"); vOpt != nil {
+				detail.TargetDevice.DeviceType = "VirtualOpticalTargetDevice"
+				detail.TargetDevice.LogicalUnitAddress = getElementText(vOpt, "LogicalUnitAddress")
+				detail.TargetDevice.TargetName = getElementText(vOpt, "TargetName")
+				detail.TargetDevice.UniqueDeviceID = getElementText(vOpt, "UniqueDeviceID")
+			} else if pVtd := target.FindElement("PhysicalVolumeVirtualTargetDevice"); pVtd != nil {
+				detail.TargetDevice.DeviceType = "PhysicalVolumeVirtualTargetDevice"
+				detail.TargetDevice.LogicalUnitAddress = getElementText(pVtd, "LogicalUnitAddress")
+				detail.TargetDevice.TargetName = getElementText(pVtd, "TargetName")
+				detail.TargetDevice.UniqueDeviceID = getElementText(pVtd, "UniqueDeviceID")
+			}
+		}
+
+		mappingsList = append(mappingsList, detail)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully fully parsed %d VSCSI Mappings", len(mappingsList))
+	}
+
+	return mappingsList, nil
+}
+
+// =====================================================================
+// VOLUME GROUP API METHODS
+// =====================================================================
+
+// GetVolumeGroups retrieves a list of all Volume Groups configured on a specific VIOS.
+func (c *HmcRestClient) GetVolumeGroups(viosUUID string, verbose bool) ([]VolumeGroup, error) {
+    url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup", c.hmcIP, viosUUID)
+
+    if verbose {
+        hmcLogger.Printf("Fetching Volume Groups for VIOS UUID %s, URL: %s", viosUUID, url)
+    }
+
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create request: %v", err)
+    }
+    req.Header.Set("X-API-Session", c.session)
+    req.Header.Set("Accept", "application/atom+xml")
+
+    ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+    defer cancel()
+    req = req.WithContext(ctx)
+
+    resp, err := c.client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("HTTP request failed: %v", err)
+    }
+    defer resp.Body.Close()
+
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to read response body: %v", err)
+    }
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+    }
+
+    doc, err := xmlStripNamespace(body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+    }
+
+    var volumeGroups []VolumeGroup
+
+    entries := doc.FindElements("//entry")
+    for _, entry := range entries {
+        vgElem := entry.FindElement(".//VolumeGroup")
+        if vgElem == nil {
+            continue
+        }
+
+        vg := VolumeGroup{
+            UUID:                  getElementText(vgElem, "Metadata/Atom/AtomID"),
+            GroupName:             getElementText(vgElem, "GroupName"),
+            AvailableSize:         getElementText(vgElem, "AvailableSize"),
+            FreeSpace:             getElementText(vgElem, "FreeSpace"),
+            GroupCapacity:         getElementText(vgElem, "GroupCapacity"),
+            GroupSerialID:         getElementText(vgElem, "GroupSerialID"),
+            MaximumLogicalVolumes: getElementText(vgElem, "MaximumLogicalVolumes"),
+            UniqueDeviceID:        getElementText(vgElem, "UniqueDeviceID"),
+            HasMediaRepository:    vgElem.FindElement(".//VirtualMediaRepository") != nil,
+            MediaRepositoryName:   getElementText(vgElem, ".//VirtualMediaRepository/RepositoryName"), // NEW
+            MediaRepositorySize:   getElementText(vgElem, ".//VirtualMediaRepository/RepositorySize"), // NEW
+        }
+
+	// Extract Physical Volumes with enhanced metadata
+	for _, pvElem := range vgElem.FindElements(".//PhysicalVolumes/PhysicalVolume") {
+		vg.PhysicalVolumes = append(vg.PhysicalVolumes, VGPhysicalVolume{
+			VolumeName:             getElementText(pvElem, "VolumeName"),
+			VolumeCapacity:       getElementText(pvElem, "VolumeCapacity"),
+			VolumeState:          getElementText(pvElem, "VolumeState"),
+			UniqueDeviceID:       getElementText(pvElem, "UniqueDeviceID"),
+			VolumeUniqueID:       getElementText(pvElem, "VolumeUniqueID"),
+			LocationCode:         getElementText(pvElem, "LocationCode"),
+			Description:          getElementText(pvElem, "Description"),
+			IsFibreChannelBacked: getElementText(pvElem, "IsFibreChannelBacked"),
+			ReservePolicy:          getElementText(pvElem, "ReservePolicy"),
+			ReservePolicyAlgorithm: getElementText(pvElem, "ReservePolicyAlgorithm"),
+			AvailableForUsage:      getElementText(pvElem, "AvailableForUsage"),
+			IsISCSIBacked:          getElementText(pvElem, "IsISCSIBacked"),
+			StorageLabel:           getElementText(pvElem, "StorageLabel"),
+			DescriptorPage83:       getElementText(pvElem, "DescriptorPage83"),
+		})
+	}
+
+        // Extract Virtual Optical Media
+        for _, optElem := range vgElem.FindElements(".//VirtualOpticalMedia") {
+            vg.OpticalMedia = append(vg.OpticalMedia, VirtualOpticalMedia{
+                MediaName: getElementText(optElem, "MediaName"),
+                MediaUDID: getElementText(optElem, "MediaUDID"),
+                MountType: getElementText(optElem, "MountType"),
+                Size:      getElementText(optElem, "Size"),
+            })
+        }
+
+        // NEW: Extract Virtual Disks (Logical Volumes)
+        for _, vdElem := range vgElem.FindElements(".//VirtualDisks/VirtualDisk") {
+            vg.VirtualDisks = append(vg.VirtualDisks, VirtualDisk{
+                DiskName:       getElementText(vdElem, "DiskName"),
+                DiskCapacity:   getElementText(vdElem, "DiskCapacity"),
+                DiskLabel:      getElementText(vdElem, "DiskLabel"),
+                UniqueDeviceID: getElementText(vdElem, "UniqueDeviceID"),
+            })
+        }
+
+        volumeGroups = append(volumeGroups, vg)
+    }
+
+    return volumeGroups, nil
+}
+
+// GetVolumeGroup retrieves the details of a specific Volume Group on a Virtual I/O Server.
+func (c *HmcRestClient) GetVolumeGroup(viosUUID, vgUUID string, verbose bool) (*VolumeGroup, error) {
+    url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup/%s", c.hmcIP, viosUUID, vgUUID)
+
+    if verbose {
+        hmcLogger.Printf("Fetching Volume Group %s for VIOS %s, URL: %s", vgUUID, viosUUID, url)
+    }
+
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create request: %v", err)
+    }
+    req.Header.Set("X-API-Session", c.session)
+    req.Header.Set("Accept", "application/atom+xml")
+
+    ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+    defer cancel()
+    req = req.WithContext(ctx)
+
+    resp, err := c.client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("HTTP request failed: %v", err)
+    }
+    defer resp.Body.Close()
+
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to read response body: %v", err)
+    }
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+    }
+
+    doc, err := xmlStripNamespace(body)
+    if err != nil {
+        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+    }
+
+    vgElem := doc.FindElement("//VolumeGroup")
+    if vgElem == nil {
+        return nil, fmt.Errorf("VolumeGroup node not found in response")
+    }
+
+    vg := &VolumeGroup{
+            UUID:                  getElementText(vgElem, "Metadata/Atom/AtomID"),
+            GroupName:             getElementText(vgElem, "GroupName"),
+            AvailableSize:         getElementText(vgElem, "AvailableSize"),
+            FreeSpace:             getElementText(vgElem, "FreeSpace"),
+            GroupCapacity:         getElementText(vgElem, "GroupCapacity"),
+            GroupSerialID:         getElementText(vgElem, "GroupSerialID"),
+            MaximumLogicalVolumes: getElementText(vgElem, "MaximumLogicalVolumes"),
+            UniqueDeviceID:        getElementText(vgElem, "UniqueDeviceID"),
+            HasMediaRepository:    vgElem.FindElement(".//VirtualMediaRepository") != nil,
+            MediaRepositoryName:   getElementText(vgElem, ".//VirtualMediaRepository/RepositoryName"), // NEW
+            MediaRepositorySize:   getElementText(vgElem, ".//VirtualMediaRepository/RepositorySize"), // NEW
+        }
+
+	// Extract Physical Volumes with enhanced metadata
+	for _, pvElem := range vgElem.FindElements(".//PhysicalVolumes/PhysicalVolume") {
+		vg.PhysicalVolumes = append(vg.PhysicalVolumes, VGPhysicalVolume{
+			VolumeName:             getElementText(pvElem, "VolumeName"),
+			VolumeCapacity:       getElementText(pvElem, "VolumeCapacity"),
+			VolumeState:          getElementText(pvElem, "VolumeState"),
+			UniqueDeviceID:       getElementText(pvElem, "UniqueDeviceID"),
+			VolumeUniqueID:       getElementText(pvElem, "VolumeUniqueID"),
+			LocationCode:         getElementText(pvElem, "LocationCode"),
+			Description:          getElementText(pvElem, "Description"),
+			IsFibreChannelBacked: getElementText(pvElem, "IsFibreChannelBacked"),
+			ReservePolicy:          getElementText(pvElem, "ReservePolicy"),
+			ReservePolicyAlgorithm: getElementText(pvElem, "ReservePolicyAlgorithm"),
+			AvailableForUsage:      getElementText(pvElem, "AvailableForUsage"),
+			IsISCSIBacked:          getElementText(pvElem, "IsISCSIBacked"),
+			StorageLabel:           getElementText(pvElem, "StorageLabel"),
+			DescriptorPage83:       getElementText(pvElem, "DescriptorPage83"),
+		})
+	}
+
+    // Extract Virtual Optical Media
+    for _, optElem := range vgElem.FindElements(".//VirtualOpticalMedia") {
+        vg.OpticalMedia = append(vg.OpticalMedia, VirtualOpticalMedia{
+            MediaName: getElementText(optElem, "MediaName"),
+            MediaUDID: getElementText(optElem, "MediaUDID"),
+            MountType: getElementText(optElem, "MountType"),
+            Size:      getElementText(optElem, "Size"),
+        })
+    }
+
+    // Extract Virtual Disks (Logical Volumes)
+    for _, vdElem := range vgElem.FindElements(".//VirtualDisks/VirtualDisk") {
+        vg.VirtualDisks = append(vg.VirtualDisks, VirtualDisk{
+            DiskName:       getElementText(vdElem, "DiskName"),
+            DiskCapacity:   getElementText(vdElem, "DiskCapacity"),
+            DiskLabel:      getElementText(vdElem, "DiskLabel"),
+            UniqueDeviceID: getElementText(vdElem, "UniqueDeviceID"),
+        })
+    }
+
+    return vg, nil
+}
+// =====================================================================
+// CREATE VOLUME GROUP
+// =====================================================================
+
+// CreateVolumeGroup creates a new Volume Group on a VIOS using the specified physical volumes.
+func (c *HmcRestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolumes []string, verbose bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup", c.hmcIP, viosUUID)
+
+	if verbose {
+		hmcLogger.Printf("Creating Volume Group '%s' on VIOS %s with disks: %v", vgName, viosUUID, physicalVolumes)
+	}
+
+	// 1. Build the PhysicalVolumes XML blocks
+	var pvBuilder strings.Builder
+	for _, pv := range physicalVolumes {
+		pvBuilder.WriteString(fmt.Sprintf(`
+			<PhysicalVolume schemaVersion="V1_0">
+				<VolumeName kxe="false" kb="CUR">%s</VolumeName>
+			</PhysicalVolume>`, strings.TrimSpace(pv)))
+	}
+
+	// 2. Build the full VolumeGroup XML Payload
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VolumeGroup:VolumeGroup xmlns:VolumeGroup="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" xmlns="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" schemaVersion="V1_0">
+	<GroupName kxe="false" kb="CUR">%s</GroupName>
+	<PhysicalVolumes kxe="false" kb="CUD" schemaVersion="V1_0">%s
+	</PhysicalVolumes>
+</VolumeGroup:VolumeGroup>`, vgName, pvBuilder.String())
+
+	if verbose {
+		hmcLogger.Printf("CreateVolumeGroup Payload:\n%s", payload)
+	}
+
+	// 3. Create the HTTP Request
+	// Note: While standard REST uses POST for creation, some HMC versions expect PUT here. 
+	// If you get a 405 Method Not Allowed, switch this to "POST".
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VolumeGroup")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// 4. Execute the Request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("CreateVolumeGroup HTTP response status: %s", resp.Status)
+	}
+
+	// 5. Check for Success
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("CreateVolumeGroup failed with status %s: %s", resp.Status, string(body))
+	}
+
+	// 6. Monitor the Job (If the HMC kicked off an asynchronous job)
+	doc, err := xmlStripNamespace(body)
+	if err == nil {
+		jobIDElem := doc.FindElement("//JobID")
+		if jobIDElem != nil {
+			jobID := jobIDElem.Text()
+			if verbose {
+				hmcLogger.Printf("CreateVolumeGroup Job submitted (Job ID: %s), waiting for completion...", jobID)
+			}
+			_, err = c.FetchJobStatus(jobID, false, 10, verbose)
+			if err != nil {
+				return fmt.Errorf("CreateVolumeGroup job failed: %v", err)
+			}
+			if verbose {
+				hmcLogger.Printf("✅ CreateVolumeGroup job completed successfully.")
+			}
+		}
+	}
+
+	return nil
+}
+
+// =====================================================================
+// CREATE VIRTUAL DISK (LOGICAL VOLUME) - SMART CLI METHOD
+// =====================================================================
+
+// CreateVirtualDisk safely creates a Logical Volume (Virtual Disk) inside a standard Volume Group.
+// It verifies the host Volume Group has enough free space and checks for naming collisions before executing.
+func (c *HmcRestClient) CreateVirtualDisk(sysName, viosUUID, viosName, vgName, diskName string, capacityMB int, verbose bool) error {
+	requiredGB := float64(capacityMB) / 1024.0
+
+	if verbose {
+		hmcLogger.Printf("Pre-flight check: Verifying capacity and naming for new Virtual Disk '%s' (%d MB) on VIOS '%s'...", diskName, capacityMB, viosName)
+	}
+
+	// 1. Fetch Volume Groups to verify capacity and check for naming collisions
+	vgList, err := c.GetVolumeGroups(viosUUID, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
+	}
+
+	var foundVgFreeSpace string
+	var foundVgName string
+
+	for _, vg := range vgList {
+		// Collision Check: Ensure no disk with this name already exists on this VIOS
+		for _, vd := range vg.VirtualDisks {
+			if strings.EqualFold(vd.DiskName, diskName) {
+				return fmt.Errorf("ABORT: A Virtual Disk named '%s' already exists in VG '%s'", diskName, vg.GroupName)
+			}
+		}
+
+		// Locate our target Volume Group to check its capacity
+		if strings.EqualFold(vg.GroupName, vgName) {
+			foundVgName = vg.GroupName
+			foundVgFreeSpace = vg.FreeSpace
+			// We don't break here because we still want to finish scanning the other VGs for naming collisions
+		}
+	}
+
+	if foundVgName == "" {
+		return fmt.Errorf("ABORT: Target Volume Group '%s' was not found on VIOS '%s'", vgName, viosName)
+	}
+
+	// Capacity Check
+	freeSpaceGB, parseErr := strconv.ParseFloat(foundVgFreeSpace, 64)
+	if parseErr != nil {
+		return fmt.Errorf("failed to parse FreeSpace for VG '%s': %v", foundVgName, parseErr)
+	}
+
+	if verbose {
+		hmcLogger.Printf("-> VG '%s' has %.2f GB available. Required: %.2f GB", foundVgName, freeSpaceGB, requiredGB)
+	}
+
+	if freeSpaceGB < requiredGB {
+		return fmt.Errorf("INSUFFICIENT SPACE: Requested %.2f GB (%d MB), but VG '%s' only has %.2f GB available", requiredGB, capacityMB, foundVgName, freeSpaceGB)
+	}
+
+	// 2. Execute the creation via CLI
+	if verbose {
+		hmcLogger.Printf("✅ Pre-flight checks passed. Executing creation via CLI...")
+	}
+
+	// Syntax: mklv -lv <diskName> <vgName> <Size>M
+	mklvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mklv -lv %s %s %dM"`, sysName, viosName, diskName, vgName, capacityMB)
+
+	output, err := c.RunVIOSCommand(mklvCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to create Virtual Disk via mklv: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Virtual Disk '%s' created successfully. VIOS returned: %s", diskName, strings.TrimSpace(output))
+	}
+
+	return nil
+}
+
+// =====================================================================
+// DELETE VIRTUAL DISK (LOGICAL VOLUME) - CLI METHOD
+// =====================================================================
+
+// DeleteVirtualDisk safely removes a Logical Volume (Virtual Disk) from a VIOS.
+// It uses the native VIOS rmlv command with the -f flag to bypass confirmation prompts.
+func (c *HmcRestClient) DeleteVirtualDisk(sysName, viosName, diskName string, verbose bool) error {
+	if verbose {
+		hmcLogger.Printf("Safely deleting Virtual Disk '%s' on VIOS '%s' via CLI...", diskName, viosName)
+	}
+
+	// Syntax: rmlv -f <diskName>
+	// The -f flag is required for automation so the OS does not wait for user input.
+	rmlvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmlv -f %s"`, sysName, viosName, diskName)
+	
+	if verbose {
+		hmcLogger.Printf("Executing: %s", rmlvCmd)
+	}
+
+	output, err := c.RunVIOSCommand(rmlvCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to delete Virtual Disk via rmlv: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Virtual Disk '%s' deleted successfully. VIOS returned: %s", diskName, strings.TrimSpace(output))
+	}
+
+	return nil
+}
+
+// =====================================================================
+// EXTEND VIRTUAL DISK (LOGICAL VOLUME) - SMART CLI METHOD
+// =====================================================================
+
+// ExtendVirtualDisk safely increases the size of an existing Logical Volume (Virtual Disk).
+// It automatically queries the HMC to verify the host Volume Group has enough free space before executing.
+func (c *HmcRestClient) ExtendVirtualDisk(sysName, viosUUID, viosName, diskName string, additionalMB int, verbose bool) error {
+	requiredGB := float64(additionalMB) / 1024.0
+
+	if verbose {
+		hmcLogger.Printf("Pre-flight check: Verifying capacity for Virtual Disk '%s' on VIOS '%s'...", diskName, viosName)
+	}
+
+	// 1. Fetch Volume Groups to find the disk and check capacity
+	vgList, err := c.GetVolumeGroups(viosUUID, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve Volume Groups for capacity check: %v", err)
+	}
+
+	var foundVgName string
+	for _, vg := range vgList {
+		for _, vd := range vg.VirtualDisks {
+			if strings.EqualFold(vd.DiskName, diskName) {
+				foundVgName = vg.GroupName
+				
+				freeSpaceGB, parseErr := strconv.ParseFloat(vg.FreeSpace, 64)
+				if parseErr != nil {
+					return fmt.Errorf("failed to parse FreeSpace for VG '%s': %v", vg.GroupName, parseErr)
+				}
+
+				if verbose {
+					hmcLogger.Printf("-> Found disk '%s' inside VG '%s'. Available space: %.2f GB", diskName, vg.GroupName, freeSpaceGB)
+				}
+
+				// Check if there is enough space to satisfy the request
+				if freeSpaceGB < requiredGB {
+					return fmt.Errorf("INSUFFICIENT SPACE: Requested %.2f GB (%d MB), but VG '%s' only has %.2f GB available", requiredGB, additionalMB, vg.GroupName, freeSpaceGB)
+				}
+				break
+			}
+		}
+		if foundVgName != "" {
+			break
+		}
+	}
+
+	if foundVgName == "" {
+		return fmt.Errorf("Virtual Disk '%s' was not found on VIOS '%s'", diskName, viosName)
+	}
+
+	// 2. Execute the extension via CLI
+	if verbose {
+		hmcLogger.Printf("✅ Capacity check passed. Executing extension via CLI...")
+	}
+
+	extendlvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "extendlv %s %dM"`, sysName, viosName, diskName, additionalMB)
+	
+	output, err := c.RunVIOSCommand(extendlvCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to extend Virtual Disk via extendlv: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Virtual Disk '%s' extended successfully. VIOS returned: %s", diskName, strings.TrimSpace(output))
+	}
+
+	return nil
+}
+// =====================================================================
+// CREATE VIRTUAL OPTICAL MEDIA - SMART CLI METHOD
+// =====================================================================
+
+// CreateVirtualOpticalMedia creates a Virtual Optical Media (ISO) in the VIOS Media Repository.
+// If sourceFile is provided, it imports an existing ISO. 
+// If nfsLink is true (only valid with sourceFile), it links to the file instead of copying it.
+// If readOnly is true, the media is created with the -ro flag to prevent accidental overwrites.
+func (c *HmcRestClient) CreateVirtualOpticalMedia(sysName, viosUUID, viosName, mediaName, sourceFile string, sizeMB int, readOnly, nfsLink, verbose bool) error {
+	if nfsLink && sourceFile == "" {
+		return fmt.Errorf("ABORT: The -nfslink flag can only be used when providing a sourceFile")
+	}
+
+	if verbose {
+		hmcLogger.Printf("Pre-flight check: Verifying naming for Virtual Optical Media '%s' on VIOS '%s'...", mediaName, viosName)
+	}
+
+	// 1. Fetch Volume Groups to check for naming collisions in the Media Repository
+	vgList, err := c.GetVolumeGroups(viosUUID, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
+	}
+
+	for _, vg := range vgList {
+		for _, opt := range vg.OpticalMedia {
+			if strings.EqualFold(opt.MediaName, mediaName) {
+				return fmt.Errorf("ABORT: A Virtual Optical Media named '%s' already exists in the repository on VIOS '%s'", mediaName, viosName)
+			}
+		}
+	}
+
+	// 2. Build the appropriate mkvopt command
+	roFlag := ""
+	if readOnly {
+		roFlag = " -ro"
+	}
+
+	var mkvoptCmd string
+	if sourceFile != "" {
+		nfsFlag := ""
+		if nfsLink {
+			nfsFlag = " -nfslink"
+		}
+		
+		if verbose {
+			hmcLogger.Printf("✅ Pre-flight passed. Importing ISO from file: %s (ReadOnly: %v, NFSLink: %v)", sourceFile, readOnly, nfsLink)
+		}
+		// Syntax: mkvopt -name <mediaName> -file <SourceFile> [-nfslink] [-ro]
+		mkvoptCmd = fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mkvopt -name %s -file %s%s%s"`, sysName, viosName, mediaName, sourceFile, nfsFlag, roFlag)
+	} else {
+		if verbose {
+			hmcLogger.Printf("✅ Pre-flight passed. Creating blank media of %d MB... (ReadOnly: %v)", sizeMB, readOnly)
+		}
+		// Syntax: mkvopt -name <mediaName> -size <Size>M [-ro]
+		mkvoptCmd = fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mkvopt -name %s -size %dM%s"`, sysName, viosName, mediaName, sizeMB, roFlag)
+	}
+
+	// 3. Execute the creation/import via CLI
+	output, err := c.RunVIOSCommand(mkvoptCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to create/import Virtual Optical Media: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Virtual Optical Media '%s' created successfully. VIOS returned: %s", mediaName, strings.TrimSpace(output))
+	}
+
+	return nil
+}
+
+// =====================================================================
+// CREATE MEDIA REPOSITORY - SMART CLI METHOD
+// =====================================================================
+
+// CreateMediaRepository safely creates the Virtual Media Repository on a VIOS.
+// It verifies that no repository currently exists on the VIOS, and that the target VG has enough space.
+func (c *HmcRestClient) CreateMediaRepository(sysName, viosUUID, viosName, vgName string, sizeMB int, verbose bool) error {
+	requiredGB := float64(sizeMB) / 1024.0
+
+	if verbose {
+		hmcLogger.Printf("Pre-flight check: Verifying capacity and existing repositories for VG '%s' on VIOS '%s'...", vgName, viosName)
+	}
+
+	// 1. Fetch Volume Groups to check for existing repositories and verify capacity
+	vgList, err := c.GetVolumeGroups(viosUUID, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
+	}
+
+	var foundVgFreeSpace string
+	var foundVgName string
+
+	for _, vg := range vgList {
+		// COLLISION CHECK: A VIOS can only have one repository globally.
+		if vg.HasMediaRepository {
+			return fmt.Errorf("ABORT: A Virtual Media Repository already exists on this VIOS (hosted in VG '%s')", vg.GroupName)
+		}
+
+		// Locate our target Volume Group to check its capacity
+		if strings.EqualFold(vg.GroupName, vgName) {
+			foundVgName = vg.GroupName
+			foundVgFreeSpace = vg.FreeSpace
+			// We do not break here because we must finish scanning the other VGs to ensure no repository exists elsewhere!
+		}
+	}
+
+	if foundVgName == "" {
+		return fmt.Errorf("ABORT: Target Volume Group '%s' was not found on VIOS '%s'", vgName, viosName)
+	}
+
+	// Capacity Check
+	freeSpaceGB, parseErr := strconv.ParseFloat(foundVgFreeSpace, 64)
+	if parseErr != nil {
+		return fmt.Errorf("failed to parse FreeSpace for VG '%s': %v", foundVgName, parseErr)
+	}
+
+	if verbose {
+		hmcLogger.Printf("-> VG '%s' has %.2f GB available. Required: %.2f GB", foundVgName, freeSpaceGB, requiredGB)
+	}
+
+	if freeSpaceGB < requiredGB {
+		return fmt.Errorf("INSUFFICIENT SPACE: Requested %.2f GB (%d MB), but VG '%s' only has %.2f GB available", requiredGB, sizeMB, foundVgName, freeSpaceGB)
+	}
+
+	// 2. Execute the creation via CLI
+	if verbose {
+		hmcLogger.Printf("✅ Pre-flight checks passed. Executing mkrep via CLI...")
+	}
+
+	// Syntax: mkrep -sp <vgName> -size <sizeMB>M
+	mkrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mkrep -sp %s -size %dM"`, sysName, viosName, vgName, sizeMB)
+
+	output, err := c.RunVIOSCommand(mkrepCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to create Media Repository via mkrep: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Media Repository created successfully. VIOS returned: %s", strings.TrimSpace(output))
+	}
+
+	return nil
+}
+
+// =====================================================================
+// DELETE MEDIA REPOSITORY - SMART CLI METHOD (ENHANCED)
+// =====================================================================
+
+// DeleteMediaRepository removes the Virtual Media Repository from a VIOS.
+// It verifies the repo exists, checks for media if force is false, and warns if force is true.
+func (c *HmcRestClient) DeleteMediaRepository(sysName, viosUUID, viosName, repoName string, force, verbose bool) error {
+	if verbose {
+		hmcLogger.Printf("Pre-flight check: Looking for Media Repository '%s' on VIOS '%s'...", repoName, viosName)
+	}
+
+	// 1. Fetch Volume Groups to find the existing repository
+	vgList, err := c.GetVolumeGroups(viosUUID, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
+	}
+
+	var targetVG *VolumeGroup
+	for i := range vgList {
+		if vgList[i].HasMediaRepository {
+			targetVG = &vgList[i]
+			break
+		}
+	}
+
+	// CHECK 1: Does the repository even exist?
+	if targetVG == nil {
+		return fmt.Errorf("ABORT: No Virtual Media Repository found on VIOS '%s'", viosName)
+	}
+
+	// CHECK 2: Does the name match?
+	if !strings.EqualFold(targetVG.MediaRepositoryName, repoName) {
+		return fmt.Errorf("ABORT: Found repository '%s', but you requested to delete '%s'", targetVG.MediaRepositoryName, repoName)
+	}
+
+	// CHECK 3: Safety check for existing media
+	mediaCount := len(targetVG.OpticalMedia)
+	if force {
+		// Print the specific warning requested
+		fmt.Printf("\n⚠️  WARNING: Force flag is ENABLED. Deleting repository '%s' will also PERMANENTLY DELETE %d ISO file(s) inside it.\n", repoName, mediaCount)
+	} else if mediaCount > 0 {
+		// Fail WITHOUT calling rmrep if media exists and force is false
+		return fmt.Errorf("ABORT: Repository '%s' contains %d ISO file(s). Use the 'force' flag to delete anyway", repoName, mediaCount)
+	}
+
+	// 2. Execute the deletion via CLI
+	if verbose {
+		hmcLogger.Printf("✅ Pre-flight passed. Executing rmrep on VIOS...")
+	}
+
+	forceFlag := ""
+	if force {
+		forceFlag = " -f"
+	}
+
+	rmrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmrep%s"`, sysName, viosName, forceFlag)
+	
+	output, err := c.RunVIOSCommand(rmrepCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to delete Media Repository via CLI: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Media Repository '%s' deleted successfully.", repoName)
+	}
+
+	return nil
+}
+// =====================================================================
+// CHANGE MEDIA REPOSITORY (EXTEND) - SMART CLI METHOD
+// =====================================================================
+
+// ChangeMediaRepository increases the size of the Virtual Media Repository.
+// additionalMB is the amount of NEW space to add (incremental).
+// It identifies the hosting Volume Group and verifies free space before executing.
+func (c *HmcRestClient) ChangeMediaRepository(sysName, viosUUID, viosName string, additionalMB int, verbose bool) error {
+	requiredGB := float64(additionalMB) / 1024.0
+
+	if verbose {
+		hmcLogger.Printf("Pre-flight check: Verifying VG capacity for repository expansion on VIOS '%s'...", viosName)
+	}
+
+	// 1. Fetch Volume Groups to find the repository's location
+	vgList, err := c.GetVolumeGroups(viosUUID, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
+	}
+
+	var hostingVG *VolumeGroup
+	for i := range vgList {
+		if vgList[i].HasMediaRepository {
+			hostingVG = &vgList[i]
+			break
+		}
+	}
+
+	// CHECK 1: Does the repository even exist?
+	if hostingVG == nil {
+		return fmt.Errorf("ABORT: No Virtual Media Repository found on VIOS '%s'. Use CreateMediaRepository first", viosName)
+	}
+
+	// CHECK 2: Does the hosting VG have enough space?
+	freeSpaceGB, parseErr := strconv.ParseFloat(hostingVG.FreeSpace, 64)
+	if parseErr != nil {
+		return fmt.Errorf("failed to parse FreeSpace for VG '%s': %v", hostingVG.GroupName, parseErr)
+	}
+
+	if verbose {
+		hmcLogger.Printf("-> Repository found in VG '%s'. Available: %.2f GB | Requested: %.2f GB", 
+			hostingVG.GroupName, freeSpaceGB, requiredGB)
+	}
+
+	if freeSpaceGB < requiredGB {
+		return fmt.Errorf("INSUFFICIENT SPACE: VG '%s' only has %.2f GB free, cannot add %.2f GB", 
+			hostingVG.GroupName, freeSpaceGB, requiredGB)
+	}
+
+	// 2. Execute the expansion via CLI
+	if verbose {
+		hmcLogger.Printf("✅ Pre-flight passed. Extending repository '%s' by %d MB...", 
+			hostingVG.MediaRepositoryName, additionalMB)
+	}
+
+	// Syntax: chrep -size <Size>M
+	chrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "chrep -size %dM"`, sysName, viosName, additionalMB)
+	
+	output, err := c.RunVIOSCommand(chrepCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to extend Media Repository via chrep: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Media Repository expanded successfully. VIOS returned: %s", strings.TrimSpace(output))
+	}
+
+	return nil
 }

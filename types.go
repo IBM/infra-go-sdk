@@ -348,3 +348,139 @@ type VirtualSCSIServerAdapter struct {
 	RemoteLogicalPartitionID            string
 	RemoteSlotNumber                    string
 }
+
+// =====================================================================
+// VOLUME GROUP DATA STRUCTURES
+// =====================================================================
+
+// VolumeGroup represents a Volume Group configured on a Virtual I/O Server.
+type VolumeGroup struct {
+	UUID                  string
+	GroupName             string
+	AvailableSize         string
+	FreeSpace             string
+	GroupCapacity         string
+	GroupSerialID         string
+	MaximumLogicalVolumes string
+	UniqueDeviceID        string
+	PhysicalVolumes       []VGPhysicalVolume
+	OpticalMedia          []VirtualOpticalMedia
+	VirtualDisks          []VirtualDisk
+	HasMediaRepository    bool
+	MediaRepositoryName   string // NEW: Name of the repository (e.g., "VMLibrary")
+	MediaRepositorySize   string // NEW: Size of the repository in GB
+}
+
+// VirtualDisk represents a Logical Volume created inside the Volume Group.
+type VirtualDisk struct {
+	DiskName       string
+	DiskCapacity   string // Note: The HMC API usually returns this in GB (e.g., "10")
+	DiskLabel      string
+	UniqueDeviceID string
+}
+
+// VGPhysicalVolume represents a physical disk associated with a Volume Group.
+type VGPhysicalVolume struct {
+	VolumeName             string
+	VolumeCapacity         string
+	VolumeState            string
+	UniqueDeviceID         string
+	VolumeUniqueID         string
+	LocationCode           string
+	Description            string
+	IsFibreChannelBacked   string
+	ReservePolicy          string // NEW
+	ReservePolicyAlgorithm string // NEW
+	AvailableForUsage      string // NEW
+	IsISCSIBacked          string // NEW
+	StorageLabel           string // NEW
+	DescriptorPage83       string // NEW
+}
+
+// VirtualOpticalMedia represents an ISO/media file stored in the Volume Group's media repository.
+type VirtualOpticalMedia struct {
+	MediaName string
+	MediaUDID string
+	MountType string
+	Size      string
+}
+
+// =====================================================================
+// VIOS SCSI MAPPING DATA STRUCTURES (FULL)
+// =====================================================================
+
+// ViosSCSIMappingDetails represents a complete end-to-end VSCSI mapping.
+type ViosSCSIMappingDetails struct {
+	AssociatedLparURI string
+	ClientAdapter     VSCSIClientAdapter
+	ServerAdapter     VSCSIServerAdapter
+	Storage           VSCSIStorage
+	TargetDevice      VSCSITargetDevice
+}
+
+// VSCSIClientAdapter holds all properties of the client-side adapter (LPAR side).
+type VSCSIClientAdapter struct {
+	AdapterType                         string
+	DynamicReconfigurationConnectorName string
+	LocationCode                        string
+	LocalPartitionID                    string
+	RequiredAdapter                     string
+	VariedOn                            string
+	VirtualSlotNumber                   string
+	RemoteLogicalPartitionID            string
+	RemoteSlotNumber                    string
+	ServerLocationCode                  string
+}
+
+// VSCSIServerAdapter holds all properties of the server-side adapter (VIOS vhost).
+type VSCSIServerAdapter struct {
+	AdapterType                         string
+	DynamicReconfigurationConnectorName string
+	LocationCode                        string
+	LocalPartitionID                    string
+	RequiredAdapter                     string
+	VariedOn                            string
+	VirtualSlotNumber                   string
+	AdapterName                         string // e.g., "vhost3"
+	BackingDeviceName                   string // e.g., "hdisk3" or "vopt_..."
+	RemoteLogicalPartitionID            string
+	RemoteSlotNumber                    string
+	ServerLocationCode                  string
+	UniqueDeviceID                      string
+}
+
+// VSCSIStorage holds properties for either Physical Volumes or Virtual Optical Media.
+type VSCSIStorage struct {
+	StorageType               string // "PhysicalVolume" or "VirtualOpticalMedia"
+	
+	// Virtual Optical Media Fields
+	MediaName                 string
+	MediaUDID                 string
+	MountType                 string
+	Size                      string
+	
+	// Physical Volume Fields
+	Description               string
+	LocationCode              string
+	PersistentReserveKeyValue string
+	ReservePolicy             string
+	ReservePolicyAlgorithm    string
+	UniqueDeviceID            string
+	AvailableForUsage         string
+	VolumeCapacity            string
+	VolumeName                string
+	VolumeState               string
+	VolumeUniqueID            string
+	IsFibreChannelBacked      string
+	IsISCSIBacked             string
+	StorageLabel              string
+	DescriptorPage83          string
+}
+
+// VSCSITargetDevice holds properties for the virtual target device (vtd).
+type VSCSITargetDevice struct {
+	DeviceType         string // "VirtualOpticalTargetDevice" or "PhysicalVolumeVirtualTargetDevice"
+	LogicalUnitAddress string
+	TargetName         string // e.g., "vtscsi0" or "vtopt1"
+	UniqueDeviceID     string
+}
