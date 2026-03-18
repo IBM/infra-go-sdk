@@ -209,3 +209,91 @@ func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (stri
 
 	return profileUUID, nil
 }
+
+// SaveCurrentLparConfig saves the current active configuration of a Logical Partition to a profile.
+// If force is true, it will overwrite an existing profile with the same name.
+func (c *HmcRestClient) SaveCurrentLparConfig(lparUUID, profileName string, force, verbose bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/SaveCurrentConfig", c.hmcIP, lparUUID)
+	
+	if verbose {
+		hmcLogger.Printf("Saving current config for LPAR %s to profile '%s' (Force: %t)...", lparUUID, profileName, force)
+	}
+
+	// 1. Define operation details for the JobRequest
+	reqdOperation := map[string]string{
+		"OperationName": "SaveCurrentConfig",
+		"GroupName":     "LogicalPartition",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// 2. Build job parameters matching the HMC schema
+	jobParams := map[string]string{
+		"PartitionProfileName": profileName,
+		"force":                fmt.Sprintf("%t", force),
+	}
+
+	// 3. Generate the XML payload using your existing helper
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	if err != nil {
+		return fmt.Errorf("failed to create job request payload: %v", err)
+	}
+
+	// 4. Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// 5. Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("SaveCurrentConfig Response Status: %s", resp.Status)
+	}
+
+	// 6. Check for non-success status codes (Usually 200, 201, or 202 for Jobs)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("SaveCurrentConfig job submission failed with status %s: %s", resp.Status, string(body))
+	}
+
+	// 7. Strip namespaces to find the JobID
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return fmt.Errorf("JobID not found in response: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+	
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s. Waiting for completion...", jobID)
+	}
+
+	// 8. Wait for the background job to finish
+	_, err = c.FetchJobStatus(jobID, false, 5, verbose)
+	if err != nil {
+		return fmt.Errorf("failed during SaveCurrentConfig job execution: %v", err)
+	}
+
+	return nil
+}

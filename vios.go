@@ -2313,3 +2313,106 @@ func (c *HmcRestClient) ChangeMediaRepository(sysName, viosUUID, viosName string
 
 	return nil
 }
+
+// CreatePhysicalVolumeMap maps a physical disk on the VIOS to a target LPAR using the GET-Modify-POST pattern.
+func (c *HmcRestClient) CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID, diskName string, verbose bool) (string, error) {
+	// 1. GET the VIOS with its mappings extended group
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+	
+	if verbose {
+		hmcLogger.Printf("Fetching VIOS %s to inject new storage mapping...", viosUUID)
+	}
+
+	doc, err := c.fetchAndParseHMCXML(url, verbose)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch VIOS mappings: %v", err)
+	}
+
+	// 2. EXTRACT the actual VirtualIOServer element (ignoring the <entry> Atom wrapper)
+	viosElem := doc.FindElement("//VirtualIOServer")
+	if viosElem == nil {
+		return "", fmt.Errorf("VirtualIOServer element not found in VIOS XML")
+	}
+
+	// 3. Locate or create the VirtualSCSIMappings collection
+	mappingsList := viosElem.FindElement(".//VirtualSCSIMappings")
+	if mappingsList == nil {
+		if verbose { hmcLogger.Printf("No existing mappings found. Creating VirtualSCSIMappings group...") }
+		mappingsList = viosElem.CreateElement("VirtualSCSIMappings")
+		mappingsList.CreateAttr("schemaVersion", "V1_0")
+		mappingsList.CreateAttr("group", "ViosSCSIMapping")
+	}
+
+	// 4. Construct the new mapping (Schema-compliant)
+	newMappingXML := fmt.Sprintf(`
+        <VirtualSCSIMapping schemaVersion="V1_0">
+            <AssociatedLogicalPartition href="https://%s:443/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <Storage>
+                <PhysicalVolume schemaVersion="V1_0">
+                    <VolumeName>%s</VolumeName>
+                </PhysicalVolume>
+            </Storage>
+        </VirtualSCSIMapping>`, c.hmcIP, sysUUID, lparUUID, diskName)
+
+	newMappingDoc := etree.NewDocument()
+	if err := newMappingDoc.ReadFromString(newMappingXML); err != nil {
+		return "", fmt.Errorf("failed to parse new mapping XML: %v", err)
+	}
+
+	// 5. Append the new mapping safely to the list
+	mappingsList.AddChild(newMappingDoc.Root())
+
+	// 6. Natively set the correct namespace and tag on the root element using etree
+	viosElem.Tag = "VirtualIOServer:VirtualIOServer"
+	viosElem.CreateAttr("xmlns:VirtualIOServer", "http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/")
+	viosElem.CreateAttr("xmlns", "http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/")
+	viosElem.CreateAttr("xmlns:ns2", "http://www.w3.org/XML/1998/namespace/k2")
+	
+	// Ensure schemaVersion exists
+	if viosElem.SelectAttrValue("schemaVersion", "") == "" {
+		viosElem.CreateAttr("schemaVersion", "V1_0")
+	}
+
+	// 7. Serialize ONLY the VIOS element back to a string
+	payloadDoc := etree.NewDocument()
+	payloadDoc.SetRoot(viosElem.Copy())
+	xmlStr, err := payloadDoc.WriteToString()
+	if err != nil {
+		return "", err
+	}
+
+	if verbose {
+		hmcLogger.Printf("POSTing updated VIOS XML back to HMC...")
+	}
+
+	// 8. POST the complete update back to the VIOS API
+	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
+	req, err := http.NewRequest("POST", postURL, strings.NewReader(xmlStr))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	req.Header.Set("Accept", "application/atom+xml")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	
+
+	// 10. Wait for HMC Job Completion
+	respDoc, err := xmlStripNamespace(body)
+	if err == nil {
+		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
+			if verbose { hmcLogger.Printf("Update job triggered: %s", jobIDElem.Text()) }
+			c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+		}
+	}
+
+	return "SUCCESS", nil
+}
