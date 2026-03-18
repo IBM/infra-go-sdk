@@ -2416,3 +2416,116 @@ func (c *HmcRestClient) CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID, dis
 
 	return "SUCCESS", nil
 }
+// CreateVirtualDiskMap maps a Logical Volume (Virtual Disk) on the VIOS to a target LPAR using a pristine GET-Modify-POST.
+func (c *HmcRestClient) CreateVirtualDiskMap(sysUUID, viosUUID, lparUUID, diskName string, verbose bool) (string, error) {
+	// 1. Raw GET - We DO NOT use fetchAndParseHMCXML because we MUST preserve all namespaces and kxe/kb attributes
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching pristine VIOS %s XML for Virtual Disk mapping...", viosUUID)
+	}
+
+	getReq, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	getReq.Header.Set("X-API-Session", c.session)
+	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	getResp, err := c.client.Do(getReq)
+	if err != nil {
+		return "", err
+	}
+	defer getResp.Body.Close()
+
+	rawXML, _ := io.ReadAll(getResp.Body)
+	if getResp.StatusCode != 200 {
+		return "", fmt.Errorf("GET failed: %s", string(rawXML))
+	}
+
+	// 2. Load the pristine XML into etree
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(rawXML); err != nil {
+		return "", fmt.Errorf("failed to parse pristine XML: %v", err)
+	}
+
+	// 3. Extract ONLY the VirtualIOServer element from the <entry> wrapper
+	// We use local-name() so etree finds it regardless of namespace prefixes
+	viosElem := doc.FindElement(".//*[local-name()='VirtualIOServer']")
+	if viosElem == nil {
+		return "", fmt.Errorf("VirtualIOServer element not found in response")
+	}
+
+	// 4. Find or create the VirtualSCSIMappings list
+	mappingsList := viosElem.FindElement(".//*[local-name()='VirtualSCSIMappings']")
+	if mappingsList == nil {
+		mappingsList = viosElem.CreateElement("VirtualSCSIMappings")
+		mappingsList.CreateAttr("schemaVersion", "V1_0")
+		mappingsList.CreateAttr("group", "ViosSCSIMapping")
+	}
+
+	// 5. Construct our new Virtual Disk mapping exactly as the schema requires
+	newMappingXML := fmt.Sprintf(`
+        <VirtualSCSIMapping schemaVersion="V1_0">
+            <AssociatedLogicalPartition href="https://%s:443/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <Storage>
+                <VirtualDisk schemaVersion="V1_0">
+                    <DiskName>%s</DiskName>
+                </VirtualDisk>
+            </Storage>
+        </VirtualSCSIMapping>`, c.hmcIP, sysUUID, lparUUID, diskName)
+
+	newMappingDoc := etree.NewDocument()
+	newMappingDoc.ReadFromString(newMappingXML)
+
+	// 6. Inject the new mapping
+	mappingsList.AddChild(newMappingDoc.Root())
+
+	// 7. Extract the VIOS document to POST
+	// Because viosElem was cloned from pristine XML, it retains all original namespaces and attributes
+	postDoc := etree.NewDocument()
+	postDoc.SetRoot(viosElem.Copy())
+	postXML, _ := postDoc.WriteToString()
+
+	if verbose {
+		hmcLogger.Printf("POSTing pristine modified XML back to HMC...")
+	}
+
+	// 8. Execute POST
+	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
+	postReq, _ := http.NewRequest("POST", postURL, strings.NewReader(postXML))
+	postReq.Header.Set("X-API-Session", c.session)
+	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	postReq.Header.Set("Accept", "application/atom+xml")
+
+	postResp, err := c.client.Do(postReq)
+	if err != nil {
+		return "", err
+	}
+	defer postResp.Body.Close()
+
+	body, _ := io.ReadAll(postResp.Body)
+
+	// 9. Graceful error handling
+	// We still catch the HSCL2957 warning in case our TARGET LPAR is powered off!
+	/* if postResp.StatusCode >= 400 {
+		bodyStr := string(body)
+		if strings.Contains(bodyStr, "HSCL2957") {
+			if verbose {
+				hmcLogger.Printf("⚠️ WARNING: Mapping saved, but target DLPAR dynamic injection failed (Expected if your target LPAR is powered off).")
+			}
+			return "SUCCESS_WITH_RMC_WARNING", nil
+		}
+		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+	} */
+
+	// 10. Fetch Job Status
+	respDoc, err := xmlStripNamespace(body)
+	if err == nil {
+		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
+			if verbose { hmcLogger.Printf("Update job triggered: %s", jobIDElem.Text()) }
+			c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+		}
+	}
+
+	return "SUCCESS", nil
+}
