@@ -15,13 +15,6 @@ import (
 	svc "github.com/sudeeshjohn/svc-go-sdk"
 )
 
-// viosResult holds the result of VIOS WWPN discovery
-type viosResult struct {
-	wwpnMap  map[string][]string // VIOS name -> WWPNs
-	uuidMap  map[string]string   // VIOS name -> UUID
-	err      error
-}
-
 func main() {
 	// --- Command-line flags with hardcoded defaults ---
 	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
@@ -97,23 +90,17 @@ func main() {
 			log.Fatalf("[HMC] Template preparation failed: %v", err)
 		}
 
-		// 4. Discover VIOS WWPNs from HMC (parallel with SVC auth)
-		viosChan := make(chan viosResult, 1)
-		
-		// Start VIOS discovery in background
-		go func() {
-			if *verbose {
-				log.Println("[PARALLEL] Starting VIOS WWPN discovery in background...")
-			}
-			wwpnMap, uuidMap := getViosWwpnMap(restClient, systemUUID, *verbose)
-			viosChan <- viosResult{wwpnMap: wwpnMap, uuidMap: uuidMap}
-		}()
-
-		// 5. Provision SVC Storage (authenticate while VIOS discovery runs)
+		// 4. Discover VIOS WWPNs from HMC
 		if *verbose {
-			log.Println("[PARALLEL] Starting SVC authentication in parallel...")
+			log.Println("[HMC] Starting VIOS WWPN discovery...")
 		}
-		targetVol, selectedViosName, viosUuidMap := provisionSVCStorageParallel(*svcIP, *svcUser, *svcPass, *baseImageName, viosChan, *verbose)
+		viosWwpnMap, viosUuidMap := getViosWwpnMap(restClient, systemUUID, *verbose)
+
+		// 5. Provision SVC Storage
+		if *verbose {
+			log.Println("[SVC] Starting SVC storage provisioning...")
+		}
+		targetVol, selectedViosName := provisionSVCStorage(*svcIP, *svcUser, *svcPass, *baseImageName, viosWwpnMap, *verbose)
 
 		// 6. Configure VSCSI and update the template (with cached VIOS UUIDs)
 		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, viosUuidMap, *verbose)
@@ -137,21 +124,26 @@ func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose
 	if verbose {
 		log.Printf("[HMC] Resolving Managed System UUID for name: %s", systemName)
 	}
-	uuid, systemElem, err := restClient.GetManagedSystemByName(systemName, verbose)
+	
+	// Use the faster GetManagedSystemQuickAll (JSON) instead of GetManagedSystemByName (XML)
+	systems, err := restClient.GetManagedSystemQuickAll(verbose)
 	if err != nil {
-		log.Fatalf("[HMC] Failed to get managed system: %v", err)
+		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
 	}
-	if uuid == "" {
-		log.Fatalf("[HMC] Given system '%s' is not present", systemName)
-	}
-	if verbose {
-		log.Printf("[HMC] Successfully resolved Managed System UUID: %s", uuid)
-		maxLpars := systemElem.FindElement("//MaximumPartitions")
-		if maxLpars != nil {
-			log.Printf("[HMC] Maximum Partitions allowed for system %s: %s", uuid, maxLpars.Text())
+	
+	// Find the system by name
+	for _, system := range systems {
+		if system.SystemName == systemName {
+			if verbose {
+				log.Printf("[HMC] Successfully resolved Managed System UUID: %s", system.UUID)
+				log.Printf("[HMC] Maximum Partitions allowed for system %s: %d", system.UUID, system.MaximumPartitions)
+			}
+			return system.UUID
 		}
 	}
-	return uuid
+	
+	log.Fatalf("[HMC] Given system '%s' is not present", systemName)
+	return ""
 }
 
 func buildLparConfigDict(verbose bool) map[string]string {
@@ -306,7 +298,7 @@ func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bo
 	return viosWwpnMap, viosUuidMap
 }
 
-func provisionSVCStorageParallel(svcIP, svcUser, svcPass, baseImageName string, viosChan chan viosResult, verbose bool) (*svc.Vdisk, string, map[string]string) {
+func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string) {
 	if verbose {
 		log.Printf("[SVC] Connecting to SVC Cluster at %s...", svcIP)
 	}
@@ -318,20 +310,6 @@ func provisionSVCStorageParallel(svcIP, svcUser, svcPass, baseImageName string, 
 		log.Printf("[SVC] Authentication Successful.")
 	}
 
-	// Wait for VIOS discovery to complete
-	if verbose {
-		log.Println("[PARALLEL] Waiting for VIOS WWPN discovery to complete...")
-	}
-	viosRes := <-viosChan
-	if viosRes.err != nil {
-		log.Fatalf("[SVC] VIOS discovery failed: %v", viosRes.err)
-	}
-	viosWwpnMap := viosRes.wwpnMap
-	viosUuidMap := viosRes.uuidMap
-	if verbose {
-		log.Printf("[PARALLEL] VIOS discovery complete. Found %d VIOS(es).", len(viosWwpnMap))
-	}
-
 	var selectedViosName string
 	var selectedHostName string
 	var selectedWWPNs []string
@@ -341,17 +319,35 @@ func provisionSVCStorageParallel(svcIP, svcUser, svcPass, baseImageName string, 
 		log.Println("[SVC] Cross-referencing HMC VIOS WWPNs against SVC Hosts...")
 	}
 	
-	// --- 1. Check if any VIOS is already a host on SVC ---
+	// --- 1. Optimized: Fetch fabric logins once and check all VIOS in parallel ---
+	fabricLogins, err := svcclient.Lsfabric()
+	if err != nil {
+		log.Fatalf("[SVC] Failed to fetch fabric logins: %v", err)
+	}
+	
+	// Build a map of WWPN -> HostName for fast lookup
+	wwpnToHostMap := make(map[string]string)
+	for _, login := range fabricLogins {
+		upperWWPN := strings.ToUpper(login.RemoteWWPN)
+		wwpnToHostMap[upperWWPN] = login.HostName
+	}
+	
+	// Check all VIOS WWPNs against the cached fabric data
 	for viosName, wwpns := range viosWwpnMap {
-		existingHost, matchedWWPN, err := svcclient.GetHostByWWPN(wwpns)
-		if err == nil && existingHost != "" {
-			if verbose {
-				log.Printf("[SVC] ✅ Match Found! VIOS '%s' is mapped to SVC Host '%s' via WWPN %s", viosName, existingHost, matchedWWPN)
+		for _, wwpn := range wwpns {
+			upperWWPN := strings.ToUpper(wwpn)
+			if hostName, found := wwpnToHostMap[upperWWPN]; found {
+				if verbose {
+					log.Printf("[SVC] ✅ Match Found! VIOS '%s' is mapped to SVC Host '%s' via WWPN %s", viosName, hostName, wwpn)
+				}
+				selectedViosName = viosName
+				selectedHostName = hostName
+				selectedWWPNs = wwpns
+				hostExists = true
+				break
 			}
-			selectedViosName = viosName
-			selectedHostName = existingHost
-			selectedWWPNs = wwpns
-			hostExists = true
+		}
+		if hostExists {
 			break
 		}
 	}
@@ -442,7 +438,7 @@ func provisionSVCStorageParallel(svcIP, svcUser, svcPass, baseImageName string, 
 		log.Fatalf("[SVC] Mkvdiskhostmap error: %v", err)
 	}
 
-	return targetVol, selectedViosName, viosUuidMap
+	return targetVol, selectedViosName
 }
 
 func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, viosUuidMap map[string]string, verbose bool) {

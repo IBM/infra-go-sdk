@@ -462,7 +462,7 @@ func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partition
 
 	// If partitionUUID is not provided, find it using partitionName
 	if partitionUUID == "" && partitionName != "" {
-		lparList, err := c.GetLogicalPartitionsQuickAll(systemUUID, verbose)
+		lparList, err := c.GetLogicalPartitionQuickAll(systemUUID, verbose)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to fetch logical partitions: %v", err)
 		}
@@ -800,4 +800,55 @@ func (c *HmcRestClient) DeleteHMCResource(resourceURL string, verbose bool) erro
 		return fmt.Errorf("failed to delete resource. Status: %s, Response: %s", resp.Status, string(body))
 	}
 	return nil
+}
+
+// GetLogicalPartitionByName resolves a logical partition name to its UUID on a specific Managed System.
+// It uses the quick (JSON) endpoint for high performance.
+func (c *HmcRestClient) GetLogicalPartitionByName(systemUUID, partitionName string, verbose bool) (string, error) {
+	if verbose {
+		hmcLogger.Printf("Resolving LPAR name '%s' to UUID on system %s...", partitionName, systemUUID)
+	}
+
+	// Fetch all partitions using the lightweight JSON endpoint
+	lpars, err := c.GetLogicalPartitionQuickAll(systemUUID, verbose)
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve logical partitions: %v", err)
+	}
+
+	// Iterate through the slice to find the matching name
+	for _, lpar := range lpars {
+		if lpar.PartitionName == partitionName {
+			if verbose {
+				hmcLogger.Printf("✅ Found LPAR '%s' with UUID: %s", partitionName, lpar.UUID)
+			}
+			return lpar.UUID, nil
+		}
+	}
+
+	return "", fmt.Errorf("logical partition '%s' not found on system %s", partitionName, systemUUID)
+}
+// GetManagedSystemByNameQuick resolves a system name to its full Quick details and UUID 
+// by scanning the high-performance JSON inventory.
+func (c *HmcRestClient) GetManagedSystemByNameQuick(systemName string, verbose bool) (*ManagedSystemQuick, string, error) {
+	if verbose {
+		hmcLogger.Printf("Resolving Managed System name '%s' via Quick inventory...", systemName)
+	}
+
+	// 1. Fetch the high-performance JSON list of all systems
+	systems, err := c.GetManagedSystemQuickAll(verbose)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to retrieve systems inventory: %v", err)
+	}
+
+	// 2. Iterate to find a case-insensitive name match
+	for _, s := range systems {
+		if strings.EqualFold(s.SystemName, systemName) {
+			if verbose {
+				hmcLogger.Printf("✅ System resolved: %s (UUID: %s)", s.SystemName, s.UUID)
+			}
+			return &s, s.UUID, nil
+		}
+	}
+
+	return nil, "", fmt.Errorf("managed system '%s' not found in HMC inventory", systemName)
 }

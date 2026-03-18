@@ -27,7 +27,7 @@ func main() {
 
 	// 2. Fetch the Quick list to resolve the UUID for targetSystem
 	fmt.Println("Fetching Managed Systems inventory to resolve UUID...")
-	systems, err := restClient.GetManagedSystemsQuick(verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(verbose)
 	if err != nil {
 		log.Fatalf("Error retrieving systems: %v", err)
 	}

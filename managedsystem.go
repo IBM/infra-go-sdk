@@ -12,65 +12,40 @@ import (
 	"github.com/beevik/etree"
 )
 
-// GetManagedSystemQuick retrieves quick details of a specific managed system by UUID
+// GetManagedSystemQuick retrieves a surgical JSON summary of a single system.
 func (c *HmcRestClient) GetManagedSystemQuick(systemUUID string, verbose bool) (*ManagedSystemQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/quick", c.hmcIP, systemUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching quick managed system details for UUID %s, URL: %s", systemUUID, url)
-	}
-
-	// Create and configure the GET request
+	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, err
 	}
+
 	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept", "application/json") // Ensure we get the raw JSON object
 
-	// Set timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %v", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("GetManagedSystemQuick response status: %s", resp.Status)
-	}
-
-	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+		return nil, err
 	}
 
-	// Log response body if verbose
-	if verbose {
-		hmcLogger.Printf("GetManagedSystemQuick response body:\n%s", string(body))
-	}
-
-	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		if verbose {
-			hmcLogger.Printf("Get of Managed System failed. Response code: %d", resp.StatusCode)
-		}
-		return nil, nil
+		return nil, fmt.Errorf("HMC error %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse JSON response
 	var system ManagedSystemQuick
 	if err := json.Unmarshal(body, &system); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal exhaustive JSON: %v", err)
 	}
 
 	if verbose {
-		hmcLogger.Printf("Found managed system: Name=%s, UUID=%s", system.SystemName, system.UUID)
+		hmcLogger.Printf("Successfully captured all elements for: %s", system.SystemName)
 	}
 
 	return &system, nil
@@ -252,61 +227,32 @@ func (c *HmcRestClient) GetManagedSystems(verbose bool) (*etree.Element, error) 
 	return managedSystems, nil
 }
 
-// GetManagedSystemsQuick retrieves the quick list of managed systems as a JSON-parsed slice
-func (c *HmcRestClient) GetManagedSystemsQuick(verbose bool) ([]ManagedSystemQuick, error) {
+// GetManagedSystemsQuickAll fetches all systems using the high-performance JSON endpoint.
+func (c *HmcRestClient) GetManagedSystemQuickAll(verbose bool) ([]ManagedSystemQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/quick/All", c.hmcIP)
-	if verbose {
-		hmcLogger.Printf("Fetching quick managed systems, URL: %s", url)
-	}
 
-	// Create and configure the GET request
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, err
 	}
+
 	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept", "application/json") // Request JSON explicitly
 
-	// Set timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %v", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("GetManagedSystemsQuick response status: %s", resp.Status)
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// Log response body if verbose
-	if verbose {
-		hmcLogger.Printf("GetManagedSystemsQuick response body:\n%s", string(body))
-	}
-
-	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		if verbose {
-			hmcLogger.Printf("Get of Managed Systems failed. Response code: %d", resp.StatusCode)
-		}
-		return nil, nil
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HMC error (%s): %s", resp.Status, string(body))
 	}
 
-	// Parse JSON response
 	var systems []ManagedSystemQuick
-	if err := json.Unmarshal(body, &systems); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	if err := json.NewDecoder(resp.Body).Decode(&systems); err != nil {
+		return nil, fmt.Errorf("failed to decode Quick/All JSON: %v", err)
 	}
 
 	return systems, nil

@@ -185,20 +185,59 @@ type PartitionProfileQuick struct {
 	UUID        string `json:"UUID"`
 }
 
-// ManagedSystemQuick represents the structure of a managed system in the quick list
+// ManagedSystemQuick represents the complete flattened JSON structure 
+// from the HMC /rest/api/uom/ManagedSystem/quick/All endpoint.
 type ManagedSystemQuick struct {
-	SystemName            string      `json:"SystemName"`
-	UUID                  string      `json:"UUID"`
-	State                 string      `json:"State"`
-	IPAddress             string      `json:"IPAddress"`
-	MTMS                  string      `json:"MTMS"`
-	SystemType            string      `json:"SystemType"`
-	SystemFirmware        string      `json:"SystemFirmware"`
-	MaximumPartitions     int         `json:"MaximumPartitions"`
-	InstalledSystemMemory int         `json:"InstalledSystemMemory"`
-	InstalledSystemProcessors float64 `json:"InstalledSystemProcessorUnits"` // Use float64 for scientific notation like 6E+1
-	CurrentAvailableMemory     float64 `json:"CurrentAvailableSystemMemory"`
-	CurrentAvailableProcessors float64 `json:"CurrentAvailableSystemProcessorUnits"`
+	SystemName                               string  `json:"SystemName"`
+	UUID                                     string  `json:"UUID"`
+	State                                    string  `json:"State"`
+	StateDetail                              string  `json:"StateDetail"`
+	IPAddress                                string  `json:"IPAddress"`
+	MTMS                                     string  `json:"MTMS"`
+	SystemType                               string  `json:"SystemType"`
+	SystemFirmware                           string  `json:"SystemFirmware"`
+	SystemLocation                           *string `json:"SystemLocation"` // Using pointer for null values
+	Description                              *string `json:"Description"`
+	
+	// Memory Metrics (MB)
+	ConfigurableSystemMemory                 float64 `json:"ConfigurableSystemMemory"`
+	CurrentAvailableSystemMemory             float64 `json:"CurrentAvailableSystemMemory"`
+	InstalledSystemMemory                    float64 `json:"InstalledSystemMemory"`
+	PermanentSystemMemory                    float64 `json:"PermanentSystemMemory"`
+	MemoryDefragmentationState               string  `json:"MemoryDefragmentationState"`
+	
+	// Processor Metrics
+	ConfigurableSystemProcessorUnits         float64 `json:"ConfigurableSystemProcessorUnits"`
+	CurrentAvailableSystemProcessorUnits     float64 `json:"CurrentAvailableSystemProcessorUnits"`
+	InstalledSystemProcessorUnits            float64 `json:"InstalledSystemProcessorUnits"`
+	PermanentSystemProcessors                float64 `json:"PermanentSystemProcessors"`
+	ProcessorThrottling                      string  `json:"ProcessorThrottling"` // String "true"/"false"
+	
+	// Versioning & Levels
+	ActivatedLevel                           string  `json:"ActivatedLevel"`
+	ActivatedServicePackNameAndLevel         string  `json:"ActivatedServicePackNameAndLevel"`
+	DeferredLevel                            *string `json:"DeferredLevel"`
+	DeferredServicePackNameAndLevel          *string `json:"DeferredServicePackNameAndLevel"`
+	ServiceProcessorVersion                  string  `json:"ServiceProcessorVersion"`
+	BMCVersion                               *string `json:"BMCVersion"`
+	PNORVersion                              *string `json:"PNORVersion"`
+	
+	// Capabilities & Flags (All reported as strings "true"/"false")
+	CapacityOnDemandProcessorCapable         string  `json:"CapacityOnDemandProcessorCapable"`
+	CapacityOnDemandMemoryCapable            string  `json:"CapacityOnDemandMemoryCapable"`
+	ManufacturingDefaultConfigurationEnabled string  `json:"ManufacturingDefaultConfigurationEnabled"`
+	PhysicalSystemAttentionLEDState          string  `json:"PhysicalSystemAttentionLEDState"`
+	IsClassicHMCManagement                   string  `json:"IsClassicHMCManagement"`
+	IsPowerVMManagementController            string  `json:"IsPowerVMManagementController"`
+	IsNotPowerVMManagementController         string  `json:"IsNotPowerVMManagementController"`
+	IsPowerVMManagementMaster                string  `json:"IsPowerVMManagementMaster"`
+	IsNotPowerVMManagementMaster             string  `json:"IsNotPowerVMManagementMaster"`
+	
+	// Miscellaneous
+	MaximumPartitions                        int     `json:"MaximumPartitions"`
+	ReferenceCode                            string  `json:"ReferenceCode"`
+	MergedReferenceCode                      string  `json:"MergedReferenceCode"`
+	MeteredPoolID                            *string `json:"MeteredPoolID"`
 }
 type Operation struct {
 	XMLName       xml.Name `xml:"Operation"`
@@ -483,4 +522,56 @@ type VSCSITargetDevice struct {
 	LogicalUnitAddress string
 	TargetName         string // e.g., "vtscsi0" or "vtopt1"
 	UniqueDeviceID     string
+}
+
+
+// CreateLparRequest defines the parameters for a new LPAR creation.
+type CreateLparRequest struct {
+	Name             string
+	MinMem           int     // MB
+	DesiredMem       int     // MB
+	MaxMem           int     // MB
+	MinProcUnits     float64 
+	DesiredProcUnits float64
+	MaxProcUnits     float64
+	MinVcpus         int
+	DesiredVcpus     int
+	MaxVcpus         int
+	SharingMode      string // "uncapped" or "capped"
+}
+
+// VirtualSwitchQuick represents the JSON response for quick switch details.
+type VirtualSwitchQuick struct {
+	UUID       string `json:"UUID"` // Note: Only present in /quick/All, we inject it for single queries
+	SwitchName string `json:"SwitchName"`
+	SwitchMode string `json:"SwitchMode"`
+}
+
+// VirtualSwitch represents the comprehensive XML details of a switch.
+type VirtualSwitch struct {
+	UUID            string
+	SwitchID        string
+	SwitchName      string
+	SwitchMode      string
+	VirtualNetworks []string // Slice to hold the href links to attached VirtualNetworks
+}
+// ClientNetworkAdapter represents the comprehensive XML details of a Virtual Ethernet Adapter.
+type ClientNetworkAdapter struct {
+	UUID                               string
+	DynamicReconfigurationConnectorName string
+	LocationCode                       string
+	LocalPartitionID                   string
+	RequiredAdapter                    string
+	VariedOn                           string
+	VirtualSlotNumber                  string
+	AllowedOperatingSystemMACAddresses string
+	MACAddress                         string
+	PortVLANID                         string
+	QualityOfServicePriorityEnabled    string
+	TaggedVLANSupported                string
+	VirtualSwitchID                    string
+	VirtualSwitchName                  string
+	HCNID                              string
+	AssociatedVirtualSwitchURI         string   // Extracted from the href link
+	VirtualNetworkURIs                 []string // Slice to hold multiple VirtualNetwork href links
 }

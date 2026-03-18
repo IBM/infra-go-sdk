@@ -47,7 +47,7 @@ func main() {
 
 	// 2. Fetch all partitions for this system to find the target partition's UUID
 	fmt.Printf("Step 2: Searching for Partition '%s'...\n", lparName)
-	partitions, err := restClient.GetLogicalPartitionsQuickAll(sysUUID, verbose)
+	partitions, err := restClient.GetLogicalPartitionQuickAll(sysUUID, verbose)
 	if err != nil {
 		log.Fatalf("Failed to fetch partitions: %v", err)
 	}

@@ -432,7 +432,7 @@ func (c *HmcRestClient) GetPartitionQuick(lparUUID string, verbose bool) (map[st
 }
 
 // GetLogicalPartitionsQuickAll retrieves the quick list of logical partitions for a system
-func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
+func (c *HmcRestClient) GetLogicalPartitionQuickAll(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
 	if verbose {
 		hmcLogger.Printf("Fetching quick logical partitions for system UUID %s, URL: %s", systemUUID, url)
@@ -671,4 +671,253 @@ func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool)
     }
 
     return logicalPartitions, nil
+}
+
+
+
+
+// CreateLogicalPartition creates a new LPAR using the direct UOM PUT method.
+func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparRequest, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, sysUUID)
+
+	// The HMC demands STRICT ALPHABETICAL ORDERING for elements.
+	// We have rearranged the Processing Units and Virtual Processors 
+	// to perfectly match this alphabetical requirement (D -> M -> M).
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<uom:LogicalPartition xmlns:uom="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" 
+                      schemaVersion="V1_0">
+    <uom:Metadata><uom:Atom/></uom:Metadata>
+    <uom:PartitionMemoryConfiguration schemaVersion="V1_0">
+        <uom:Metadata><uom:Atom/></uom:Metadata>
+        <uom:DesiredMemory>%d</uom:DesiredMemory>
+        <uom:MaximumMemory>%d</uom:MaximumMemory>
+        <uom:MinimumMemory>%d</uom:MinimumMemory>
+    </uom:PartitionMemoryConfiguration>
+    <uom:PartitionName>%s</uom:PartitionName>
+    <uom:PartitionProcessorConfiguration schemaVersion="V1_0">
+        <uom:Metadata><uom:Atom/></uom:Metadata>
+        <uom:HasDedicatedProcessors>false</uom:HasDedicatedProcessors>
+        <uom:SharedProcessorConfiguration schemaVersion="V1_0">
+            <uom:Metadata><uom:Atom/></uom:Metadata>
+            <uom:DesiredProcessingUnits>%.1f</uom:DesiredProcessingUnits>
+            <uom:DesiredVirtualProcessors>%d</uom:DesiredVirtualProcessors>
+            <uom:MaximumProcessingUnits>%.1f</uom:MaximumProcessingUnits>
+            <uom:MaximumVirtualProcessors>%d</uom:MaximumVirtualProcessors>
+            <uom:MinimumProcessingUnits>%.1f</uom:MinimumProcessingUnits>
+            <uom:MinimumVirtualProcessors>%d</uom:MinimumVirtualProcessors>
+            <uom:UncappedWeight>128</uom:UncappedWeight>
+        </uom:SharedProcessorConfiguration>
+        <uom:SharingMode>%s</uom:SharingMode>
+    </uom:PartitionProcessorConfiguration>
+    <uom:PartitionType>AIX/Linux</uom:PartitionType>
+</uom:LogicalPartition>`,
+		req.DesiredMem, req.MaxMem, req.MinMem, 
+		req.Name, 
+		req.DesiredProcUnits, req.DesiredVcpus, // Desired (D)
+		req.MaxProcUnits, req.MaxVcpus,         // Maximum (M)
+		req.MinProcUnits, req.MinVcpus,         // Minimum (Mi)
+		req.SharingMode)
+
+	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+	httpReq.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(ctx)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("UOM creation failed (%s): %s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", err
+	}
+
+	atomID := doc.FindElement("//AtomID")
+	if atomID == nil {
+		return "", fmt.Errorf("LPAR created, but failed to extract UUID from response")
+	}
+
+	newUUID := atomID.Text()
+	if verbose {
+		hmcLogger.Printf("🚀 LPAR Created! UUID: %s", newUUID)
+	}
+
+	return newUUID, nil
+}
+
+// CreateVirtualSCSIClientAdapter adds a vSCSI Client Adapter and strictly maps it to a VIOS.
+func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, viosSlot int, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualSCSIClientAdapter", c.hmcIP, lparUUID)
+
+	if verbose {
+		hmcLogger.Printf("Adding vSCSI Client Adapter mapping to VIOS ID: %d, VIOS Slot: %d...", viosID, viosSlot)
+	}
+
+	// We provide the Base Adapter properties (AdapterType, RequiredAdapter)
+	// followed exactly by the vSCSI explicit mapping (Remote... properties)
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VirtualSCSIClientAdapter:VirtualSCSIClientAdapter xmlns:VirtualSCSIClientAdapter="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" 
+                                                   xmlns="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" 
+                                                   schemaVersion="V1_0">
+    <Metadata><Atom/></Metadata>
+    <AdapterType>Client</AdapterType>
+    <RequiredAdapter>false</RequiredAdapter>
+    <RemoteLogicalPartitionID>%d</RemoteLogicalPartitionID>
+    <RemoteSlotNumber>%d</RemoteSlotNumber>
+</VirtualSCSIClientAdapter:VirtualSCSIClientAdapter>`, viosID, viosSlot)
+
+	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualSCSIClientAdapter")
+	httpReq.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(ctx)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("vSCSI Adapter creation failed (%s): %s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", err
+	}
+
+	atomID := doc.FindElement("//AtomID")
+	if atomID == nil {
+		return "", fmt.Errorf("Adapter created successfully, but failed to extract new UUID")
+	}
+
+	return atomID.Text(), nil
+}
+
+/// CreatePhysicalVolumeMap maps a physical disk on the VIOS to a target LPAR using the GET-Modify-POST pattern.
+func (c *HmcRestClient) CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID, diskName string, verbose bool) (string, error) {
+	// 1. GET the VIOS with its mappings extended group
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+	
+	if verbose {
+		hmcLogger.Printf("Fetching VIOS %s to inject new storage mapping...", viosUUID)
+	}
+
+	doc, err := c.fetchAndParseHMCXML(url, verbose)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch VIOS mappings: %v", err)
+	}
+
+	// 2. EXTRACT the actual VirtualIOServer element (ignoring the <entry> Atom wrapper)
+	viosElem := doc.FindElement("//VirtualIOServer")
+	if viosElem == nil {
+		return "", fmt.Errorf("VirtualIOServer element not found in VIOS XML")
+	}
+
+	// 3. Locate or create the VirtualSCSIMappings collection
+	mappingsList := viosElem.FindElement(".//VirtualSCSIMappings")
+	if mappingsList == nil {
+		if verbose { hmcLogger.Printf("No existing mappings found. Creating VirtualSCSIMappings group...") }
+		mappingsList = viosElem.CreateElement("VirtualSCSIMappings")
+		mappingsList.CreateAttr("schemaVersion", "V1_0")
+		mappingsList.CreateAttr("group", "ViosSCSIMapping")
+	}
+
+	// 4. Construct the new mapping (Schema-compliant)
+	newMappingXML := fmt.Sprintf(`
+        <VirtualSCSIMapping schemaVersion="V1_0">
+            <AssociatedLogicalPartition href="https://%s:443/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <Storage>
+                <PhysicalVolume schemaVersion="V1_0">
+                    <VolumeName>%s</VolumeName>
+                </PhysicalVolume>
+            </Storage>
+        </VirtualSCSIMapping>`, c.hmcIP, sysUUID, lparUUID, diskName)
+
+	newMappingDoc := etree.NewDocument()
+	if err := newMappingDoc.ReadFromString(newMappingXML); err != nil {
+		return "", fmt.Errorf("failed to parse new mapping XML: %v", err)
+	}
+
+	// 5. Append the new mapping safely to the list
+	mappingsList.AddChild(newMappingDoc.Root())
+
+	// 6. Natively set the correct namespace and tag on the root element using etree
+	viosElem.Tag = "VirtualIOServer:VirtualIOServer"
+	viosElem.CreateAttr("xmlns:VirtualIOServer", "http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/")
+	viosElem.CreateAttr("xmlns", "http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/")
+	viosElem.CreateAttr("xmlns:ns2", "http://www.w3.org/XML/1998/namespace/k2")
+	
+	// Ensure schemaVersion exists
+	if viosElem.SelectAttrValue("schemaVersion", "") == "" {
+		viosElem.CreateAttr("schemaVersion", "V1_0")
+	}
+
+	// 7. Serialize ONLY the VIOS element back to a string
+	payloadDoc := etree.NewDocument()
+	payloadDoc.SetRoot(viosElem.Copy())
+	xmlStr, err := payloadDoc.WriteToString()
+	if err != nil {
+		return "", err
+	}
+
+	if verbose {
+		hmcLogger.Printf("POSTing updated VIOS XML back to HMC...")
+	}
+
+	// 8. POST the complete update back to the VIOS API
+	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
+	req, err := http.NewRequest("POST", postURL, strings.NewReader(xmlStr))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	req.Header.Set("Accept", "application/atom+xml")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	
+
+	// 10. Wait for HMC Job Completion
+	respDoc, err := xmlStripNamespace(body)
+	if err == nil {
+		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
+			if verbose { hmcLogger.Printf("Update job triggered: %s", jobIDElem.Text()) }
+			c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+		}
+	}
+
+	return "SUCCESS", nil
 }

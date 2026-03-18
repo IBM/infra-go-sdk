@@ -33,7 +33,7 @@ func main() {
 
 	// 2. Resolve IDs
 	sysUUID, _, _ := restClient.GetManagedSystemByName(*sysName, *verbose)
-	lpars, _ := restClient.GetLogicalPartitionsQuickAll(sysUUID, *verbose)
+	lpars, _ := restClient.GetLogicalPartitionQuickAll(sysUUID, *verbose)
 	
 	var targetLparUUID string
 	for _, l := range lpars {
