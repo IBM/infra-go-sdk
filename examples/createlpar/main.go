@@ -98,72 +98,138 @@ func main() {
 	ensureLparDoesNotExist(restClient, sysUUID, *lparName, *verbose)
 
 	// =========================================================================
-	// 3. CREATE LOGICAL PARTITION (LPAR)
+	// 3. PARALLEL: CREATE LPAR || DISCOVER VIOS || RESOLVE VSWITCH
 	// =========================================================================
-	log.Printf("\n[HMC] Step 1: Provisioning base LPAR '%s'...", *lparName)
-	req := hmc.CreateLparRequest{
-		Name:             *lparName,
-		MinMem:           2048,
-		DesiredMem:       4096,
-		MaxMem:           8192,
-		MinProcUnits:     0.1,
-		DesiredProcUnits: 0.5,
-		MaxProcUnits:     2.0,
-		MinVcpus:         1,
-		DesiredVcpus:     1,
-		MaxVcpus:         4,
-		SharingMode:      "uncapped",
-	}
-
-	lparUUID, err := restClient.CreateLogicalPartition(sysUUID, req, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] LPAR Creation failed: %v", err)
-	}
-	log.Printf("[HMC] ✅ LPAR Created! UUID: %s", lparUUID)
-
-	// =========================================================================
-	// 4. ATTACH VIRTUAL ETHERNET ADAPTER (NETWORK)
-	// =========================================================================
-	log.Printf("\n[HMC] Step 2: Resolving Virtual Switch '%s'...", *vswitchName)
-	switches, err := restClient.GetVirtualSwitchQuickAll(sysUUID, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Failed to retrieve Virtual Switches: %v", err)
-	}
-
+	log.Println("\n🔀 Starting 3-Way Parallel Operations: LPAR Creation || VIOS Discovery || vSwitch Resolution...")
+	
+	var lparUUID string
+	var viosWwpnMap map[string][]string
+	var viosUuidMap map[string]string
 	var vswitchUUID string
-	for _, s := range switches {
-		if strings.EqualFold(s.SwitchName, *vswitchName) {
-			vswitchUUID = s.UUID
-			break
+	var lparErr, viosErr, vswitchErr error
+	
+	wg.Add(3)
+	
+	// Thread 1: Create LPAR
+	go func() {
+		defer wg.Done()
+		log.Printf("[Thread-LPAR] Creating LPAR '%s'...", *lparName)
+		req := hmc.CreateLparRequest{
+			Name:             *lparName,
+			MinMem:           2048,
+			DesiredMem:       4096,
+			MaxMem:           8192,
+			MinProcUnits:     0.1,
+			DesiredProcUnits: 0.5,
+			MaxProcUnits:     2.0,
+			MinVcpus:         1,
+			DesiredVcpus:     1,
+			MaxVcpus:         4,
+			SharingMode:      "uncapped",
 		}
+
+		var err error
+		lparUUID, err = restClient.CreateLogicalPartition(sysUUID, req, *verbose)
+		if err != nil {
+			lparErr = fmt.Errorf("LPAR creation failed: %v", err)
+			return
+		}
+		log.Printf("[Thread-LPAR] ✅ LPAR Created! UUID: %s", lparUUID)
+	}()
+	
+	// Thread 2: Discover VIOS WWPNs
+	go func() {
+		defer wg.Done()
+		log.Println("[Thread-VIOS] Discovering VIOS WWPNs...")
+		viosWwpnMap, viosUuidMap = getViosWwpnMap(restClient, sysUUID, *verbose)
+		log.Println("[Thread-VIOS] ✅ VIOS Discovery Complete.")
+	}()
+	
+	// Thread 3: Resolve Virtual Switch
+	go func() {
+		defer wg.Done()
+		log.Printf("[Thread-vSwitch] Resolving Virtual Switch '%s'...", *vswitchName)
+		switches, err := restClient.GetVirtualSwitchQuickAll(sysUUID, *verbose)
+		if err != nil {
+			vswitchErr = fmt.Errorf("failed to retrieve Virtual Switches: %v", err)
+			return
+		}
+
+		for _, s := range switches {
+			if strings.EqualFold(s.SwitchName, *vswitchName) {
+				vswitchUUID = s.UUID
+				break
+			}
+		}
+		if vswitchUUID == "" {
+			vswitchErr = fmt.Errorf("virtual Switch '%s' not found", *vswitchName)
+			return
+		}
+		log.Printf("[Thread-vSwitch] ✅ Virtual Switch Resolved: %s", vswitchUUID)
+	}()
+	
+	wg.Wait()
+	
+	// Check for errors
+	if lparErr != nil {
+		log.Fatalf("❌ LPAR Thread Failed: %v", lparErr)
 	}
-	if vswitchUUID == "" {
-		log.Fatalf("[HMC] Virtual Switch '%s' not found.", *vswitchName)
+	if viosErr != nil {
+		log.Fatalf("❌ VIOS Thread Failed: %v", viosErr)
 	}
-
-	log.Printf("[HMC] Attaching VLAN %d to LPAR...", *vlanID)
-	_, err = restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Failed to add network adapter: %v", err)
+	if vswitchErr != nil {
+		log.Fatalf("❌ vSwitch Thread Failed: %v", vswitchErr)
 	}
-	log.Printf("[HMC] ✅ Network Adapter Attached.")
+	
+	log.Println("✅ All 3 parallel operations completed successfully\n")
 
 	// =========================================================================
-	// 5. DISCOVER VIOS WWPNS FOR SVC MAPPING
+	// 4. PARALLEL: ATTACH NETWORK || PROVISION SVC STORAGE
 	// =========================================================================
-	log.Println("\n[HMC] Step 3: Discovering VIOS WWPNs...")
-	viosWwpnMap, viosUuidMap := getViosWwpnMap(restClient, sysUUID, *verbose)
+	log.Println("\n🔀 Starting Parallel Operations: Network Attachment || SVC Storage Provisioning...")
+	
+	var targetVol *svc.Vdisk
+	var selectedViosName string
+	var networkErr2, storageErr error
+	
+	wg.Add(2)
+	
+	// Thread 1: Attach Network Adapter
+	go func() {
+		defer wg.Done()
+		log.Printf("[Thread-Network] Attaching VLAN %d to LPAR...", *vlanID)
+		_, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		if err != nil {
+			networkErr2 = fmt.Errorf("failed to add network adapter: %v", err)
+			return
+		}
+		log.Printf("[Thread-Network] ✅ Network Adapter Attached.")
+	}()
+	
+	// Thread 2: Provision SVC Storage
+	go func() {
+		defer wg.Done()
+		log.Println("[Thread-SVC] Starting SVC storage provisioning...")
+		targetVol, selectedViosName = provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, *verbose)
+		log.Println("[Thread-SVC] ✅ SVC Storage Provisioned.")
+	}()
+	
+	wg.Wait()
+	
+	// Check for errors
+	if networkErr2 != nil {
+		log.Fatalf("❌ Network Thread Failed: %v", networkErr2)
+	}
+	if storageErr != nil {
+		log.Fatalf("❌ Storage Thread Failed: %v", storageErr)
+	}
+	
+	log.Println("✅ Both parallel operations completed successfully\n")
 
 	// =========================================================================
-	// 6. PROVISION SVC STORAGE (FLASHCOPY & MAP TO HOST)
+	// 5. DISCOVER NEW DISK ON VIOS & MAP IT TO LPAR
 	// =========================================================================
-	log.Println("\n[SVC] Step 4: Starting SVC storage provisioning...")
-	targetVol, selectedViosName := provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, *verbose)
-
-	// =========================================================================
-	// 7. DISCOVER NEW DISK ON VIOS & MAP IT TO LPAR
-	// =========================================================================
-	log.Printf("\n[HMC] Step 5: Configuring Storage on VIOS '%s'...", selectedViosName)
+	log.Printf("\n[HMC] Configuring Storage on VIOS '%s'...", selectedViosName)
 	viosUUID := viosUuidMap[selectedViosName]
 
 	log.Printf("[HMC] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
@@ -191,10 +257,10 @@ func main() {
 	}
 
 	// =========================================================================
-	// 8. SAVE CONFIGURATION & POWER ON THE LPAR
+	// 6. SAVE CONFIGURATION & POWER ON THE LPAR
 	// =========================================================================
 	profileName := "default_profile"
-	log.Printf("\n[HMC] Step 6: Saving active configuration to profile '%s'...", profileName)
+	log.Printf("\n[HMC] Saving active configuration to profile '%s'...", profileName)
 	err = restClient.SaveCurrentLparConfig(lparUUID, profileName, true, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
