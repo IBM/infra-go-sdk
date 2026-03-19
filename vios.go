@@ -2529,3 +2529,188 @@ func (c *HmcRestClient) CreateVirtualDiskMap(sysUUID, viosUUID, lparUUID, diskNa
 
 	return "SUCCESS", nil
 }
+
+// AddVirtualOpticalMedia natively imports an ISO file into the VIOS Media Repository using the AddOpticalMedia job.
+// Note: This requires HMC V10.3.1061.0 or later.
+func (c *HmcRestClient) AddVirtualOpticalMedia(viosUUID, mediaName, fileName string, verbose bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/AddOpticalMedia", c.hmcIP, viosUUID)
+	
+	if verbose {
+		hmcLogger.Printf("Natively adding Virtual Optical Media '%s' from file '%s' to VIOS %s...", mediaName, fileName, viosUUID)
+	}
+
+	// 1. Define operation details for the JobRequest
+	operation := map[string]string{
+		"OperationName": "AddOpticalMedia",
+		"GroupName":     "VirtualIOServer",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// 2. Build job parameters matching the HMC schema you provided
+	params := map[string]string{
+		"MediaName": mediaName,
+		"FileName":  fileName,
+	}
+
+	// 3. Generate the XML payload using your existing helper
+	payload, err := createJobRequestPayload(operation, params, "V1_0", verbose, true)
+	if err != nil {
+		return fmt.Errorf("failed to create job request payload: %v", err)
+	}
+
+	// 4. Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// 5. Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("AddOpticalMedia Response Status: %s", resp.Status)
+	}
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("AddOpticalMedia job failed with status %s: %s", resp.Status, string(body))
+	}
+
+	// 6. Strip namespaces to find the JobID
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return fmt.Errorf("JobID not found in response: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+	
+	if verbose {
+		hmcLogger.Printf("Extracted JobID: %s. Waiting for ISO import to complete...", jobID)
+	}
+
+	// 7. Wait for the background job to finish
+	_, err = c.FetchJobStatus(jobID, false, 10, verbose)
+	if err != nil {
+		return fmt.Errorf("failed during AddOpticalMedia job execution: %v", err)
+	}
+
+	return nil
+}
+// CreateVirtualOpticalMap creates a Virtual Optical Device (CD-ROM) on the target LPAR and loads the specified ISO media.
+func (c *HmcRestClient) CreateVirtualOpticalMap(sysUUID, viosUUID, lparUUID, mediaName string, verbose bool) (string, error) {
+	// 1. Raw GET - Fetch pristine VIOS XML to preserve namespaces and attributes
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching pristine VIOS %s XML for Virtual Optical mapping...", viosUUID)
+	}
+
+	getReq, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	getReq.Header.Set("X-API-Session", c.session)
+	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	getResp, err := c.client.Do(getReq)
+	if err != nil {
+		return "", err
+	}
+	defer getResp.Body.Close()
+
+	rawXML, _ := io.ReadAll(getResp.Body)
+	if getResp.StatusCode != 200 {
+		return "", fmt.Errorf("GET failed: %s", string(rawXML))
+	}
+
+	// 2. Load the pristine XML into etree
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(rawXML); err != nil {
+		return "", fmt.Errorf("failed to parse pristine XML: %v", err)
+	}
+
+	// 3. Extract ONLY the VirtualIOServer element from the <entry> wrapper
+	viosElem := doc.FindElement(".//*[local-name()='VirtualIOServer']")
+	if viosElem == nil {
+		return "", fmt.Errorf("VirtualIOServer element not found in response")
+	}
+
+	// 4. Find or create the VirtualSCSIMappings list
+	mappingsList := viosElem.FindElement(".//*[local-name()='VirtualSCSIMappings']")
+	if mappingsList == nil {
+		mappingsList = viosElem.CreateElement("VirtualSCSIMappings")
+		mappingsList.CreateAttr("schemaVersion", "V1_0")
+		mappingsList.CreateAttr("group", "ViosSCSIMapping")
+	}
+
+	// 5. Construct our new Virtual Optical mapping
+	newMappingXML := fmt.Sprintf(`
+        <VirtualSCSIMapping schemaVersion="V1_0">
+            <AssociatedLogicalPartition href="https://%s:443/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <Storage>
+                <VirtualOpticalMedia schemaVersion="V1_0">
+                    <MediaName>%s</MediaName>
+                </VirtualOpticalMedia>
+            </Storage>
+        </VirtualSCSIMapping>`, c.hmcIP, sysUUID, lparUUID, mediaName)
+
+	newMappingDoc := etree.NewDocument()
+	newMappingDoc.ReadFromString(newMappingXML)
+
+	// 6. Inject the new mapping
+	mappingsList.AddChild(newMappingDoc.Root())
+
+	// 7. Extract the VIOS document to POST
+	postDoc := etree.NewDocument()
+	postDoc.SetRoot(viosElem.Copy())
+	postXML, _ := postDoc.WriteToString()
+
+	if verbose {
+		hmcLogger.Printf("POSTing pristine modified XML back to HMC...")
+	}
+
+	// 8. Execute POST
+	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
+	postReq, _ := http.NewRequest("POST", postURL, strings.NewReader(postXML))
+	postReq.Header.Set("X-API-Session", c.session)
+	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	postReq.Header.Set("Accept", "application/atom+xml")
+
+	postResp, err := c.client.Do(postReq)
+	if err != nil {
+		return "", err
+	}
+	defer postResp.Body.Close()
+
+	body, _ := io.ReadAll(postResp.Body)
+
+
+	// 10. Fetch Job Status
+	respDoc, err := xmlStripNamespace(body)
+	if err == nil {
+		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
+			if verbose { hmcLogger.Printf("Optical mapping job triggered: %s", jobIDElem.Text()) }
+			c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+		}
+	}
+
+	return "SUCCESS", nil
+}

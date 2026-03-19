@@ -18,7 +18,7 @@ func main() {
 	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_03", "Name for the new LPAR")
+	lparName := flag.String("lpar-name", "Go_LPAR_0", "Name for the new LPAR")
 	osType := flag.String("os-type", "linux", "OS type (aix, linux, aix_linux, ibmi)")
 
 	// Networking Config

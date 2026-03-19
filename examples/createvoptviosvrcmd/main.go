@@ -18,7 +18,7 @@ func main() {
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
 	
 	viosName := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS (Required)")
-	mediaName := flag.String("media-name", "aixtest_iso", "Name of the Virtual Optical Media to create in the repository")
+	mediaName := flag.String("media-name", "test_iso", "Name of the Virtual Optical Media to create in the repository")
 	
 	// Two mutually exclusive ways to create the media:
 	sourceFile := flag.String("source-file", "/home/padmin/aixtest_iso.iso", "Path to an existing ISO file on the VIOS (e.g., /mnt/nfs/aix72.iso)")
