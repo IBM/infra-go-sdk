@@ -41,7 +41,7 @@ func main() {
 
 	// 3. Fetch Advanced Partitions XML
 	fmt.Println("Downloading Advanced Partition configurations (this may take a moment)...")
-	partitions, err := restClient.GetLogicalPartitions(sysUUID, verbose)
+	partitions, err := restClient.GetLogicalPartitionsAdv(sysUUID, verbose)
 	if err != nil {
 		log.Fatalf("Failed to retrieve advanced XML: %v", err)
 	}

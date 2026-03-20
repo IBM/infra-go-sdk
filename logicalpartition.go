@@ -209,8 +209,8 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 }
 
 // GetLogicalPartitions retrieves the advanced list of logical partitions for a managed system as a slice of XML elements.
-func (c *HmcRestClient) GetLogicalPartitions(systemUUID string, verbose bool) ([]*etree.Element, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
+func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose bool) ([]*etree.Element, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, systemUUID)
 	if verbose {
 		hmcLogger.Printf("Fetching advanced logical partitions for system UUID %s, URL: %s", systemUUID, url)
 	}
