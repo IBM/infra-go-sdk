@@ -51,21 +51,24 @@ func (c *HmcRestClient) GetManagedSystemQuick(systemUUID string, verbose bool) (
 	return &system, nil
 }
 
-// GetManagedSystem fetches the managed system UUID and details by name
-func (c *HmcRestClient) GetManagedSystemByName(systemName string, verbose bool) (string, *etree.Element, error) {
+// GetManagedSystemByName fetches the managed system UUID and comprehensive details by its friendly name.
+func (c *HmcRestClient) GetManagedSystemByName(systemName string, verbose bool) (string, *ManagedSystemDetailed, error) {
 	if systemName == "" {
 		return "", nil, fmt.Errorf("systemName cannot be empty")
 	}
+
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/search/(SystemName=='%s')", c.hmcIP, systemName)
 	if verbose {
-		hmcLogger.Printf("Fetching managed system for name: %s, URL: %s", systemName, url)
+		hmcLogger.Printf("Fetching comprehensive managed system for name: %s, URL: %s", systemName, url)
 	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=ManagedSystem")
+	// Using atom+xml to ensure we get the proper feed/entry wrapper that the search endpoint returns
+	req.Header.Set("Accept", "application/atom+xml")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -74,7 +77,7 @@ func (c *HmcRestClient) GetManagedSystemByName(systemName string, verbose bool) 
 	defer resp.Body.Close()
 
 	if verbose {
-		hmcLogger.Printf("GetManagedSystem response status: %s", resp.Status)
+		hmcLogger.Printf("GetManagedSystemByName response status: %s", resp.Status)
 	}
 
 	if resp.StatusCode == 204 {
@@ -92,27 +95,44 @@ func (c *HmcRestClient) GetManagedSystemByName(systemName string, verbose bool) 
 		return "", nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("GetManagedSystem response body:\n%s", string(body))
+	// 1. Strip the namespaces using your helper
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to strip namespaces from XML response: %v", err)
 	}
 
-	doc := etree.NewDocument()
-	if err := doc.ReadFromString(string(body)); err != nil {
-		return "", nil, fmt.Errorf("failed to parse XML response: %v", err)
-	}
-
+	// 2. Extract the UUID from the AtomID field
 	uuidElem := doc.FindElement("//AtomID")
 	if uuidElem == nil {
 		return "", nil, fmt.Errorf("AtomID not found in response")
 	}
 	uuid := uuidElem.Text()
 
+	// 3. Extract ONLY the core ManagedSystem element
 	msElem := doc.FindElement("//ManagedSystem")
 	if msElem == nil {
 		return "", nil, fmt.Errorf("ManagedSystem not found in response")
 	}
 
-	return uuid, msElem, nil
+	// 4. Serialize the isolated element back to bytes
+	msDoc := etree.NewDocument()
+	msDoc.SetRoot(msElem.Copy())
+	msBytes, err := msDoc.WriteToBytes()
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to serialize isolated ManagedSystem element: %v", err)
+	}
+
+	// 5. Unmarshal directly into our exhaustive Go struct
+	var detailedSystem ManagedSystemDetailed
+	if err := xml.Unmarshal(msBytes, &detailedSystem); err != nil {
+		return "", nil, fmt.Errorf("failed to unmarshal XML into ManagedSystemDetailed struct: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Successfully resolved System '%s' to UUID: %s and parsed exhaustive configuration.", systemName, uuid)
+	}
+
+	return uuid, &detailedSystem, nil
 }
 
 // GetMaximumPartitions retrieves the MaximumPartitions for a system by UUID
@@ -258,58 +278,68 @@ func (c *HmcRestClient) GetManagedSystemQuickAll(verbose bool) ([]ManagedSystemQ
 	return systems, nil
 }
 
-// GetIOAdapters retrieves all physical IO adapters for a managed system.
-func (c *HmcRestClient) GetManagedSystemInfo(systemUUID string, verbose bool) ([]*etree.Element, error) {
-    url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
-    if verbose {
-        hmcLogger.Printf("Fetching IO adapters for managed system UUID %s, URL: %s", systemUUID, url)
-    }
+// GetManagedSystem retrieves the comprehensive, deeply parsed XML details of a Managed System.
+func (c *HmcRestClient) GetManagedSystem(systemUUID string, verbose bool) (*ManagedSystemDetailed, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching comprehensive XML details for managed system UUID %s...", systemUUID)
+	}
 
-    req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create request: %v", err)
-    }
-    req.Header.Set("X-API-Session", c.session)
-    req.Header.Set("Accept", "application/atom+xml")
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
 
-    ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-    defer cancel()
-    req = req.WithContext(ctx)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
 
-    resp, err := c.client.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("HTTP request failed: %v", err)
-    }
-    defer resp.Body.Close()
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
 
-    if verbose {
-        hmcLogger.Printf("GetIOAdapters response status: %s", resp.Status)
-    }
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
 
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to read response body: %v", err)
-    }
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
 
-    if verbose {
-        hmcLogger.Printf("GetIOAdapters response body:\n%s", string(body))
-    }
+	// 1. Strip the namespaces using the existing helper to make unmarshaling clean
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
 
-    if resp.StatusCode != http.StatusOK {
-        return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
-    }
+	// 2. Extract ONLY the core ManagedSystem element (bypassing the <entry> atom wrapper)
+	msElem := doc.FindElement("//ManagedSystem")
+	if msElem == nil {
+		return nil, fmt.Errorf("ManagedSystem root element not found in XML response")
+	}
 
-    doc, err := xmlStripNamespace(body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
-    }
+	// 3. Serialize the isolated element back to bytes
+	msDoc := etree.NewDocument()
+	msDoc.SetRoot(msElem.Copy())
+	msBytes, err := msDoc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize isolated ManagedSystem element: %v", err)
+	}
 
-    //adapters := doc.FindElements("//ManagedSystem")
-	 adapters := doc.FindElements("//IOAdapters/IOAdapterChoice")
-    if verbose {
-        hmcLogger.Printf("Found %d IO adapters for managed system %s", len(adapters), systemUUID)
-    }
+	// 4. Unmarshal directly into our comprehensive Go struct
+	var detailedSystem ManagedSystemDetailed
+	if err := xml.Unmarshal(msBytes, &detailedSystem); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal XML into ManagedSystemDetailed struct: %v", err)
+	}
 
-    return adapters, nil
+	if verbose {
+		hmcLogger.Printf("✅ Successfully parsed comprehensive details for System: %s", detailedSystem.SystemName)
+	}
+
+	return &detailedSystem, nil
 }
-

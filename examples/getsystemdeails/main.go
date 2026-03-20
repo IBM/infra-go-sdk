@@ -1,0 +1,75 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log"
+
+	hmc "github.com/sudeeshjohn/PowerHMC" // Adjust to your actual package path
+)
+
+func main() {
+	// =========================================================================
+	// CONFIGURATION & FLAGS
+	// =========================================================================
+	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
+	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
+	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
+	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	flag.Parse()
+
+	if *password == "" || *sysName == "" {
+		log.Fatal("Error: hmc-pass and system-name are required.")
+	}
+
+	// =========================================================================
+	// AUTHENTICATION
+	// =========================================================================
+	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
+	restClient := hmc.NewHmcRestClient(*hmcIP)
+	if err := restClient.Login(*username, *password, *verbose); err != nil {
+		log.Fatalf("❌ HMC Logon failed: %v", err)
+	}
+	defer restClient.Logoff()
+
+	// =========================================================================
+	// RESOLVE SYSTEM UUID
+	// =========================================================================
+	fmt.Printf("Resolving Managed System '%s'...\n", *sysName)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	if err != nil || sysUUID == "" {
+		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
+	}
+
+	// =========================================================================
+	// FETCH COMPREHENSIVE DETAILS
+	// =========================================================================
+	fmt.Printf("Fetching comprehensive XML payload for system UUID: %s...\n", sysUUID)
+	
+	detailedSystem, err := restClient.GetManagedSystem(sysUUID, *verbose)
+	if err != nil {
+		log.Fatalf("❌ Failed to fetch detailed system info: %v", err)
+	}
+
+	// =========================================================================
+	// DISPLAY RESULTS
+	// =========================================================================
+	fmt.Printf("\n✅ Successfully retrieved deep configuration for: %s\n", detailedSystem.SystemName)
+	fmt.Println("=========================================================================")
+
+	// Marshal the Go struct into beautifully indented JSON for the terminal
+	prettyJSON, err := json.MarshalIndent(detailedSystem, "", "    ")
+	if err != nil {
+		log.Fatalf("❌ Failed to format output: %v", err)
+	}
+
+	fmt.Println(string(prettyJSON))
+	fmt.Println("=========================================================================")
+	
+	fmt.Printf("\n📊 Quick Stats extracted directly from Struct:\n")
+	fmt.Printf("   - Installed Memory: %.0f MB\n", detailedSystem.MemoryConfig.InstalledSystemMemory)
+	fmt.Printf("   - Active Migrations Allowed: %d\n", detailedSystem.MigrationInfo.MaximumActiveMigrations)
+	fmt.Printf("   - Total Dedicated I/O Adapters Found: %d\n", len(detailedSystem.IOConfig.IOAdapters))
+}

@@ -3,6 +3,7 @@ package hmc
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -819,3 +820,188 @@ func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, 
 	return atomID.Text(), nil
 }
 
+// GetLogicalPartitionDetailed fetches the exhaustive XML details of a specific logical partition by its UUID.
+func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, verbose bool) (*LogicalPartitionDetailed, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching exhaustive logical partition details for UUID %s, URL: %s", lparUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitionDetailed response status: %s", resp.Status)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+    }
+
+	// 1. Strip the namespaces using the existing helper to make unmarshaling clean
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// 2. Extract ONLY the core LogicalPartition element (bypassing the <entry> atom wrapper)
+	lparElem := doc.FindElement("//LogicalPartition")
+	if lparElem == nil {
+		return nil, fmt.Errorf("LogicalPartition root element not found in XML response")
+	}
+
+	// 3. Serialize the isolated element back to bytes
+	lparDoc := etree.NewDocument()
+	lparDoc.SetRoot(lparElem.Copy())
+	lparBytes, err := lparDoc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize isolated LogicalPartition element: %v", err)
+	}
+
+	// 4. Unmarshal directly into our comprehensive Go struct
+	var detailedLpar LogicalPartitionDetailed
+	if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal XML into LogicalPartitionDetailed struct: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Successfully parsed exhaustive details for LPAR: %s", detailedLpar.PartitionName)
+	}
+
+	return &detailedLpar, nil
+}
+
+// MapPhysicalIOAdapters dynamically assigns multiple Physical I/O Adapters to an LPAR.
+// It accepts an optional inventory (*ManagedSystemDetailed) to perform a local safety check 
+// for ownership conflicts before talking to the HMC.
+func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterIDs []string, inventory *ManagedSystemDetailed, verbose bool) (string, error) {
+	
+	// 1. PRE-FLIGHT SAFETY CHECK (Only if inventory is provided)
+	if inventory != nil {
+		if verbose { hmcLogger.Printf("Performing pre-flight ownership check for %d adapters...", len(adapterIDs)) }
+		for _, adapterID := range adapterIDs {
+			for _, bus := range inventory.IOConfig.IOBuses {
+				for _, slot := range bus.IOSlots {
+					if slot.RelatedIOAdapter.AdapterID == adapterID {
+						// PartitionID > 0 means the slot is assigned to someone 
+						// We check if that someone is NOT our target LPAR
+						if slot.PartitionID > 0 && slot.PartitionUUID != lparUUID {
+							return "", fmt.Errorf("ABORT: Adapter %s is currently owned by LPAR '%s' (ID: %d)", 
+								adapterID, slot.PartitionName, slot.PartitionID)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 2. FETCH PRISTINE LPAR XML
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+	getReq, err := http.NewRequest("GET", url, nil)
+	if err != nil { return "", err }
+	getReq.Header.Set("X-API-Session", c.session)
+	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	getResp, err := c.client.Do(getReq)
+	if err != nil { return "", err }
+	defer getResp.Body.Close()
+
+	rawXML, _ := io.ReadAll(getResp.Body)
+	if getResp.StatusCode != 200 {
+		return "", fmt.Errorf("GET failed: %s", string(rawXML))
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(rawXML); err != nil { return "", err }
+	lparElem := doc.FindElement(".//*[local-name()='LogicalPartition']")
+	if lparElem == nil { return "", fmt.Errorf("LogicalPartition element not found") }
+
+	// 3. TARGET THE IO CONFIGURATION
+	ioConfig := lparElem.FindElement(".//*[local-name()='PartitionIOConfiguration']")
+	if ioConfig == nil { return "", fmt.Errorf("PartitionIOConfiguration not found") }
+
+	profileSlots := ioConfig.FindElement(".//*[local-name()='ProfileIOSlots']")
+	if profileSlots == nil {
+		profileSlots = ioConfig.CreateElement("ProfileIOSlots")
+		profileSlots.CreateAttr("schemaVersion", "V1_0")
+	}
+
+	// 4. INJECT ALL ADAPTERS
+	var newlyAdded int
+	for _, adapterID := range adapterIDs {
+		// Duplicate Check (Don't map what's already in this specific LPAR's profile)
+		duplicate := false
+		for _, slot := range profileSlots.FindElements(".//*[local-name()='AssociatedIOSlot']/*[local-name()='SlotDynamicReconfigurationConnectorIndex']") {
+			if slot.Text() == adapterID {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate { continue }
+
+		newSlotXML := fmt.Sprintf(`
+			<ProfileIOSlot schemaVersion="V1_0">
+				<AssociatedIOSlot schemaVersion="V1_0">
+					<SlotDynamicReconfigurationConnectorIndex>%s</SlotDynamicReconfigurationConnectorIndex>
+				</AssociatedIOSlot>
+				<IsRequired>false</IsRequired>
+			</ProfileIOSlot>`, adapterID)
+		
+		slotDoc := etree.NewDocument()
+		slotDoc.ReadFromString(newSlotXML)
+		profileSlots.AddChild(slotDoc.Root())
+		newlyAdded++
+	}
+
+	if newlyAdded == 0 { return "ALREADY_MAPPED", nil }
+
+	// 5. POST UPDATED XML
+	postDoc := etree.NewDocument()
+	postDoc.SetRoot(lparElem.Copy())
+	postXML, _ := postDoc.WriteToString()
+
+	postReq, _ := http.NewRequest("POST", url, strings.NewReader(postXML))
+	postReq.Header.Set("X-API-Session", c.session)
+	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+	postReq.Header.Set("Accept", "application/atom+xml")
+
+	postResp, err := c.client.Do(postReq)
+	if err != nil { return "", err }
+	defer postResp.Body.Close()
+
+	body, _ := io.ReadAll(postResp.Body)
+	if postResp.StatusCode >= 400 {
+		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
+	}
+
+	// 6. MONITOR DLPAR JOB
+	respDoc, err := xmlStripNamespace(body)
+	if err == nil {
+		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
+			if verbose { hmcLogger.Printf("I/O Batch job triggered: %s", jobIDElem.Text()) }
+			c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+		}
+	}
+
+	return "SUCCESS", nil
+}
