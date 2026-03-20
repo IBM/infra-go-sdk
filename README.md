@@ -1,6 +1,5 @@
 # SVC API SDK
 
-
 A lightweight and idiomatic Golang SDK for interacting with the IBM Spectrum Virtualize. This SDK allows developers to easily authenticate, send requests, and handle responses from the IBM Spectrum Virtualize API.
 
 ## Features
