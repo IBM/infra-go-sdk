@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
 
 func main() {
@@ -13,7 +13,6 @@ func main() {
 	password := "REDACTED_HMC_PASS<=="
 	verbose := true
 	partUUID := "6E20E53A-28F8-4D04-92D2-B32236C4B37A"
-	systemUUID := "49672f05-253d-30bc-ae09-ecd76cb410ce"
 	profileUUID := "64942733-5f93-3569-9d33-428d0e4e4270"
 
 	// Initialize HmcRestClient
@@ -35,7 +34,7 @@ func main() {
 	}()
 
 	// Retrieve partition properties
-	partition, err := restClient.PowerOnPartition(systemUUID, partUUID, profileUUID, "normal", "", "", verbose)
+	partition, err := restClient.PowerOnPartition(partUUID, profileUUID, "normal", "", "", verbose)
 	if err != nil {
 		log.Fatalf("Failed to retrieve partition properties: %v", err)
 	}

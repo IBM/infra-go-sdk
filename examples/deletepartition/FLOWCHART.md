@@ -1,13 +1,13 @@
 # Delete Partition Workflow - Block Flow Chart
 
 ## Overview
+
 This flowchart illustrates the complete workflow for deleting a PowerVM partition with comprehensive storage cleanup from both HMC and SVC.
 
 ---
 
 ## Main Flow Diagram
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         START PROGRAM                            │
 └────────────────────────────┬────────────────────────────────────┘
@@ -210,11 +210,11 @@ This flowchart illustrates the complete workflow for deleting a PowerVM partitio
 │  │                                                            │  │
 │  │ ┌──────────────────────────────────────────────────────┐  │  │
 │  │ │ 5.1 Filter Physical Disks                            │  │  │
-│  │ │     • Skip if not hdisk* or nvme*                    │  │  │
-│  │ │     • Skip virtual optical media (vopt*)             │  │  │
+│  │ │     • Skip if not `hdisk*` or `nvme*`                │  │  │
+│  │ │     • Skip virtual optical media (`vopt*`)           │  │  │
 │  │ ├──────────────────────────────────────────────────────┤  │  │
 │  │ │ 5.2 Remove Device from VIOS ODM                      │  │  │
-│  │ │     • RunVIOSCommand("rmdev -dev <disk> -recursive") │  │  │
+│  │ │     • RunVIOSCommand("rmdev -dev \<disk\> -recursive") │  │  │
 │  │ │     • Removes device and all children                │  │  │
 │  │ │     • Cleans up ODM entries                          │  │  │
 │  │ ├──────────────────────────────────────────────────────┤  │  │
@@ -264,13 +264,11 @@ This flowchart illustrates the complete workflow for deleting a PowerVM partitio
 │    ✅ VIOS device trees refreshed                                │
 │    ✅ LPAR deleted from HMC                                      │
 └─────────────────────────────────────────────────────────────────┘
-```
 
 ---
 
 ## Critical Sequence: VSCSI Removal Order
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │           WHY THE ORDER MATTERS (Client → VTD → Server)          │
 └────────────────────────────────────────────────────────────────┘
@@ -305,13 +303,11 @@ Step 3: Delete Server Adapter (vhost)
 
 ⚠️  IMPORTANT: Skipping Step 2 causes Step 3 to fail!
     The error: "0931-029 device is busy"
-```
 
 ---
 
 ## Storage Discovery Detail
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │                  STORAGE DISCOVERY (Step 2)                      │
 └────────────────────────────┬────────────────────────────────────┘
@@ -373,13 +369,11 @@ Step 3: Delete Server Adapter (vhost)
     │  Store in discoveredMappings Array             │
     │  Ready for cleanup operations                  │
     └────────────────────────────────────────────────┘
-```
 
 ---
 
 ## SVC Cleanup Detail
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    SVC CLEANUP (Step 4)                          │
 └────────────────────────────┬────────────────────────────────────┘
@@ -448,13 +442,12 @@ Step 3: Delete Server Adapter (vhost)
     │  │ Permanently removes volume from SAN      │  │
     │  └──────────────────────────────────────────┘  │
     └────────────────────────────────────────────────┘
-```
 
 ---
 
 ## Error Handling Flow
 
-```
+mermaid
 ┌─────────────────────────────────────────────────────────────────┐
 │                      ERROR AT ANY STEP                           │
 └────────────────────────────┬────────────────────────────────────┘
@@ -490,17 +483,17 @@ Step 3: Delete Server Adapter (vhost)
                     │ partial cleanup│
                     └────────────────┘
 
-Note: The workflow uses "best effort" cleanup - 
-      it continues even if some steps fail, 
+Note: The workflow uses "best effort" cleanup -
+      it continues even if some steps fail,
       attempting to clean up as much as possible.
-```
 
 ---
 
 ## Data Structures
 
 ### mappingData Structure
-```go
+
+go
 type mappingData struct {
     ViosUUID    string  // VIOS UUID
     ViosName    string  // VIOS partition name
@@ -509,10 +502,9 @@ type mappingData struct {
     AdapterUUID string  // Server adapter UUID
     VolumeUDID  string  // Volume unique ID
 }
-```
 
 ### Discovery Flow
-```
+
 HMC VIOS Mappings
         │
         ▼
@@ -538,14 +530,13 @@ HMC VIOS Mappings
 │ Store in Array    │
 │ for Processing    │
 └───────────────────┘
-```
 
 ---
 
 ## Key Function Mapping
 
 | Phase | Step | Main Operations | Functions Called |
-|-------|------|----------------|------------------|
+| ------- | ------ | ---------------- | ------------------ |
 | **1: Resolution** | Step 1 | Locate & Shutdown | `GetManagedSystemByName()`, `GetLogicalPartitionsQuickAll()`, `PowerOffPartition()`, `GetLogicalPartitionQuick()` |
 | **2: Discovery** | Step 2 | Find Storage | `GetVirtualIOServersQuick()`, `GetVirtualSCSIServerAdapters()`, `GetViosSCSIMappingDetails()` |
 | **3: HMC Cleanup** | Step 3 | Remove VSCSI | `RemoveVolumeLPARMapping()`, `RunVIOSCommand()` (rmvdev), `DeleteVirtualSCSIServerAdapter()` |
@@ -559,6 +550,7 @@ HMC VIOS Mappings
 ## Configuration Parameters
 
 ### Command Line Flags
+
 - `--hmc-ip`: HMC IP address (default: 192.0.2.1)
 - `--hmc-user`: HMC username (default: REDACTED_HMC_USER<==)
 - `--hmc-pass`: HMC password (required)
@@ -574,6 +566,7 @@ HMC VIOS Mappings
 ## Success Indicators
 
 Throughout the workflow, success is indicated by:
+
 - ✅ Emoji markers for completed steps
 - ⚠️  Warning markers for non-critical errors
 - Verbose logging (when enabled)
@@ -589,7 +582,7 @@ Throughout the workflow, success is indicated by:
 
 3. **Wait Times**: Strategic wait times are included after critical operations to allow the VIOS to process changes.
 
-4. **Device Filtering**: Only physical disks (hdisk*, nvme*) are wiped from VIOS; virtual optical media is skipped.
+4. **Device Filtering**: Only physical disks (`hdisk*`, `nvme*`) are wiped from VIOS; virtual optical media is skipped.
 
 5. **WWPN Resolution**: SVC host is dynamically resolved using VIOS WWPNs, matching the creation workflow.
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 	svc "github.com/sudeeshjohn/svc-go-sdk"
 )
 
@@ -71,7 +71,7 @@ func main() {
 	// Shutdown Partition
 	if currentState != "not activated" {
 		fmt.Printf("Step 1: Partition is '%s'. Powering off...\n", currentState)
-		restClient.PowerOffPartition(sysUUID, targetLparUUID, "Immediate", false, *verbose)
+		restClient.PowerOffPartition(targetLparUUID, "Immediate", false, *verbose)
 		for i := 0; i < 20; i++ {
 			p, _ := restClient.GetLogicalPartitionQuick(targetLparUUID, false)
 			if p != nil && strings.ToLower(p.PartitionState) == "not activated" {

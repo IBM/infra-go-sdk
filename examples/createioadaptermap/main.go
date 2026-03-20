@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	hmc "github.com/sudeeshjohn/PowerHMC" // Adjust to your actual package path
+	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
 
 func main() {

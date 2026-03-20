@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/beevik/etree"
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 	svc "github.com/sudeeshjohn/svc-go-sdk"
 )
 
@@ -530,7 +530,7 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 	if verbose {
 		log.Printf("[HMC-DEPLOY] Powering on LPAR (UUID: %s) with Profile: %s", partUUID, profileUUID)
 	}
-	if _, err := restClient.PowerOnPartition(systemUUID, partUUID, profileUUID, "manual", "", osType, verbose); err != nil {
+	if _, err := restClient.PowerOnPartition(partUUID, profileUUID, "manual", "", osType, verbose); err != nil {
 		log.Fatalf("[HMC-DEPLOY] Failed to PowerOn Partition: %v", err)
 	}
 	if verbose {
@@ -552,7 +552,7 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 	if verbose {
 		log.Printf("[HMC-DEPLOY] Triggering 'Immediate' PowerOff/Restart on LPAR...")
 	}
-	if _, err := restClient.PowerOffPartition(systemUUID, partUUID, "Immediate", true, verbose); err != nil {
+	if _, err := restClient.PowerOffPartition(partUUID, "Immediate", true, verbose); err != nil {
 		log.Fatalf("[HMC-DEPLOY] Failed to Restart Partition: %v", err)
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/beevik/etree"
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
 
 // Helper function to safely extract text from an etree Element

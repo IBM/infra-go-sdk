@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/sudeeshjohn/PowerHMC" // Adjust to your package path
+	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your package path
 )
 
 func main() {

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 	svc "github.com/sudeeshjohn/svc-go-sdk"
 )
 
@@ -21,7 +21,7 @@ func main() {
 	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_03", "Name for the new LPAR")
+	lparName := flag.String("lpar-name", "Go_LPAR_99", "Name for the new LPAR")
 	osType := flag.String("os-type", "linux", "OS type (aix, linux, aix_linux, ibmi)")
 
 	// Networking Config
@@ -44,12 +44,13 @@ func main() {
 	// =========================================================================
 	// 1. PARALLEL AUTHENTICATION (HMC + SVC)
 	// =========================================================================
-	log.Println("\n🔀 Starting Parallel Authentication: HMC || SVC...")
+	log.Println("")
+	log.Println("🔀 Starting Parallel Authentication: HMC || SVC...")
 	
 	var restClient *hmc.HmcRestClient
 	var svcclient *svc.Client
 	var wg sync.WaitGroup
-	var hmcErr, svcErr error
+	var hmcErr, svcErr  error
 	
 	wg.Add(2)
 	
@@ -89,7 +90,7 @@ func main() {
 	
 	defer restClient.Logoff()
 	
-	log.Println("✅ Both authentications completed successfully\n")
+	log.Println("✅ Both authentications completed successfully")
 
 	// =========================================================================
 	// 2. SYSTEM RESOLUTION & VALIDATION
@@ -100,7 +101,8 @@ func main() {
 	// =========================================================================
 	// 3. PARALLEL: CREATE LPAR || DISCOVER VIOS || RESOLVE VSWITCH
 	// =========================================================================
-	log.Println("\n🔀 Starting 3-Way Parallel Operations: LPAR Creation || VIOS Discovery || vSwitch Resolution...")
+	log.Println("")
+	log.Println("🔀 Starting 3-Way Parallel Operations: LPAR Creation || VIOS Discovery || vSwitch Resolution...")
 	
 	var lparUUID string
 	var viosWwpnMap map[string][]string
@@ -141,7 +143,12 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Println("[Thread-VIOS] Discovering VIOS WWPNs...")
-		viosWwpnMap, viosUuidMap = getViosWwpnMap(restClient, sysUUID, *verbose)
+		var err error
+		viosWwpnMap, viosUuidMap, err = getViosWwpnMap(restClient, sysUUID, *verbose)
+		if err != nil {
+			viosErr = fmt.Errorf("VIOS discovery failed: %v", err)
+			return
+		}
 		log.Println("[Thread-VIOS] ✅ VIOS Discovery Complete.")
 	}()
 	
@@ -181,12 +188,12 @@ func main() {
 		log.Fatalf("❌ vSwitch Thread Failed: %v", vswitchErr)
 	}
 	
-	log.Println("✅ All 3 parallel operations completed successfully\n")
+	log.Println("✅ All 3 parallel operations completed successfully")
 
 	// =========================================================================
 	// 4. PARALLEL: ATTACH NETWORK || PROVISION SVC STORAGE
 	// =========================================================================
-	log.Println("\n🔀 Starting Parallel Operations: Network Attachment || SVC Storage Provisioning...")
+	log.Println("🔀 Starting Parallel Operations: Network Attachment || SVC Storage Provisioning...")
 	
 	var targetVol *svc.Vdisk
 	var selectedViosName string
@@ -210,7 +217,12 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Println("[Thread-SVC] Starting SVC storage provisioning...")
-		targetVol, selectedViosName = provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, *verbose)
+		var err error
+		targetVol, selectedViosName, err = provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, *verbose)
+		if err != nil {
+			storageErr = fmt.Errorf("failed to provision SVC storage: %v", err)
+			return
+		}
 		log.Println("[Thread-SVC] ✅ SVC Storage Provisioned.")
 	}()
 	
@@ -224,12 +236,13 @@ func main() {
 		log.Fatalf("❌ Storage Thread Failed: %v", storageErr)
 	}
 	
-	log.Println("✅ Both parallel operations completed successfully\n")
+	log.Println("✅ Both parallel operations completed successfully")
 
 	// =========================================================================
 	// 5. DISCOVER NEW DISK ON VIOS & MAP IT TO LPAR
 	// =========================================================================
-	log.Printf("\n[HMC] Configuring Storage on VIOS '%s'...", selectedViosName)
+	log.Println("")
+	log.Printf("[HMC] Configuring Storage on VIOS '%s'...", selectedViosName)
 	viosUUID := viosUuidMap[selectedViosName]
 
 	log.Printf("[HMC] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
@@ -260,14 +273,16 @@ func main() {
 	// 6. SAVE CONFIGURATION & POWER ON THE LPAR
 	// =========================================================================
 	profileName := "default_profile"
-	log.Printf("\n[HMC] Saving active configuration to profile '%s'...", profileName)
+	log.Println("")
+	log.Printf("[HMC] Saving active configuration to profile '%s'...", profileName)
 	err = restClient.SaveCurrentLparConfig(lparUUID, profileName, true, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
 	log.Printf("[HMC] ✅ Configuration permanently saved to profile.")
 
-	log.Printf("\n[HMC] Step 7: Powering on LPAR '%s'...", *lparName)
+	log.Println("")
+	log.Printf("[HMC] Step 7: Powering on LPAR '%s'...", *lparName)
 	
 	// We need the profile UUID to power it on.
 	profileUUID, err := restClient.GetPartitionProfile(lparUUID, *verbose)
@@ -275,12 +290,13 @@ func main() {
 		log.Fatalf("[HMC] Failed to get default partition profile: %v", err)
 	}
 
-	_, err = restClient.PowerOnPartition(sysUUID, lparUUID, profileUUID, "normal", "", *osType, *verbose)
+	_, err = restClient.PowerOnPartition(lparUUID, profileUUID, "normal", "", *osType, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}
 
-	log.Println("\n=========================================================================")
+	log.Println("")
+	log.Println("=========================================================================")
 	log.Printf(" 🎉 SUCCESS: PowerVM Provisioning Workflow Complete!")
 	log.Printf("    - LPAR Name : %s is BOOTING", *lparName)
 	log.Printf("    - Network   : Attached to %s (VLAN %d)", *vswitchName, *vlanID)
@@ -319,10 +335,10 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 	}
 }
 
-func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string) {
+func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string, error) {
 	viosList, err := restClient.GetVirtualIOServers(systemUUID, verbose)
 	if err != nil {
-		log.Fatalf("[HMC] Failed to fetch VIOS details: %v", err)
+		return nil, nil, fmt.Errorf("failed to fetch VIOS details: %v", err)
 	}
 
 	viosWwpnMap := make(map[string][]string)
@@ -352,12 +368,12 @@ func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bo
 	wg.Wait()
 
 	if len(viosWwpnMap) == 0 {
-		log.Fatalf("[HMC] Critical Error: No Fibre Channel WWPNs found on any VIOS.")
+		return nil, nil, fmt.Errorf("no Fibre Channel WWPNs found on any VIOS")
 	}
-	return viosWwpnMap, viosUuidMap
+	return viosWwpnMap, viosUuidMap, nil
 }
 
-func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string) {
+func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string, error) {
 
 	var selectedViosName string
 	var selectedHostName string
@@ -366,7 +382,7 @@ func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMa
 
 	fabricLogins, err := svcclient.Lsfabric()
 	if err != nil {
-		log.Fatalf("[SVC] Failed to fetch fabric logins: %v", err)
+		return nil, "", fmt.Errorf("failed to fetch fabric logins: %v", err)
 	}
 	
 	wwpnToHostMap := make(map[string]string)
@@ -405,47 +421,67 @@ func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMa
 			Protocol: "scsi",
 		}
 		if err := svcclient.Mkhost(newHost); err != nil && !strings.Contains(err.Error(), "already exists") {
-			log.Fatalf("[SVC] Mkhost error: %v", err)
+			return nil, "", fmt.Errorf("mkhost error: %v", err)
 		}
 	}
 
-	target_host, err := svcclient.LshostByTarget(selectedHostName)
-	if err != nil { log.Fatalf("[SVC] Error finding host %s: %v", selectedHostName, err) }
+	targetHost, err := svcclient.LshostByTarget(selectedHostName)
+	if err != nil {
+		return nil, "", fmt.Errorf("error finding host %s: %v", selectedHostName, err)
+	}
 
 	volume := svc.Volume{
 		Name: fmt.Sprintf("lpar_boot_vol_%d", time.Now().Unix()), 
 		MdiskGrp: "0", Size: 120, Unit: "gb",
 		RSize: "2%", Warning: "80%", AutoExpand: true, GrainSize: 256,
 	}
-	if err := svcclient.Mkvdisk(volume); err != nil { log.Fatalf("[SVC] Mkvdisk error: %v", err) }
+	if err := svcclient.Mkvdisk(volume); err != nil {
+		return nil, "", fmt.Errorf("mkvdisk error: %v", err)
+	}
 	
-	sourceVol, _ := svcclient.LsVdiskByName(baseImageName)
-	targetVol, _ := svcclient.LsVdiskByName(volume.Name)
+	sourceVol, err := svcclient.LsVdiskByName(baseImageName)
+	if err != nil {
+		return nil, "", fmt.Errorf("error finding source volume %s: %v", baseImageName, err)
+	}
+	targetVol, err := svcclient.LsVdiskByName(volume.Name)
+	if err != nil {
+		return nil, "", fmt.Errorf("error finding target volume %s: %v", volume.Name, err)
+	}
 
 	fcmapping := svc.FlashCopyMapping{
 		Name: fmt.Sprintf("fcmap_%d", time.Now().Unix()), Source: sourceVol.ID, Target: targetVol.ID,
 		CopyRate: 150, GrainSize: 256, Incremental: true, AutoDelete: true,
 	}
-	if err := svcclient.Mkfcmap(fcmapping); err != nil { log.Fatalf("[SVC] Mkfcmap error: %v", err) }
+	if err := svcclient.Mkfcmap(fcmapping); err != nil {
+		return nil, "", fmt.Errorf("mkfcmap error: %v", err)
+	}
 
 	fmapping := svc.FlashCopyMappingStart{ID: fcmapping.Name, Prep: true, Restore: true}
-	if err := svcclient.Startfcmap(fmapping); err != nil { log.Fatalf("[SVC] Startfcmap error: %v", err) }
+	if err := svcclient.Startfcmap(fmapping); err != nil {
+		return nil, "", fmt.Errorf("startfcmap error: %v", err)
+	}
 
-	mapping := svc.VolumeHostMap{Host: target_host.ID, Force: true, VDisk: volume.Name}
-	if err := svcclient.Mkvdiskhostmap(mapping); err != nil { log.Fatalf("[SVC] Mkvdiskhostmap error: %v", err) }
+	mapping := svc.VolumeHostMap{Host: targetHost.ID, Force: true, VDisk: volume.Name}
+	if err := svcclient.Mkvdiskhostmap(mapping); err != nil {
+		return nil, "", fmt.Errorf("mkvdiskhostmap error: %v", err)
+	}
 
-	return targetVol, selectedViosName
+	return targetVol, selectedViosName, nil
 }
 
 func identifyFreeVolume(restClient *hmc.HmcRestClient, viosUUID string, viosName string, VdiskUID string, verbose bool) (string, error) {
 	pvList, err := restClient.GetFreePhyVolume(viosUUID, verbose)
-	if err != nil { pvList = []hmc.PhysicalVolume{} }
+	if err != nil {
+		pvList = []hmc.PhysicalVolume{}
+	}
 
 	for _, pv := range pvList {
 		if strings.Contains(pv.VolumeUniqueID, VdiskUID) {
 			return pv.VolumeName, nil
 		}
 	}
-	if len(pvList) == 0 { return "", fmt.Errorf("no free physical volumes found on VIOS %s", viosName) }
+	if len(pvList) == 0 {
+		return "", fmt.Errorf("no free physical volumes found on VIOS %s", viosName)
+	}
 	return "", fmt.Errorf("volume with UID %s not found on VIOS", VdiskUID)
 }

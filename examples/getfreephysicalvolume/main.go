@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
 
 func main() {

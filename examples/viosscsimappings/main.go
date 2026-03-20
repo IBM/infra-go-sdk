@@ -8,7 +8,7 @@ import (
 
 	// Assuming this is used for XML parsing; adjust if needed
 
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
 
 func main() {

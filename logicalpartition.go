@@ -13,21 +13,22 @@ import (
 	"github.com/beevik/etree"
 )
 
-// PowerOnPartition powers on a logical partition and returns the job response
-func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (*etree.Document, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/do/PowerOn", c.hmcIP, systemUUID, lparUUID)
+// PowerOnPartition powers on a logical partition directly by its UUID and returns the job response.
+func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (*etree.Document, error) {
+	// Updated URL to target the LogicalPartition UUID directly
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOn", c.hmcIP, lparUUID)
 	if verbose {
-		hmcLogger.Printf("Powering on partition UUID %s on system UUID %s, URL: %s", lparUUID, systemUUID, url)
+		hmcLogger.Printf("Powering on partition UUID %s, URL: %s", lparUUID, url)
 	}
 
-	// Define operation details
+	// Define operation details for the JobRequest 
 	reqdOperation := map[string]string{
 		"OperationName": "PowerOn",
 		"GroupName":     "LogicalPartition",
 		"ProgressType":  "DISCRETE",
 	}
 
-	// Build job parameters
+	// Build job parameters 
 	jobParams := map[string]string{
 		"force":    "false",
 		"novsi":    "true",
@@ -40,7 +41,7 @@ func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keyl
 
 	if keylock != "" {
 		if keylock == "normal" {
-			keylock = "norm"
+			keylock = "norm" // Normalize keylock string 
 		}
 		jobParams["keylock"] = keylock
 	}
@@ -49,16 +50,13 @@ func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keyl
 		jobParams["iIPLsource"] = iIPLsource
 	}
 
-	// Create XML payload using createJobRequestPayload
+	// Create XML payload using existing helper [cite: 16, 207]
 	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
-	if verbose {
-		hmcLogger.Printf("PowerOn job request payload:\n%s", payload)
-	}
 
-	// Create and configure the PUT request
+	// Configure and execute the PUT request [cite: 208]
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -67,55 +65,38 @@ func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keyl
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
 	req.Header.Set("Accept", "*/*")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("PowerOnPartition response status: %s", resp.Status)
-	}
-
-	// Read the response body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("PowerOnPartition response body:\n%s", string(respBody))
-	}
-
-	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
-	// Parse XML response (assuming XML response despite Accept: application/json)
+	// Parse XML response and extract JobID [cite: 34, 209]
 	doc, err := xmlStripNamespace(respBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
-	// Extract job ID
 	jobIDElem := doc.FindElement("//JobID")
 	if jobIDElem == nil {
 		return nil, fmt.Errorf("JobID not found in response")
 	}
 	jobID := jobIDElem.Text()
-	if verbose {
-		hmcLogger.Printf("Extracted JobID: %s", jobID)
-	}
 
-	// Monitor job status
+	// Monitor job status [cite: 763, 209]
 	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
@@ -124,21 +105,21 @@ func (c *HmcRestClient) PowerOnPartition(systemUUID, lparUUID, profileUUID, keyl
 	return jobDoc, nil
 }
 
-// PowerOffPartition powers off a logical partition and returns the job response
-func (c *HmcRestClient) PowerOffPartition(systemUUID, lparUUID, shutdownOption string, restart bool, verbose bool) (*etree.Document, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/do/PowerOff", c.hmcIP, systemUUID, lparUUID)
+// PowerOffPartition powers off a logical partition directly by its UUID and returns the job response.
+func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, restart bool, verbose bool) (*etree.Document, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOff", c.hmcIP, lparUUID)
 	if verbose {
-		hmcLogger.Printf("Powering off partition UUID %s on system UUID %s, URL: %s", lparUUID, systemUUID, url)
+		hmcLogger.Printf("Powering off partition UUID %s, URL: %s", lparUUID, url)
 	}
 
-	// Define operation details
+	// Define operation details for the JobRequest 
 	reqdOperation := map[string]string{
 		"OperationName": "PowerOff",
 		"GroupName":     "LogicalPartition",
 		"ProgressType":  "DISCRETE",
 	}
 
-	// Determine immediate and operation based on shutdownOption
+	// Determine immediate flag and operation string based on shutdownOption [cite: 210, 211]
 	var immediate, operation string
 	switch shutdownOption {
 	case "Delayed":
@@ -156,32 +137,29 @@ func (c *HmcRestClient) PowerOffPartition(systemUUID, lparUUID, shutdownOption s
 	case "Dump":
 		immediate = "false"
 		operation = "dumprestart"
-		restart = false // Override restart as per Python logic
+		restart = false 
 	case "DumpRetry":
 		immediate = "false"
 		operation = "retrydump"
-		restart = false // Override restart as per Python logic
+		restart = false 
 	default:
 		return nil, fmt.Errorf("invalid shutdownOption: %s, must be one of Delayed, Immediate, OperatingSystem, OSImmediate, Dump, DumpRetry", shutdownOption)
 	}
 
-	// Build job parameters
+	// Build job parameters for the XML payload [cite: 211]
 	jobParams := map[string]string{
 		"immediate": immediate,
 		"operation": operation,
 		"restart":   fmt.Sprintf("%t", restart),
 	}
 
-	// Create XML payload using createJobRequestPayload
+	// Create XML payload using the existing job request helper [cite: 211]
 	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
-	if verbose {
-		hmcLogger.Printf("PowerOff job request payload:\n%s", payload)
-	}
 
-	// Create and configure the PUT request
+	// Configure and execute the PUT request [cite: 211, 212]
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -190,55 +168,38 @@ func (c *HmcRestClient) PowerOffPartition(systemUUID, lparUUID, shutdownOption s
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
 	req.Header.Set("Accept", "*/*")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("PowerOffPartition response status: %s", resp.Status)
-	}
-
-	// Read the response body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("PowerOffPartition response body:\n%s", string(respBody))
-	}
-
-	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
-	// Parse XML response
+	// Extract the JobID from the XML response [cite: 212, 213]
 	doc, err := xmlStripNamespace(respBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
-	// Extract job ID
 	jobIDElem := doc.FindElement("//JobID")
 	if jobIDElem == nil {
 		return nil, fmt.Errorf("JobID not found in response")
 	}
 	jobID := jobIDElem.Text()
-	if verbose {
-		hmcLogger.Printf("Extracted JobID: %s", jobID)
-	}
 
-	// Monitor job status
+	// Monitor the background job for completion [cite: 213]
 	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)

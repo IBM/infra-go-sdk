@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	hmc "github.com/sudeeshjohn/PowerHMC" // Replace with your actual hmc package import path
+	hmc "github.com/sudeeshjohn/powerhmc-go" // Replace with your actual hmc package import path
 )
 
 func main() {

@@ -1,13 +1,13 @@
 # Create Partition Workflow - Block Flow Chart
 
 ## Overview
+
 This flowchart illustrates the complete workflow for creating a PowerVM partition with storage provisioning.
 
 ---
 
 ## Main Flow Diagram
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         START PROGRAM                            │
 └────────────────────────────┬────────────────────────────────────┘
@@ -217,13 +217,11 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
 │    ✅ Storage volumes mapped                                     │
 │    ✅ Partition powered on                                       │
 └─────────────────────────────────────────────────────────────────┘
-```
 
 ---
 
 ## Network Configuration Detail
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │              NETWORK CONFIGURATION (Step 2.7)                    │
 └────────────────────────────┬────────────────────────────────────┘
@@ -269,13 +267,11 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
     │  Result: Network adapter configured in         │
     │  partition template, ready for deployment      │
     └────────────────────────────────────────────────┘
-```
 
 ---
 
 ## Complete Resource Configuration Flow
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    PARTITION RESOURCES                           │
 └────────────────────────────┬────────────────────────────────────┘
@@ -314,13 +310,11 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
                     │     Deploy     │
                     │   Partition    │
                     └────────────────┘
-```
 
 ---
 
 ## Error Handling Flow
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      ERROR AT ANY STEP                           │
 └────────────────────────────┬────────────────────────────────────┘
@@ -348,14 +342,13 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
                     │  EXIT PROGRAM  │
                     │  with Error    │
                     └────────────────┘
-```
 
 ---
 
 ## Key Function Mapping
 
 | Step | Main Function | Sub-Functions Called |
-|------|---------------|---------------------|
+| ------ | --------------- | --------------------- |
 | **Initialization** | `main()` | `parseFlags()`, `Login()` |
 | **System Validation** | `createPartition()` | `GetManagedSystemByName()`, `validateProcessorCompatibilityMode()`, `checkExistingLPAR()` |
 | **Template Creation** | `createTemporaryTemplate()` | `CopyPartitionTemplate()`, `GetPartitionTemplate()`, `UpdateLparNameAndIDToDom()`, `UpdateProcMemSettingsToDom()`, `UpdateVirtualNWSettingsToDom()` |
@@ -373,7 +366,6 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
 
 ## Data Flow
 
-```
 ┌──────────────┐
 │ Command Line │
 │    Flags     │
@@ -413,23 +405,25 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
         │ Partition UUID│
         │  (Deployed)   │
         └───────────────┘
-```
 
 ---
 
 ## Configuration Parameters
 
 ### HMC Configuration
+
 - `HMCIP`: HMC IP address
 - `HMCUser`: HMC username
 - `HMCPassword`: HMC password
 
 ### SVC Configuration
+
 - `SVCIP`: SVC IP address
 - `SVCUser`: SVC username
 - `SVCPassword`: SVC password
 
 ### Partition Configuration
+
 - `VMName`: Partition name
 - `Proc`: Number of processors
 - `ProcUnit`: Processor units
@@ -441,6 +435,7 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
 - `SharedProcPool`: Shared processor pool ID
 
 ### Network Configuration
+
 - `VirtNetworkConfigs`: Array of virtual network configurations
   - `NetworkName`: Network name (e.g., "VNET0")
   - `SlotNumber`: Physical slot number
@@ -448,6 +443,7 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
   - **Auto-configured**: MAC address, port VLAN ID
 
 ### Storage Configuration
+
 - `VolumeConfigs`: Array of volume configurations
   - `ViosName`: VIOS name managing the volume
   - `VolumeName`: Volume name on VIOS
@@ -457,6 +453,7 @@ This flowchart illustrates the complete workflow for creating a PowerVM partitio
 ## Success Indicators
 
 Throughout the workflow, success is indicated by:
+
 - ✅ Emoji markers in console output
 - Verbose logging (when enabled)
 - Successful function returns without errors

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	hmc "github.com/sudeeshjohn/PowerHMC"
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
 
 func main() {
