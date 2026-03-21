@@ -98,7 +98,11 @@ func main() {
 			// =========================================================================
 
 			// STEP 1: Delete Client Adapter (REST)
-			_, _, err = restClient.RemoveVolumeLPARMapping(v.UUID, targetLparUUID, volumeFound, *verbose)
+			results, err := restClient.RemoveVolumeLPARMapping(v.UUID, targetLparUUID, []string{volumeFound}, *verbose)
+			if err == nil && len(results) > 0 {
+				// Use the first result since we only passed one volume
+				_ = results[0]
+			}
 			if err != nil {
 				fmt.Printf("   ⚠️ Step 1 Failed: %v\n", err)
 			} else {

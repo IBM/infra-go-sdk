@@ -144,7 +144,7 @@ func main() {
 			fmt.Printf("--- Processing Mapping for %s ---\n", m.VolName)
 
 			// 3.1 Delete Client Adapter
-			restClient.RemoveVolumeLPARMapping(m.ViosUUID, targetLparUUID, m.VolName, *verbose)
+			restClient.RemoveVolumeLPARMapping(m.ViosUUID, targetLparUUID, []string{m.VolName}, *verbose)
 			fmt.Println("   ✅ Client mapping removed.")
 			time.Sleep(10 * time.Second)
 

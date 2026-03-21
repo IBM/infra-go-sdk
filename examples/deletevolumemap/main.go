@@ -1,40 +1,79 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
-	"os"
 
-	hmc "github.com/sudeeshjohn/powerhmc-go" // Replace with your actual hmc package import path
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
 
 func main() {
-	// Define command-line flags
-	hmcIP := "192.0.2.3"
-	username := "REDACTED_HMC_USER<=="
-	password := "REDACTED_HMC_PASS<=="
-	verbose := true
-	viosUUID := "0625F241-08C9-461D-9FA6-B46620D6FDB1"
-	lparUUID := "6E20E53A-28F8-4D04-92D2-B32236C4B37A"
-	volumeName := "hdisk1"
+	// =========================================================================
+	// CONFIGURATION & FLAGS
+	// =========================================================================
+	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
+	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
+	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
+	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
+	viosName := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS Name")
+	lparName := flag.String("lpar-name", "Go_LPAR_01", "Target LPAR Name")
+	volumeName := flag.String("volume-name", "hdisk1", "Volume name to remove mapping")
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	flag.Parse()
 
-	// Initialize HmcRestClient (assuming NewHmcRestClient is in hmc package and sets up insecure TLS)
-	restClient := hmc.NewHmcRestClient(hmcIP)
-
-	// Perform login
-	if verbose {
-		log.Printf("Attempting to log on to HMC at %s with username %s", hmcIP, username)
-	}
-	if err := restClient.Login(username, password, verbose); err != nil {
-		log.Fatalf("Logon failed: %v", err)
+	if *password == "" || *sysName == "" || *viosName == "" || *lparName == "" || *volumeName == "" {
+		log.Fatal("Error: hmc-pass, system-name, vios-name, lpar-name, and volume-name are required.")
 	}
 
-	// Remove the volume-LPAR mapping
-	_,_,err := restClient.RemoveVolumeLPARMapping(viosUUID, lparUUID, volumeName, verbose)
+	// =========================================================================
+	// AUTHENTICATION & RESOLUTION
+	// =========================================================================
+	restClient := hmc.NewHmcRestClient(*hmcIP)
+	if err := restClient.Login(*username, *password, *verbose); err != nil {
+		log.Fatalf("HMC Logon failed: %v", err)
+	}
+	defer restClient.Logoff()
+
+	// Resolve System UUID
+	systems, _, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	if err != nil || systems.UUID == "" {
+		log.Fatalf("❌ System '%s' not found.", *sysName)
+	}
+	sysUUID := systems.UUID
+
+	// Resolve VIOS UUID
+	viosUUID, err := hmc.GetViosID(restClient, sysUUID, *viosName, *verbose)
+	if err != nil || viosUUID == "" {
+		log.Fatalf("❌ VIOS '%s' not found.", *viosName)
+	}
+
+	// Resolve LPAR UUID
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	if err != nil || lparUUID == "" {
+		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
+	}
+
+	// =========================================================================
+	// REMOVE VOLUME MAPPING
+	// =========================================================================
+	fmt.Printf("\n⚠️  Attempting to remove mapping for volume '%s' from VIOS '%s' to LPAR '%s'...\n", *volumeName, *viosName, *lparName)
+
+	results, err := restClient.RemoveVolumeLPARMapping(viosUUID, lparUUID, []string{*volumeName}, *verbose)
 	if err != nil {
-		log.Fatalf("Failed to remove volume-LPAR mapping: %v", err)
+		log.Fatalf("❌ Failed to remove volume-LPAR mapping: %v", err)
 	}
 
-	log.Printf("Successfully removed mapping for volume %s on LPAR %s from VIOS %s", volumeName, lparUUID, viosUUID)
+	if len(results) > 0 {
+		result := results[0]
+		fmt.Printf("\n✅ Successfully removed mapping for volume '%s'\n", result.VolumeName)
+		fmt.Printf("   - VTD Name: %s\n", result.VTDName)
+		fmt.Printf("   - Client Slot: %s\n", result.ClientSlotNumber)
+		fmt.Printf("   - Server Slot: %s\n", result.ServerSlotNumber)
+		if result.ServerAdapterDeleteURL != "" {
+			fmt.Printf("   - Server Adapter URL: %s\n", result.ServerAdapterDeleteURL)
+		}
+	}
 
-	os.Exit(0)
+	fmt.Println("\n🎉 Volume mapping removal completed successfully!")
 }

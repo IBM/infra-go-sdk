@@ -99,6 +99,15 @@ type VirtualNetworkConfig struct {
 	VirtualSlotNumber int
 }
 
+// VolumeMappingInfo represents information about a volume mapping that needs to be removed
+type VolumeMappingInfo struct {
+	VolumeName             string
+	VTDName                string
+	ServerAdapterDeleteURL string
+	ClientSlotNumber       string
+	ServerSlotNumber       string
+}
+
 // VIOS represents a Virtual I/O Server
 type VIOS struct {
 	UUID          string `json:"UUID"`
