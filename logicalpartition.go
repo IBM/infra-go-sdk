@@ -13,10 +13,12 @@ import (
 	"github.com/beevik/etree"
 )
 
-// PowerOnPartition powers on a logical partition directly by its UUID and returns the job response.
-func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (*etree.Document, error) {
+// PowerOnPartition powers on a logical partition directly by its UUID and returns the job status string.
+func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (string, error) {
 	// Updated URL to target the LogicalPartition UUID directly
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOn", c.hmcIP, lparUUID)
+	
+	// This will ONLY print if verbose == true
 	if verbose {
 		hmcLogger.Printf("Powering on partition UUID %s, URL: %s", lparUUID, url)
 	}
@@ -50,16 +52,16 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsou
 		jobParams["iIPLsource"] = iIPLsource
 	}
 
-	// Create XML payload using existing helper [cite: 16, 207]
+	// Create XML payload using existing helper. The verbose flag is passed down here.
 	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
 
-	// Configure and execute the PUT request [cite: 208]
+	// Configure and execute the PUT request 
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return "", fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
@@ -71,42 +73,48 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsou
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %v", err)
+		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
-	// Parse XML response and extract JobID [cite: 34, 209]
+	// Parse XML response and extract JobID 
 	doc, err := xmlStripNamespace(respBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+		return "", fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
 	jobIDElem := doc.FindElement("//JobID")
 	if jobIDElem == nil {
-		return nil, fmt.Errorf("JobID not found in response")
+		return "", fmt.Errorf("JobID not found in response")
 	}
 	jobID := jobIDElem.Text()
 
-	// Monitor job status [cite: 763, 209]
+	// Monitor job status. The verbose flag is safely passed down here too.
 	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch job status: %v", err)
+		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	return jobDoc, nil
+	// Extract the Status from the returned job document
+	statusElem := jobDoc.FindElement("//Status")
+	if statusElem != nil {
+		return statusElem.Text(), nil
+	}
+
+	return "UNKNOWN_STATUS", nil
 }
 
-// PowerOffPartition powers off a logical partition directly by its UUID and returns the job response.
-func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, restart bool, verbose bool) (*etree.Document, error) {
+// PowerOffPartition powers off a logical partition directly by its UUID and returns the job status string.
+func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, restart bool, verbose bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOff", c.hmcIP, lparUUID)
 	if verbose {
 		hmcLogger.Printf("Powering off partition UUID %s, URL: %s", lparUUID, url)
@@ -119,7 +127,7 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 		"ProgressType":  "DISCRETE",
 	}
 
-	// Determine immediate flag and operation string based on shutdownOption [cite: 210, 211]
+	// Determine immediate flag and operation string based on shutdownOption
 	var immediate, operation string
 	switch shutdownOption {
 	case "Delayed":
@@ -143,26 +151,26 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 		operation = "retrydump"
 		restart = false 
 	default:
-		return nil, fmt.Errorf("invalid shutdownOption: %s, must be one of Delayed, Immediate, OperatingSystem, OSImmediate, Dump, DumpRetry", shutdownOption)
+		return "", fmt.Errorf("invalid shutdownOption: %s, must be one of Delayed, Immediate, OperatingSystem, OSImmediate, Dump, DumpRetry", shutdownOption)
 	}
 
-	// Build job parameters for the XML payload [cite: 211]
+	// Build job parameters for the XML payload
 	jobParams := map[string]string{
 		"immediate": immediate,
 		"operation": operation,
 		"restart":   fmt.Sprintf("%t", restart),
 	}
 
-	// Create XML payload using the existing job request helper [cite: 211]
+	// Create XML payload using the existing job request helper
 	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
 
-	// Configure and execute the PUT request [cite: 211, 212]
+	// Configure and execute the PUT request
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return "", fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
@@ -174,42 +182,48 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %v", err)
+		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
-	// Extract the JobID from the XML response [cite: 212, 213]
+	// Extract the JobID from the XML response
 	doc, err := xmlStripNamespace(respBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+		return "", fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
 	jobIDElem := doc.FindElement("//JobID")
 	if jobIDElem == nil {
-		return nil, fmt.Errorf("JobID not found in response")
+		return "", fmt.Errorf("JobID not found in response")
 	}
 	jobID := jobIDElem.Text()
 
-	// Monitor the background job for completion [cite: 213]
+	// Monitor the background job for completion
 	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch job status: %v", err)
+		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	return jobDoc, nil
+	// Extract the Status from the returned job document
+	statusElem := jobDoc.FindElement("//Status")
+	if statusElem != nil {
+		return statusElem.Text(), nil
+	}
+
+	return "UNKNOWN_STATUS", nil
 }
 
-// GetLogicalPartitions retrieves the advanced list of logical partitions for a managed system as a slice of XML elements.
-func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose bool) ([]*etree.Element, error) {
+// GetLogicalPartitionsInSystem retrieves the advanced list of logical partitions for a managed system as a slice of deeply parsed Go structs.
+func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, systemUUID)
 	if verbose {
 		hmcLogger.Printf("Fetching advanced logical partitions for system UUID %s, URL: %s", systemUUID, url)
@@ -253,20 +267,21 @@ func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose 
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
-	// FIX: Use FindElements (plural) to capture all partitions in the Atom feed
+	// Use FindElements (plural) to capture all partitions in the Atom feed
 	logicalPartitions := doc.FindElements("//LogicalPartition")
 	if len(logicalPartitions) == 0 {
 		if verbose {
 			hmcLogger.Printf("No LogicalPartition elements found in the response feed.")
 		}
-		return []*etree.Element{}, nil // Return empty slice instead of error if none exist
+		return []LogicalPartitionDetailed{}, nil // Return empty slice instead of error if none exist
 	}
 
 	if verbose {
-		hmcLogger.Printf("Successfully parsed %d partitions from Advanced XML.", len(logicalPartitions))
+		hmcLogger.Printf("Successfully parsed %d partitions from Advanced XML. Converting to structs...", len(logicalPartitions))
 	}
 
-	return logicalPartitions, nil
+	// Natively convert the XML nodes to Go Structs!
+	return parseLogicalPartitionElements(logicalPartitions, verbose)
 }
 
 // GetLogicalPartitionQuick retrieves quick details of a specific logical partition by UUID
@@ -445,69 +460,6 @@ func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose 
 	return lparList, nil
 }
 
-// GetClientNetworkAdapter retrieves the ClientNetworkAdapter details for a partition
-func (c *HmcRestClient) GetClientNetworkAdapter(systemUUID, lparUUID string, verbose bool) (*etree.Element, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching ClientNetworkAdapter for system UUID %s, partition UUID %s, URL: %s", systemUUID, lparUUID, url)
-	}
-
-	// Create and configure the GET request
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml;type=ClientNetworkAdapter")
-	req.Header.Set("Accept", "*/*")
-
-	// Set timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	// Send the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("GetClientNetworkAdapter response status: %s", resp.Status)
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// Log response body if verbose
-	if verbose {
-		hmcLogger.Printf("GetClientNetworkAdapter response body:\n%s", string(body))
-	}
-
-	// Check for non-200 status codes
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
-	}
-
-	// Parse XML response
-	doc, err := xmlStripNamespace(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
-	}
-
-	clientNetworkAdapter := doc.FindElement("//ClientNetworkAdapter")
-	if clientNetworkAdapter == nil {
-		return nil, fmt.Errorf("ClientNetworkAdapter element not found in response")
-	}
-
-	return clientNetworkAdapter, nil
-}
-
 // DeleteLogicalPartition deletes a logical partition by its UUID.
 func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, partitionUUID)
@@ -570,71 +522,59 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose boo
 	return nil
 }
 
-// GetLogicalPartitionsAdv retrieves the advanced list of logical partitions for a managed system as a slice of XML elements.
-func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool) ([]*etree.Element, error) {
-    url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
-    if verbose {
-        hmcLogger.Printf("Fetching advanced logical partitions for system UUID %s, URL: %s", systemUUID, url)
-    }
+func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool) ([]LogicalPartitionDetailed, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
 
-    // Create and configure the GET request
-    req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create request: %v", err)
-    }
-    req.Header.Set("X-API-Session", c.session)
-    req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
 
-    // Set a slightly longer timeout for Advanced XML as payloads can be heavy
-    ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-    defer cancel()
-    req = req.WithContext(ctx)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
-    // Send the request
-    resp, err := c.client.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("HTTP request failed: %v", err)
-    }
-    defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed: %s - %s", resp.Status, string(body))
+	}
 
-    if verbose {
-        hmcLogger.Printf("GetLogicalPartitionsAdv response status: %s", resp.Status)
-    }
+	body, _ := io.ReadAll(resp.Body)
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, err
+	}
 
-    // Check for non-200 status codes
-    if resp.StatusCode != http.StatusOK {
-        body, _ := io.ReadAll(resp.Body)
-        return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
-    }
+	// Capture the raw LogicalPartition elements from inside the Atom feed
+	elements := doc.FindElements("//LogicalPartition")
+	
+	var detailedPartitions []LogicalPartitionDetailed
+	for _, lparElem := range elements {
+		// Serialize the isolated element
+		lparDoc := etree.NewDocument()
+		lparDoc.SetRoot(lparElem.Copy())
+		lparBytes, _ := lparDoc.WriteToBytes()
 
-    // Read the response body
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to read response body: %v", err)
-    }
+		var detailedLpar LogicalPartitionDetailed
+		if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
+			if verbose {
+				hmcLogger.Printf("Unmarshal warning for LPAR: %v", err)
+			}
+			continue
+		}
+		detailedPartitions = append(detailedPartitions, detailedLpar)
+	}
 
-    // Parse XML response and strip namespaces to make querying easier
-    doc, err := xmlStripNamespace(body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
-    }
-
-    // Use FindElements (plural) to capture ALL partitions in the Atom feed
-    logicalPartitions := doc.FindElements("//LogicalPartition")
-    if len(logicalPartitions) == 0 {
-        if verbose {
-            hmcLogger.Printf("No LogicalPartition elements found in the response feed.")
-        }
-        return []*etree.Element{}, nil // Return empty slice instead of error if none exist
-    }
-
-    if verbose {
-        hmcLogger.Printf("Successfully parsed %d partitions from Advanced XML.", len(logicalPartitions))
-    }
-
-    return logicalPartitions, nil
+	return detailedPartitions, nil
 }
-
 
 
 
@@ -671,14 +611,15 @@ func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparReq
         </uom:SharedProcessorConfiguration>
         <uom:SharingMode>%s</uom:SharingMode>
     </uom:PartitionProcessorConfiguration>
-    <uom:PartitionType>AIX/Linux</uom:PartitionType>
+    <uom:PartitionType>%s/Linux</uom:PartitionType>
 </uom:LogicalPartition>`,
 		req.DesiredMem, req.MaxMem, req.MinMem, 
 		req.Name, 
 		req.DesiredProcUnits, req.DesiredVcpus, // Desired (D)
 		req.MaxProcUnits, req.MaxVcpus,         // Maximum (M)
 		req.MinProcUnits, req.MinVcpus,         // Minimum (Mi)
-		req.SharingMode)
+		req.SharingMode,
+		req.OsType)
 
 	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
@@ -967,8 +908,8 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 	return "SUCCESS", nil
 }
 
-// GetAllLogicalPartitionsInHmc retrieves the XML elements for all logical partitions managed by the HMC across all systems.
-func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]*etree.Element, error) {
+// GetAllLogicalPartitionsInHmc retrieves the Go structures for all logical partitions managed by the HMC across all systems.
+func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition", c.hmcIP)
 	if verbose {
 		hmcLogger.Printf("Fetching ALL logical partitions across the HMC, URL: %s", url)
@@ -981,7 +922,6 @@ func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]*etree.Ele
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
 
-	// Set a generous timeout as this can return a lot of data on heavily loaded HMCs
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -992,40 +932,50 @@ func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]*etree.Ele
 	}
 	defer resp.Body.Close()
 
-	if verbose {
-		hmcLogger.Printf("GetAllLogicalPartitionsInHmc response status: %s", resp.Status)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	// Strip namespaces to make querying easier
-	doc, err := xmlStripNamespace(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Extract all LogicalPartition blocks
-	logicalPartitions := doc.FindElements("//LogicalPartition")
-	if len(logicalPartitions) == 0 {
-		if verbose {
-			hmcLogger.Printf("No LogicalPartition elements found in the response feed.")
+	// 1. Strip namespaces
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces: %v", err)
+	}
+
+	// 2. Locate all partition blocks
+	elements := doc.FindElements("//LogicalPartition")
+	
+	var allPartitions []LogicalPartitionDetailed
+	for _, lparElem := range elements {
+		// 3. Isolate the element XML
+		lparDoc := etree.NewDocument()
+		lparDoc.SetRoot(lparElem.Copy())
+		lparBytes, err := lparDoc.WriteToBytes()
+		if err != nil {
+			continue 
 		}
-		return []*etree.Element{}, nil
+
+		// 4. Unmarshal into your big struct
+		var detailedLpar LogicalPartitionDetailed
+		if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
+			if verbose {
+				hmcLogger.Printf("Skipping partition due to unmarshal error: %v", err)
+			}
+			continue
+		}
+		allPartitions = append(allPartitions, detailedLpar)
 	}
 
 	if verbose {
-		hmcLogger.Printf("Successfully parsed %d partitions from HMC global inventory.", len(logicalPartitions))
+		hmcLogger.Printf("Successfully parsed %d partitions from HMC global inventory.", len(allPartitions))
 	}
 
-	return logicalPartitions, nil
+	return allPartitions, nil
 }
 // GetLogicalPartitionQuickProperty retrieves a specific quick property of a logical partition.
 // This endpoint provides a fast way to poll specific states without downloading the entire LPAR XML.

@@ -50,7 +50,7 @@ func main() {
 
     // Note: Adjust this line to match your exact LPAR resolver function name 
     // (e.g., GetLogicalPartitionByName or hmc.GetLparID)
-    lparUUID, err := restClient.GetLogicalPartitionByName(systems.UUID, *lparName, *verbose)
+    _,lparUUID, err := restClient.GetLogicalPartitionByName(systems.UUID, *lparName, *verbose)
     if err != nil || lparUUID == "" {
         log.Fatalf("❌ LPAR '%s' not found.", *lparName)
     }

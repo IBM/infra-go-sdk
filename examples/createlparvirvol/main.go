@@ -235,7 +235,7 @@ func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose
 }
 
 func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName string, verbose bool) {
-	existingUUID, err := restClient.GetLogicalPartitionByName(systemUUID, vmName, false)
+	_,existingUUID, err := restClient.GetLogicalPartitionByName(systemUUID, vmName, false)
 	if err == nil && existingUUID != "" {
 		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
 	}

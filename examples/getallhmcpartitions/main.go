@@ -7,17 +7,8 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/beevik/etree"
 	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
-
-// Helper function to safely extract text from an etree Element
-func safeGetText(elem *etree.Element, path string) string {
-	if found := elem.FindElement(path); found != nil {
-		return found.Text()
-	}
-	return "N/A"
-}
 
 func main() {
 	// =========================================================================
@@ -48,7 +39,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n🌍 Querying HMC for ALL Managed Logical Partitions...\n")
 	
-	// Calling the newly renamed function
+	// This now returns []hmc.LogicalPartitionDetailed
 	partitions, err := restClient.GetAllLogicalPartitionsInHmc(*verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to retrieve partitions: %v", err)
@@ -63,22 +54,25 @@ func main() {
 	// DISPLAY RESULTS IN A TABLE
 	// =========================================================================
 	fmt.Printf("\n✅ Found %d Partitions globally across the HMC:\n", len(partitions))
-	fmt.Println("=====================================================================================================")
+	fmt.Println("========================================================================================================================")
 	
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "LPAR NAME\tID\tSTATE\tTYPE\tUUID")
-	fmt.Fprintln(w, "---------\t--\t-----\t----\t----")
+	fmt.Fprintln(w, "SYSTEM NAME\tLPAR NAME\tID\tSTATE\tTYPE\tUUID")
+	fmt.Fprintln(w, "-----------\t---------\t--\t-----\t----\t----")
 
 	for _, lpar := range partitions {
-		name  := safeGetText(lpar, "PartitionName")
-		id    := safeGetText(lpar, "PartitionID")
-		state := safeGetText(lpar, "PartitionState")
-		pType := safeGetText(lpar, "PartitionType")
-		uuid  := safeGetText(lpar, "PartitionUUID")
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, id, state, pType, uuid)
+		// We access the struct fields DIRECTLY now. 
+		// Note: PartitionID is an int, so we use %d in Fprintf.
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n", 
+			lpar.SystemName,
+			lpar.PartitionName, 
+			lpar.PartitionID, 
+			lpar.PartitionState, 
+			lpar.PartitionType, 
+			lpar.PartitionUUID,
+		)
 	}
 	
 	w.Flush()
-	fmt.Println("=====================================================================================================")
+	fmt.Println("========================================================================================================================")
 }

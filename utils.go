@@ -2,6 +2,7 @@ package hmc
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -802,30 +803,33 @@ func (c *HmcRestClient) DeleteHMCResource(resourceURL string, verbose bool) erro
 	return nil
 }
 
-// GetLogicalPartitionByName resolves a logical partition name to its UUID on a specific Managed System.
+// GetLogicalPartitionByName resolves a logical partition name to its full Quick details and UUID on a specific Managed System.
 // It uses the quick (JSON) endpoint for high performance.
-func (c *HmcRestClient) GetLogicalPartitionByName(systemUUID, partitionName string, verbose bool) (string, error) {
+func (c *HmcRestClient) GetLogicalPartitionByName(systemUUID, partitionName string, verbose bool) (*LogicalPartitionQuick, string, error) {
 	if verbose {
 		hmcLogger.Printf("Resolving LPAR name '%s' to UUID on system %s...", partitionName, systemUUID)
 	}
 
-	// Fetch all partitions using the lightweight JSON endpoint
+	// Fetch all partitions using the lightweight JSON endpoint 
 	lpars, err := c.GetLogicalPartitionsQuickAll(systemUUID, verbose)
 	if err != nil {
-		return "", fmt.Errorf("failed to retrieve logical partitions: %v", err)
+		return nil, "", fmt.Errorf("failed to retrieve logical partitions: %v", err)
 	}
 
-	// Iterate through the slice to find the matching name
+	// Iterate through the slice to find the matching name 
 	for _, lpar := range lpars {
 		if lpar.PartitionName == partitionName {
 			if verbose {
 				hmcLogger.Printf("✅ Found LPAR '%s' with UUID: %s", partitionName, lpar.UUID)
 			}
-			return lpar.UUID, nil
+			// Use '&lpar' to return a pointer to the struct, rather than '*lpar'
+			// Create a local copy to ensure safe pointer escape
+			matchedLpar := lpar 
+			return &matchedLpar, matchedLpar.UUID, nil
 		}
 	}
 
-	return "", fmt.Errorf("logical partition '%s' not found on system %s", partitionName, systemUUID)
+	return nil, "", fmt.Errorf("logical partition '%s' not found on system %s", partitionName, systemUUID)
 }
 // GetManagedSystemByNameQuick resolves a system name to its full Quick details and UUID 
 // by scanning the high-performance JSON inventory.
@@ -851,4 +855,24 @@ func (c *HmcRestClient) GetManagedSystemByNameQuick(systemName string, verbose b
 	}
 
 	return nil, "", fmt.Errorf("managed system '%s' not found in HMC inventory", systemName)
+}
+// parseLogicalPartitionElements converts raw XML elements into a typed slice of LogicalPartitionDetailed
+func parseLogicalPartitionElements(elements []*etree.Element, verbose bool) ([]LogicalPartitionDetailed, error) {
+	var detailedPartitions []LogicalPartitionDetailed
+	for _, lparElem := range elements {
+		lparDoc := etree.NewDocument()
+		lparDoc.SetRoot(lparElem.Copy())
+		
+		lparBytes, err := lparDoc.WriteToBytes()
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize isolated LogicalPartition element: %v", err)
+		}
+
+		var detailedLpar LogicalPartitionDetailed
+		if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal XML into LogicalPartitionDetailed struct: %v", err)
+		}
+		detailedPartitions = append(detailedPartitions, detailedLpar)
+	}
+	return detailedPartitions, nil
 }

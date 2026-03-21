@@ -47,7 +47,7 @@ func main() {
 	}
 
 	fmt.Printf("Resolving LPAR '%s' to UUID...\n", *lparName)
-	lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_,lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ Failed to resolve LPAR Name '%s'. Does it exist on system '%s'?\n", *lparName, *sysName)
 	}
@@ -74,7 +74,7 @@ func main() {
 	// FIXED: Using %.0f to cleanly print the float64 memory value
 	fmt.Printf("Current Memory:       %.0f MB\n", lpar.PartitionMemoryConfiguration.CurrentMemory)
 	
-	fmt.Printf("Current Processing:   %.1f Units across %d vCPUs\n", 
+	fmt.Printf("Current Processing:   %.1f Units across %f vCPUs\n", 
 		lpar.PartitionProcessorConfiguration.CurrentSharedProcessorConfiguration.CurrentProcessingUnits,
 		lpar.PartitionProcessorConfiguration.CurrentSharedProcessorConfiguration.AllocatedVirtualProcessors,
 	)

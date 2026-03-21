@@ -17,11 +17,6 @@ func main() {
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
 	lparName := flag.String("lpar-name", "Go_LPAR_91", "Target LPAR Name")
-	
-	// PowerOff specific flags
-	shutdownOpt := flag.String("shutdown-option", "Immediate", "Delayed, Immediate, OperatingSystem, OSImmediate, Dump, DumpRetry")
-	restart := flag.Bool("restart", false, "Restart the partition after powering off")
-	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	
 	flag.Parse()
@@ -89,26 +84,41 @@ func main() {
 	}
 
 	// -> NEW: Check the state before proceeding
-	if lpar.PartitionState == "not activated" {
+	if lpar.PartitionState == "running" {
 		// Even if not verbose, it's good practice to let the user know why we skipped
-		fmt.Printf("⚠️ LPAR '%s' is already powered off ('not activated'). Skipping Power Off.\n", *lparName)
+		fmt.Printf("⚠️ LPAR '%s' is already running. Skipping Power On.\n", *lparName)
 		return
 	}
 
+	// 3. Resolve Profile UUID from LPAR UUID 
+	if *verbose {
+		fmt.Printf("Resolving default Profile UUID for LPAR '%s'...\n", *lparName)
+	}
+	profileUUID, err := restClient.GetPartitionProfile(partUUID, *verbose)
+	if err != nil || profileUUID == "" {
+		if *verbose {
+			log.Fatalf("Failed to retrieve partition profile: %v", err)
+		}
+		log.Fatal("❌ Failed to retrieve partition profile.")
+	}
+	if *verbose {
+		fmt.Printf("✅ Found Profile UUID: %s\n\n", profileUUID)
+	}
+
 	// =========================================================================
-	// EXECUTE POWER OFF
+	// EXECUTE POWER ON
 	// =========================================================================
 	if *verbose {
-		fmt.Println("Initiating Power Off...")
+		fmt.Println("Initiating Power On...")
 	}
-	status, err := restClient.PowerOffPartition(partUUID, *shutdownOpt, *restart, *verbose)
+	status, err := restClient.PowerOnPartition(partUUID, profileUUID, "normal", "", "", *verbose)
 	if err != nil {
 		if *verbose {
-			log.Fatalf("Failed to power off partition: %v", err)
+			log.Fatalf("Failed to power on partition: %v", err)
 		}
-		log.Fatal("❌ Failed to power off partition.")
+		log.Fatal("❌ Failed to power on partition.")
 	}
 	
 	// This will print the status seamlessly.
-	fmt.Printf("🚀 PowerOff Job Status: %s\n", status)
+	fmt.Printf("🚀 PowerOn Job Status: %s\n", status)
 }

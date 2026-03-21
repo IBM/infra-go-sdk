@@ -3,11 +3,14 @@ package hmc
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/beevik/etree"
 )
 
 // GetVirtualSwitchQuickAll retrieves a JSON array of all Virtual Switches on a Managed System.
@@ -169,86 +172,69 @@ func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, verbose bool) ([]Virt
 	return switches, nil
 }
 
-// GetClientNetworkAdapters retrieves all ClientNetworkAdapters (Virtual Ethernet Adapters) for a specific LPAR.
-func (c *HmcRestClient) GetClientNetworkAdapters(lparUUID string, verbose bool) ([]ClientNetworkAdapter, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, lparUUID)
-
+// GetClientNetworkAdapters retrieves all ClientNetworkAdapter details for a partition as parsed Go structs.
+func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, verbose bool) ([]ClientNetworkAdapter, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
+	
 	if verbose {
-		hmcLogger.Printf("Fetching ClientNetworkAdapters for LPAR %s...", lparUUID)
+		hmcLogger.Printf("Fetching ClientNetworkAdapters for system UUID %s, partition UUID %s, URL: %s", systemUUID, lparUUID, url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch ClientNetworkAdapters: %s - %s", resp.Status, string(body))
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 	}
 
+	// Parse XML response and strip namespaces
 	doc, err := xmlStripNamespace(body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
 	var adapters []ClientNetworkAdapter
 
-	// Loop through every <entry> in the Atom feed
-	for _, entry := range doc.FindElements("//entry") {
-		adapter := ClientNetworkAdapter{}
-
-		// 1. Core Properties
-		if el := entry.FindElement(".//AtomID"); el != nil { adapter.UUID = el.Text() }
-		if el := entry.FindElement(".//DynamicReconfigurationConnectorName"); el != nil { adapter.DynamicReconfigurationConnectorName = el.Text() }
-		if el := entry.FindElement(".//LocationCode"); el != nil { adapter.LocationCode = el.Text() }
-		if el := entry.FindElement(".//LocalPartitionID"); el != nil { adapter.LocalPartitionID = el.Text() }
-		if el := entry.FindElement(".//RequiredAdapter"); el != nil { adapter.RequiredAdapter = el.Text() }
-		if el := entry.FindElement(".//VariedOn"); el != nil { adapter.VariedOn = el.Text() }
-		if el := entry.FindElement(".//VirtualSlotNumber"); el != nil { adapter.VirtualSlotNumber = el.Text() }
-		if el := entry.FindElement(".//AllowedOperatingSystemMACAddresses"); el != nil { adapter.AllowedOperatingSystemMACAddresses = el.Text() }
-		if el := entry.FindElement(".//MACAddress"); el != nil { adapter.MACAddress = el.Text() }
-		if el := entry.FindElement(".//PortVLANID"); el != nil { adapter.PortVLANID = el.Text() }
-		if el := entry.FindElement(".//QualityOfServicePriorityEnabled"); el != nil { adapter.QualityOfServicePriorityEnabled = el.Text() }
-		if el := entry.FindElement(".//TaggedVLANSupported"); el != nil { adapter.TaggedVLANSupported = el.Text() }
-		if el := entry.FindElement(".//VirtualSwitchID"); el != nil { adapter.VirtualSwitchID = el.Text() }
-		if el := entry.FindElement(".//VirtualSwitchName"); el != nil { adapter.VirtualSwitchName = el.Text() }
-		if el := entry.FindElement(".//HCNID"); el != nil { adapter.HCNID = el.Text() }
-
-		// 2. Extract AssociatedVirtualSwitch URI
-		vSwitchLink := entry.FindElement(".//AssociatedVirtualSwitch/link")
-		if vSwitchLink != nil {
-			adapter.AssociatedVirtualSwitchURI = vSwitchLink.SelectAttrValue("href", "")
+	// Extract the core elements and natively unmarshal them into structs
+	adapterElements := doc.FindElements("//ClientNetworkAdapter")
+	
+	for _, elem := range adapterElements {
+		adapterDoc := etree.NewDocument()
+		adapterDoc.SetRoot(elem.Copy())
+		adapterBytes, err := adapterDoc.WriteToBytes()
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize adapter element: %v", err)
 		}
 
-		// 3. Extract VirtualNetwork URIs
-		for _, vNetLink := range entry.FindElements(".//VirtualNetworks/link") {
-			if href := vNetLink.SelectAttrValue("href", ""); href != "" {
-				adapter.VirtualNetworkURIs = append(adapter.VirtualNetworkURIs, href)
-			}
+		var adapter ClientNetworkAdapter
+		if err := xml.Unmarshal(adapterBytes, &adapter); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal adapter XML: %v", err)
 		}
-
+		
 		adapters = append(adapters, adapter)
 	}
 
 	if verbose {
-		hmcLogger.Printf("Found %d ClientNetworkAdapter(s)", len(adapters))
+		hmcLogger.Printf("Successfully parsed %d ClientNetworkAdapter(s)", len(adapters))
 	}
 
 	return adapters, nil

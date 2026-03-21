@@ -2346,7 +2346,7 @@ func (c *HmcRestClient) CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID, dis
 	// 4. Construct the new mapping (Schema-compliant)
 	newMappingXML := fmt.Sprintf(`
         <VirtualSCSIMapping schemaVersion="V1_0">
-            <AssociatedLogicalPartition href="https://%s:443/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <AssociatedLogicalPartition href="https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
             <Storage>
                 <PhysicalVolume schemaVersion="V1_0">
                     <VolumeName>%s</VolumeName>
@@ -2466,7 +2466,7 @@ func (c *HmcRestClient) CreateVirtualDiskMap(sysUUID, viosUUID, lparUUID, diskNa
 	// 5. Construct our new Virtual Disk mapping exactly as the schema requires
 	newMappingXML := fmt.Sprintf(`
         <VirtualSCSIMapping schemaVersion="V1_0">
-            <AssociatedLogicalPartition href="https://%s:443/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <AssociatedLogicalPartition href="https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
             <Storage>
                 <VirtualDisk schemaVersion="V1_0">
                     <DiskName>%s</DiskName>
@@ -2664,7 +2664,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMap(sysUUID, viosUUID, lparUUID, med
 	// 5. Construct our new Virtual Optical mapping
 	newMappingXML := fmt.Sprintf(`
         <VirtualSCSIMapping schemaVersion="V1_0">
-            <AssociatedLogicalPartition href="https://%s:443/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <AssociatedLogicalPartition href="https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
             <Storage>
                 <VirtualOpticalMedia schemaVersion="V1_0">
                     <MediaName>%s</MediaName>

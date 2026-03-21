@@ -48,7 +48,7 @@ func main() {
         log.Fatalf("❌ VIOS '%s' not found.", *viosName)
     }
 
-    lparUUID, err := restClient.GetLogicalPartitionByName(systems.UUID, *lparName, *verbose)
+    _,lparUUID, err := restClient.GetLogicalPartitionByName(systems.UUID, *lparName, *verbose)
     if err != nil || lparUUID == "" {
         log.Fatalf("❌ LPAR '%s' not found.", *lparName)
     }

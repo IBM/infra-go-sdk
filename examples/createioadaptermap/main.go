@@ -47,7 +47,7 @@ func main() {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose) 
+	_,lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose) 
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}

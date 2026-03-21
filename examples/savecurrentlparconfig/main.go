@@ -54,7 +54,7 @@ func main() {
 	}
 
 	// Resolve LPAR UUID
-	lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_,lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found on System '%s'.", *lparName, *sysName)
 	}

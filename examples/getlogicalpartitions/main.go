@@ -1,83 +1,133 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
-	"strings"
+	"os"
+	"text/tabwriter"
 
-	"github.com/beevik/etree"
-	hmc "github.com/sudeeshjohn/powerhmc-go"
+	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
 
-// Helper function to safely extract text from an etree Element
-func safeGetText(elem *etree.Element, path string) string {
-	if found := elem.FindElement(path); found != nil {
-		return found.Text()
-	}
-	return "N/A"
-}
-
 func main() {
-	// --- Configuration ---
-	hmcIP      := "192.0.2.1"
-	username   := "REDACTED_HMC_USER<=="
-	password   := "REDACTED_HMC_PASS<=="
-	sysName    := "LTC09U31-ZZ"
-	verbose    := false 
+	// =========================================================================
+	// CONFIGURATION & FLAGS
+	// =========================================================================
+	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
+	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
+	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
+	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	
+	flag.Parse()
 
-	// 1. Initialize & Login
-	restClient := hmc.NewHmcRestClient(hmcIP)
-	if err := restClient.Login(username, password, verbose); err != nil {
-		log.Fatalf("Logon failed: %v", err)
+	// Validation
+	if *password == "" || *sysName == "" {
+		log.Fatal("❌ Error: hmc-pass and system-name are required.")
 	}
-	defer restClient.Logoff()
 
-	// 2. Resolve System UUID
-	fmt.Printf("Locating Managed System: %s...\n", sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(sysName, verbose)
+	// =========================================================================
+	// AUTHENTICATION
+	// =========================================================================
+	restClient := hmc.NewHmcRestClient(*hmcIP)
+
+	if *verbose {
+		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
+	}
+	if err := restClient.Login(*username, *password, *verbose); err != nil {
+		if *verbose {
+			log.Fatalf("Logon failed: %v", err)
+		}
+		log.Fatal("❌ Logon failed. (Run with -verbose for details)")
+	}
+	defer func() {
+		if err := restClient.Logoff(); err != nil {
+			if *verbose {
+				log.Printf("Logoff failed: %v", err)
+			}
+		} else if *verbose {
+			log.Println("Logged off successfully")
+		}
+	}()
+
+	// =========================================================================
+	// DYNAMIC SYSTEM RESOLUTION
+	// =========================================================================
+	if *verbose {
+		fmt.Printf("\nResolving System UUID for '%s'...\n", *sysName)
+	}
+	// Use the quick endpoint for fast system resolution
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
 	if err != nil || sysUUID == "" {
-		log.Fatalf("Could not find system: %v", err)
+		if *verbose {
+			log.Fatalf("System '%s' not found: %v", *sysName, err)
+		}
+		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	// 3. Fetch Advanced Partitions XML
-	fmt.Println("Downloading Advanced Partition configurations (this may take a moment)...")
-	partitions, err := restClient.GetLogicalPartitionsInSystem(sysUUID, verbose)
+	// =========================================================================
+	// FETCH ADVANCED LPAR DATA (RETURNING STRUCTS)
+	// =========================================================================
+	if *verbose {
+		fmt.Println("Downloading Advanced Partition configurations (this may take a moment)...")
+	}
+	
+	partitions, err := restClient.GetLogicalPartitionsInSystem(sysUUID, *verbose)
 	if err != nil {
-		log.Fatalf("Failed to retrieve advanced XML: %v", err)
+		if *verbose {
+			log.Fatalf("Failed to retrieve advanced configurations: %v", err)
+		}
+		log.Fatal("❌ Failed to retrieve advanced configurations.")
 	}
 
-	fmt.Printf("\nFound %d Partitions. Extracting deep configurations:\n", len(partitions))
-	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("\n✅ Found %d Partitions on '%s'. Extracting configurations:\n", len(partitions), *sysName)
+	fmt.Println("=======================================================================================================================================")
 
-	// 4. Iterate through the slice of *etree.Element
+	// =========================================================================
+	// ITERATE & DISPLAY IN A TABLE
+	// =========================================================================
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	
+	// Table Header
+	fmt.Fprintln(w, "LPAR NAME\tUUID\tSTATE\tCPU (Units/vCPUs)\tMEMORY (Curr/Max MB)")
+	fmt.Fprintln(w, "---------\t----\t-----\t-----------------\t--------------------")
+
 	for _, lpar := range partitions {
-		// Because xmlStripNamespace was used, we can query tags directly without prefixes
-		name  := safeGetText(lpar, "PartitionName")
-		id    := safeGetText(lpar, "PartitionID")
-		state := safeGetText(lpar, "PartitionState")
+		// Native Struct Access
+		name := lpar.PartitionName
+		uuid := lpar.PartitionUUID
+		state := lpar.PartitionState
 
 		// Deep Extraction: Memory
-		desiredMem := safeGetText(lpar, "PartitionMemoryConfiguration/DesiredMemory")
-		maxMem     := safeGetText(lpar, "PartitionMemoryConfiguration/MaximumMemory")
+		currMem := lpar.PartitionMemoryConfiguration.CurrentMemory
+		maxMem := lpar.PartitionMemoryConfiguration.MaximumMemory
 
 		// Deep Extraction: Processors
-		// Note: We check SharingMode to know where to look for CPU stats
-		sharingMode := safeGetText(lpar, "PartitionProcessorConfiguration/SharingMode")
-		var desiredCPU string
+		sharingMode := lpar.PartitionProcessorConfiguration.SharingMode
+		var currProcUnits float64
+		var currVcpus int
+		
 		if sharingMode == "keep idle procs" || sharingMode == "share idle procs" {
-			desiredCPU = safeGetText(lpar, "PartitionProcessorConfiguration/DedicatedProcessorConfiguration/DesiredProcessors")
+			// For dedicated processors
+			currProcUnits = lpar.PartitionProcessorConfiguration.CurrentDedicatedProcessorConfiguration.CurrentProcessors
+			// FIXED: Explicit cast from float64 to int
+			currVcpus = int(lpar.PartitionProcessorConfiguration.CurrentDedicatedProcessorConfiguration.CurrentProcessors)
 		} else {
-			desiredCPU = safeGetText(lpar, "PartitionProcessorConfiguration/SharedProcessorConfiguration/DesiredVirtualProcessors")
+			// For shared/uncapped processors
+			currProcUnits = lpar.PartitionProcessorConfiguration.CurrentSharedProcessorConfiguration.CurrentProcessingUnits
+			// CAST to int here to handle the float64 type safety update we made earlier!
+			currVcpus = int(lpar.PartitionProcessorConfiguration.CurrentSharedProcessorConfiguration.AllocatedVirtualProcessors)
 		}
 
-		// Deep Extraction: Boot Device
-		bootDevice := safeGetText(lpar, "BootListInformation/BootDeviceList")
+		// Format complex columns
+		cpuStr := fmt.Sprintf("%.1f / %d (%s)", currProcUnits, currVcpus, sharingMode)
+		memStr := fmt.Sprintf("%.0f / %.0f", currMem, maxMem)
 
-		// Print the extracted data
-		fmt.Printf("LPAR: %s (ID: %s) - State: %s\n", name, id, state)
-		fmt.Printf("  ├─ Memory (Desired / Max): %s MB / %s MB\n", desiredMem, maxMem)
-		fmt.Printf("  ├─ Processor Config:       %s CPUs (%s)\n", desiredCPU, sharingMode)
-		fmt.Printf("  └─ Boot Device:            %s\n", bootDevice)
-		fmt.Println(strings.Repeat("-", 80))
+		// Print row into tabwriter
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, uuid, state, cpuStr, memStr)
 	}
+
+	w.Flush()
+	fmt.Println("=======================================================================================================================================")
 }

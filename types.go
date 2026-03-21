@@ -538,6 +538,7 @@ type VSCSITargetDevice struct {
 // CreateLparRequest defines the parameters for a new LPAR creation.
 type CreateLparRequest struct {
 	Name             string
+	OsType           string  // NEW: e.g., "AIX/Linux", "OS400", or "Virtual IO Server"
 	MinMem           int     // MB
 	DesiredMem       int     // MB
 	MaxMem           int     // MB
@@ -547,7 +548,7 @@ type CreateLparRequest struct {
 	MinVcpus         int
 	DesiredVcpus     int
 	MaxVcpus         int
-	SharingMode      string // "uncapped" or "capped"
+	SharingMode      string  // "uncapped" or "capped"
 }
 
 // VirtualSwitchQuick represents the JSON response for quick switch details.
@@ -567,23 +568,26 @@ type VirtualSwitch struct {
 }
 // ClientNetworkAdapter represents the comprehensive XML details of a Virtual Ethernet Adapter.
 type ClientNetworkAdapter struct {
-	UUID                               string
-	DynamicReconfigurationConnectorName string
-	LocationCode                       string
-	LocalPartitionID                   string
-	RequiredAdapter                    string
-	VariedOn                           string
-	VirtualSlotNumber                  string
-	AllowedOperatingSystemMACAddresses string
-	MACAddress                         string
-	PortVLANID                         string
-	QualityOfServicePriorityEnabled    string
-	TaggedVLANSupported                string
-	VirtualSwitchID                    string
-	VirtualSwitchName                  string
-	HCNID                              string
-	AssociatedVirtualSwitchURI         string   // Extracted from the href link
-	VirtualNetworkURIs                 []string // Slice to hold multiple VirtualNetwork href links
+	XMLName                             xml.Name  `xml:"ClientNetworkAdapter"`
+	UUID                                string    `xml:"Metadata>Atom>AtomID"`
+	DynamicReconfigurationConnectorName string    `xml:"DynamicReconfigurationConnectorName"`
+	LocationCode                        string    `xml:"LocationCode"`
+	LocalPartitionID                    string    `xml:"LocalPartitionID"`
+	RequiredAdapter                     string    `xml:"RequiredAdapter"`
+	VariedOn                            string    `xml:"VariedOn"`
+	VirtualSlotNumber                   string    `xml:"VirtualSlotNumber"`
+	AllowedOperatingSystemMACAddresses  string    `xml:"AllowedOperatingSystemMACAddresses"`
+	MACAddress                          string    `xml:"MACAddress"`
+	PortVLANID                          string    `xml:"PortVLANID"`
+	QualityOfServicePriorityEnabled     string    `xml:"QualityOfServicePriorityEnabled"`
+	TaggedVLANSupported                 string    `xml:"TaggedVLANSupported"`
+	VirtualSwitchID                     string    `xml:"VirtualSwitchID"`
+	VirtualSwitchName                   string    `xml:"VirtualSwitchName"`
+	HCNID                               string    `xml:"HCNID"`
+	
+	// Kept your original naming, but mapped to LinkXML to capture the 'href' attribute
+	AssociatedVirtualSwitchURI          LinkXML   `xml:"AssociatedVirtualSwitch>link"`
+	VirtualNetworkURIs                  []LinkXML `xml:"VirtualNetworks>link"`
 }
 
 
@@ -617,8 +621,8 @@ type ManagedSystemDetailed struct {
 	DetailedState                            string                              `xml:"DetailedState"`
 	MTMS                                     MachineTypeModelAndSerialNumber     `xml:"MachineTypeModelAndSerialNumber"`
 	ManufacturingDefaultConfigurationEnabled bool                                `xml:"ManufacturingDefaultConfigurationEnabled"`
-	MaximumPartitions                        int                                 `xml:"MaximumPartitions"`
-	MaximumPowerControlPartitions            int                                 `xml:"MaximumPowerControlPartitions"`
+	MaximumPartitions                        float64                                 `xml:"MaximumPartitions"`
+	MaximumPowerControlPartitions            float64                                 `xml:"MaximumPowerControlPartitions"`
 	MaximumRemoteRestartPartitions           int                                 `xml:"MaximumRemoteRestartPartitions"`
 	MaximumSharedProcessorCapablePartitionID int                                 `xml:"MaximumSharedProcessorCapablePartitionID"`
 	MaximumSuspendablePartitions             int                                 `xml:"MaximumSuspendablePartitions"`
@@ -1050,82 +1054,96 @@ type SystemPersistentMemoryConfiguration struct {
 // =====================================================================
 
 // LogicalPartitionDetailed represents the complete XML payload of a Logical Partition
+// LogicalPartitionDetailed represents the complete XML payload of a Logical Partition
 type LogicalPartitionDetailed struct {
-	XMLName                              xml.Name                          `xml:"LogicalPartition"`
-	MetadataID                           string                            `xml:"Metadata>Atom>AtomID"`
-	AllowPerformanceDataCollection       bool                              `xml:"AllowPerformanceDataCollection"`
-	AssociatedPartitionProfile           LinkXML                           `xml:"AssociatedPartitionProfile"`
-	DefaultProfileName                   string                            `xml:"DefaultProfileName"`
-	AvailabilityPriority                 int                               `xml:"AvailabilityPriority"`
-	CurrentProcessorCompatibilityMode    string                            `xml:"CurrentProcessorCompatibilityMode"`
-	CurrentProfileSync                   string                            `xml:"CurrentProfileSync"`
-	IsBootable                           bool                              `xml:"IsBootable"`
-	IsConnectionMonitoringEnabled        bool                              `xml:"IsConnectionMonitoringEnabled"`
-	IsOperationInProgress                bool                              `xml:"IsOperationInProgress"`
-	IsRedundantErrorPathReportingEnabled bool                              `xml:"IsRedundantErrorPathReportingEnabled"`
-	IsTimeReferencePartition             bool                              `xml:"IsTimeReferencePartition"`
-	IsVirtualServiceAttentionLEDOn       bool                              `xml:"IsVirtualServiceAttentionLEDOn"`
-	IsVirtualTrustedPlatformModuleEnabled bool                             `xml:"IsVirtualTrustedPlatformModuleEnabled"`
-	KeylockPosition                      string                            `xml:"KeylockPosition"`
-	LogicalSerialNumber                  string                            `xml:"LogicalSerialNumber"`
-	OperatingSystemVersion               string                            `xml:"OperatingSystemVersion"`
-	PartitionCapabilities                LparCapabilities                  `xml:"PartitionCapabilities"`
-	PartitionID                          int                               `xml:"PartitionID"`
-	PartitionIOConfiguration             LparIOConfiguration               `xml:"PartitionIOConfiguration"`
-	PartitionMemoryConfiguration         LparMemoryConfiguration           `xml:"PartitionMemoryConfiguration"`
-	PartitionName                        string                            `xml:"PartitionName"`
-	PartitionProcessorConfiguration      LparProcessorConfiguration        `xml:"PartitionProcessorConfiguration"`
-	PartitionProfiles                    []LinkXML                         `xml:"PartitionProfiles>link"`
-	PartitionState                       string                            `xml:"PartitionState"`
-	PartitionType                        string                            `xml:"PartitionType"`
-	PartitionUUID                        string                            `xml:"PartitionUUID"`
-	PendingProcessorCompatibilityMode    string                            `xml:"PendingProcessorCompatibilityMode"`
-	ProcessorPool                        LinkXML                           `xml:"ProcessorPool"`
-	ProgressPartitionDataRemaining       int                               `xml:"ProgressPartitionDataRemaining"`
-	ProgressPartitionDataTotal           int                               `xml:"ProgressPartitionDataTotal"`
-	ResourceMonitoringControlState       string                            `xml:"ResourceMonitoringControlState"`
-	ResourceMonitoringIPAddress          string                            `xml:"ResourceMonitoringIPAddress"`
-	AssociatedManagedSystem              LinkXML                           `xml:"AssociatedManagedSystem"`
-	
+	XMLName        xml.Name `xml:"LogicalPartition"`
+	SchemaVersion  string   `xml:"schemaVersion,attr"` // Captures the version attribute
+
+	// --- Fixed Metadata Mapping ---
+	MetadataID      string `xml:"Metadata>Atom>AtomID"`
+	MetadataCreated string `xml:"Metadata>Atom>AtomCreated"`
+
+	// --- Fixed Uptime Mapping (To capture the 'group' attribute) ---
+	Uptime struct {
+		Value float64 `xml:",chardata"`
+		Group string  `xml:"group,attr"`
+	} `xml:"Uptime"`
+
+	AllowPerformanceDataCollection       bool    `xml:"AllowPerformanceDataCollection"`
+	AssociatedPartitionProfile           LinkXML `xml:"AssociatedPartitionProfile"`
+	DefaultProfileName                   string  `xml:"DefaultProfileName"`
+	AvailabilityPriority                 int     `xml:"AvailabilityPriority"`
+	CurrentProcessorCompatibilityMode    string  `xml:"CurrentProcessorCompatibilityMode"`
+	CurrentProfileSync                   string  `xml:"CurrentProfileSync"`
+	IsBootable                           bool    `xml:"IsBootable"`
+	IsConnectionMonitoringEnabled        bool    `xml:"IsConnectionMonitoringEnabled"`
+	IsOperationInProgress                bool    `xml:"IsOperationInProgress"`
+	IsRedundantErrorPathReportingEnabled bool    `xml:"IsRedundantErrorPathReportingEnabled"`
+	IsTimeReferencePartition             bool    `xml:"IsTimeReferencePartition"`
+	IsVirtualServiceAttentionLEDOn       bool    `xml:"IsVirtualServiceAttentionLEDOn"`
+	IsVirtualTrustedPlatformModuleEnabled bool   `xml:"IsVirtualTrustedPlatformModuleEnabled"`
+	KeylockPosition                      string  `xml:"KeylockPosition"`
+	LogicalSerialNumber                  string  `xml:"LogicalSerialNumber"`
+	OperatingSystemVersion               string  `xml:"OperatingSystemVersion"`
+	PartitionCapabilities                LparCapabilities `xml:"PartitionCapabilities"`
+	PartitionID                          int     `xml:"PartitionID"`
+	PartitionIOConfiguration             LparIOConfiguration `xml:"PartitionIOConfiguration"`
+	PartitionMemoryConfiguration         LparMemoryConfiguration `xml:"PartitionMemoryConfiguration"`
+	PartitionName                        string  `xml:"PartitionName"`
+	PartitionProcessorConfiguration      LparProcessorConfiguration `xml:"PartitionProcessorConfiguration"`
+	PartitionProfiles                    []LinkXML `xml:"PartitionProfiles>link"`
+	PartitionState                       string  `xml:"PartitionState"`
+	PartitionType                        string  `xml:"PartitionType"`
+	PartitionUUID                        string  `xml:"PartitionUUID"`
+	PendingProcessorCompatibilityMode    string  `xml:"PendingProcessorCompatibilityMode"`
+	ProcessorPool                        LinkXML `xml:"ProcessorPool"`
+
+	// --- Fixed: Changed to float64 to prevent unmarshal errors with scientific notation ---
+	ProgressPartitionDataRemaining float64 `xml:"ProgressPartitionDataRemaining"`
+	ProgressPartitionDataTotal     float64 `xml:"ProgressPartitionDataTotal"`
+
+	ResourceMonitoringControlState string `xml:"ResourceMonitoringControlState"`
+	ResourceMonitoringIPAddress    string `xml:"ResourceMonitoringIPAddress"`
+	AssociatedManagedSystem        LinkXML `xml:"AssociatedManagedSystem"`
+
 	// --- VIRTUAL ADAPTER ARRAYS ---
-	ClientNetworkAdapters                []LinkXML                         `xml:"ClientNetworkAdapters>link"`
-	HostEthernetAdapterLogicalPorts      []LinkXML                         `xml:"HostEthernetAdapterLogicalPorts>link"`
-	VirtualFibreChannelClientAdapters    []LinkXML                         `xml:"VirtualFibreChannelClientAdapters>link"`
-	VirtualSCSIClientAdapters            []LinkXML                         `xml:"VirtualSCSIClientAdapters>link"`
-	AssociatedTrunkAdapters              []LinkXML                         `xml:"AssociatedTrunkAdapters>link"`
-	DedicatedVirtualNICs                 []LinkXML                         `xml:"DedicatedVirtualNICs>link"`
-	SharedVirtualNICs                    []LinkXML                         `xml:"SharedVirtualNICs>link"`
+	ClientNetworkAdapters             []LinkXML `xml:"ClientNetworkAdapters>link"`
+	HostEthernetAdapterLogicalPorts   []LinkXML `xml:"HostEthernetAdapterLogicalPorts>link"`
+	VirtualFibreChannelClientAdapters []LinkXML `xml:"VirtualFibreChannelClientAdapters>link"`
+	VirtualSCSIClientAdapters         []LinkXML `xml:"VirtualSCSIClientAdapters>link"`
+	AssociatedTrunkAdapters           []LinkXML `xml:"AssociatedTrunkAdapters>link"`
+	DedicatedVirtualNICs              []LinkXML `xml:"DedicatedVirtualNICs>link"`
+	SharedVirtualNICs                 []LinkXML `xml:"SharedVirtualNICs>link"`
 	// ------------------------------
-	
-	MACAddressPrefix                     string                            `xml:"MACAddressPrefix"`
-	IsServicePartition                   bool                              `xml:"IsServicePartition"`
-	PowerVMManagementCapable             bool                              `xml:"PowerVMManagementCapable"`
-	ReferenceCode                        string                            `xml:"ReferenceCode"`
-	AssignAllResources                   bool                              `xml:"AssignAllResources"`
-	HardwareAcceleratorQoS               HardwareAcceleratorQoSXML         `xml:"HardwareAcceleratorQoS"`
-	LastActivatedProfile                 string                            `xml:"LastActivatedProfile"`
-	HasPhysicalIO                        bool                              `xml:"HasPhysicalIO"`
-	OperatingSystemType                  string                            `xml:"OperatingSystemType"`
-	PendingSecureBoot                    int                               `xml:"PendingSecureBoot"`
-	CurrentSecureBoot                    int                               `xml:"CurrentSecureBoot"`
-	KeyStoreSize                         int                               `xml:"KeyStoreSize"`
-	BootMode                             string                            `xml:"BootMode"`
-	SystemName                           string                            `xml:"SystemName"`
-	Uptime                               int                               `xml:"Uptime"`
-	PowerOnWithHypervisor                bool                              `xml:"PowerOnWithHypervisor"`
-	PersistentMemoryConfiguration        LparPersistentMemoryConfiguration `xml:"AssociatedPersistentMemoryConfiguration"`
-	MigrationStorageViosDataStatus       string                            `xml:"MigrationStorageViosDataStatus"`
-	MigrationStorageViosDataTimestamp    string                            `xml:"MigrationStorageViosDataTimestamp"`
-	RemoteRestartCapable                 bool                              `xml:"RemoteRestartCapable"`
-	SimplifiedRemoteRestartCapable       bool                              `xml:"SimplifiedRemoteRestartCapable"`
-	HasDedicatedProcessorsForMigration   bool                              `xml:"HasDedicatedProcessorsForMigration"`
-	SuspendCapable                       bool                              `xml:"SuspendCapable"`
-	MigrationDisable                     bool                              `xml:"MigrationDisable"`
-	MigrationState                       string                            `xml:"MigrationState"`
-	RemoteRestartState                   string                            `xml:"RemoteRestartState"`
-	BootListInformation                  LparBootListInformation           `xml:"BootListInformation"`
-	VirtualSerialNumber                  string                            `xml:"VirtualSerialNumber"`
-	KvmCapable                           bool                              `xml:"KvmCapable"`
+
+	MACAddressPrefix           string                    `xml:"MACAddressPrefix"`
+	IsServicePartition         bool                      `xml:"IsServicePartition"`
+	PowerVMManagementCapable   bool                      `xml:"PowerVMManagementCapable"`
+	ReferenceCode              string                    `xml:"ReferenceCode"`
+	AssignAllResources         bool                      `xml:"AssignAllResources"`
+	HardwareAcceleratorQoS     HardwareAcceleratorQoSXML `xml:"HardwareAcceleratorQoS"`
+	LastActivatedProfile       string                    `xml:"LastActivatedProfile"`
+	HasPhysicalIO              bool                      `xml:"HasPhysicalIO"`
+	OperatingSystemType        string                    `xml:"OperatingSystemType"`
+	PendingSecureBoot          int                       `xml:"PendingSecureBoot"`
+	CurrentSecureBoot          int                       `xml:"CurrentSecureBoot"`
+	KeyStoreSize               int                       `xml:"KeyStoreSize"`
+	BootMode                   string                    `xml:"BootMode"`
+	SystemName                 string                    `xml:"SystemName"`
+	PowerOnWithHypervisor      bool                      `xml:"PowerOnWithHypervisor"`
+	PersistentMemoryConfiguration LparPersistentMemoryConfiguration `xml:"AssociatedPersistentMemoryConfiguration"`
+	MigrationStorageViosDataStatus    string `xml:"MigrationStorageViosDataStatus"`
+	MigrationStorageViosDataTimestamp string `xml:"MigrationStorageViosDataTimestamp"`
+	RemoteRestartCapable              bool   `xml:"RemoteRestartCapable"`
+	SimplifiedRemoteRestartCapable    bool   `xml:"SimplifiedRemoteRestartCapable"`
+	HasDedicatedProcessorsForMigration bool   `xml:"HasDedicatedProcessorsForMigration"`
+	SuspendCapable                    bool   `xml:"SuspendCapable"`
+	MigrationDisable                  bool   `xml:"MigrationDisable"`
+	MigrationState                    string `xml:"MigrationState"`
+	RemoteRestartState                string `xml:"RemoteRestartState"`
+	BootListInformation               LparBootListInformation `xml:"BootListInformation"`
+	VirtualSerialNumber               string `xml:"VirtualSerialNumber"`
+	KvmCapable                        bool   `xml:"KvmCapable"`
 }
 
 type HardwareAcceleratorQoSXML struct {
@@ -1201,20 +1219,23 @@ type LparSharedProcessorConfiguration struct {
 }
 
 type LparCurrentSharedProcessorConfiguration struct {
-	AllocatedVirtualProcessors      int     `xml:"AllocatedVirtualProcessors"`
+	AllocatedVirtualProcessors      float64 `xml:"AllocatedVirtualProcessors"` // Changed to float64
 	CurrentMaximumProcessingUnits   float64 `xml:"CurrentMaximumProcessingUnits"`
 	CurrentMinimumProcessingUnits   float64 `xml:"CurrentMinimumProcessingUnits"`
 	CurrentProcessingUnits          float64 `xml:"CurrentProcessingUnits"`
 	CurrentSharedProcessorPoolID    int     `xml:"CurrentSharedProcessorPoolID"`
-	CurrentUncappedWeight           int     `xml:"CurrentUncappedWeight"`
+	CurrentUncappedWeight           float64 `xml:"CurrentUncappedWeight"`      // Changed to float64
 	CurrentMinimumVirtualProcessors int     `xml:"CurrentMinimumVirtualProcessors"`
 	CurrentMaximumVirtualProcessors int     `xml:"CurrentMaximumVirtualProcessors"`
 	RuntimeProcessingUnits          float64 `xml:"RuntimeProcessingUnits"`
-	RuntimeUncappedWeight           int     `xml:"RuntimeUncappedWeight"`
+	RuntimeUncappedWeight           float64 `xml:"RuntimeUncappedWeight"`      // Changed to float64
 }
 
 type LparDedicatedProcessorConfiguration struct {
-	CurrentProcessors int `xml:"CurrentProcessors"`
+	CurrentProcessors float64 `xml:"CurrentProcessors"`
+	DesiredProcessors float64 `xml:"DesiredProcessors"`
+	MaximumProcessors float64 `xml:"MaximumProcessors"`
+	MinimumProcessors float64 `xml:"MinimumProcessors"`
 }
 
 type LparPersistentMemoryConfiguration struct {
