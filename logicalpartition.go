@@ -394,7 +394,7 @@ func (c *HmcRestClient) GetPartitionQuick(lparUUID string, verbose bool) (map[st
 }
 
 // GetLogicalPartitionsQuickAll retrieves the quick list of logical partitions for a system
-func (c *HmcRestClient) GetLogicalPartitionQuickAll(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
+func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
 	if verbose {
 		hmcLogger.Printf("Fetching quick logical partitions for system UUID %s, URL: %s", systemUUID, url)
@@ -965,4 +965,195 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 	}
 
 	return "SUCCESS", nil
+}
+
+// GetAllLogicalPartitionsInHmc retrieves the XML elements for all logical partitions managed by the HMC across all systems.
+func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]*etree.Element, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition", c.hmcIP)
+	if verbose {
+		hmcLogger.Printf("Fetching ALL logical partitions across the HMC, URL: %s", url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
+
+	// Set a generous timeout as this can return a lot of data on heavily loaded HMCs
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("GetAllLogicalPartitionsInHmc response status: %s", resp.Status)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Strip namespaces to make querying easier
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// Extract all LogicalPartition blocks
+	logicalPartitions := doc.FindElements("//LogicalPartition")
+	if len(logicalPartitions) == 0 {
+		if verbose {
+			hmcLogger.Printf("No LogicalPartition elements found in the response feed.")
+		}
+		return []*etree.Element{}, nil
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully parsed %d partitions from HMC global inventory.", len(logicalPartitions))
+	}
+
+	return logicalPartitions, nil
+}
+// GetLogicalPartitionQuickProperty retrieves a specific quick property of a logical partition.
+// This endpoint provides a fast way to poll specific states without downloading the entire LPAR XML.
+//
+// Supported property names include:
+//   - IsVirtualServiceAttentionLEDOn : The virtual service attention LED state.
+//   - MigrationState                 : The state of the partition's migration operation.
+//   - ProgressState                  : The progress state of the partition's hibernation operation.
+//   - PartitionType                  : The partition environment (e.g., 'AIX/Linux', 'OS400', or 'Virtual IO Server').
+//   - PartitionName                  : The name of the partition.
+//   - PartitionID                    : The integer ID of the partition.
+//   - PartitionState                 : The state of the partition (e.g., 'running', 'not activated').
+//   - RemoteRestartState             : The state of the partition's Remote Restart operation.
+//   - AssociatedManagedSystem        : The REST URI of the partition's parent managed system.
+//   - RMCState                       : The state of the partition's Resource Monitoring Control (RMC) connection.
+//   - PowerManagementMode            : The power management mode.
+//
+// Returns the cleaned value as a string (quotes and whitespace removed).
+func (c *HmcRestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName string, verbose bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick/%s", c.hmcIP, lparUUID, propertyName)
+	if verbose {
+		hmcLogger.Printf("Fetching quick property '%s' for LPAR %s, URL: %s", propertyName, lparUUID, url)
+	}
+
+	// Create the request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/json") // Requesting JSON format
+
+	// Set a reasonable timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Execute the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	// The HMC often returns single properties wrapped in JSON quotes (e.g., "running").
+	// We trim the whitespace and the quotes to return a clean Go string.
+	cleanValue := strings.TrimSpace(string(body))
+	cleanValue = strings.Trim(cleanValue, "\"")
+
+	if verbose {
+		hmcLogger.Printf("Property %s = %s", propertyName, cleanValue)
+	}
+
+	return cleanValue, nil
+}
+// SearchLogicalPartitions queries the HMC for logical partitions matching a specific property and value.
+// Example: SearchLogicalPartitions("PartitionState", "running", true)
+func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue string, verbose bool) ([]*etree.Element, error) {
+	// Construct the HMC search string: (Property==Value)
+	// Note: If your value contains spaces or special characters (like AIX/Linux), 
+	// the HMC usually expects single quotes around it (e.g., 'AIX/Linux').
+	searchQuery := fmt.Sprintf("(%s==%s)", propertyName, propertyValue)
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/search/%s", c.hmcIP, searchQuery)
+
+	if verbose {
+		hmcLogger.Printf("Searching for Logical Partitions matching %s=%s, URL: %s", propertyName, propertyValue, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=LogicalPartition")
+
+	// Set a reasonable timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("SearchLogicalPartitions response status: %s", resp.Status)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Strip namespaces for easy querying
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// Extract all LogicalPartition blocks returned by the search
+	logicalPartitions := doc.FindElements("//LogicalPartition")
+	if len(logicalPartitions) == 0 {
+		if verbose {
+			hmcLogger.Printf("No matching LogicalPartition elements found for %s.", searchQuery)
+		}
+		return []*etree.Element{}, nil
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully found %d partitions matching the search criteria.", len(logicalPartitions))
+	}
+
+	return logicalPartitions, nil
 }

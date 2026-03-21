@@ -462,7 +462,7 @@ func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partition
 
 	// If partitionUUID is not provided, find it using partitionName
 	if partitionUUID == "" && partitionName != "" {
-		lparList, err := c.GetLogicalPartitionQuickAll(systemUUID, verbose)
+		lparList, err := c.GetLogicalPartitionsQuickAll(systemUUID, verbose)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to fetch logical partitions: %v", err)
 		}
@@ -810,7 +810,7 @@ func (c *HmcRestClient) GetLogicalPartitionByName(systemUUID, partitionName stri
 	}
 
 	// Fetch all partitions using the lightweight JSON endpoint
-	lpars, err := c.GetLogicalPartitionQuickAll(systemUUID, verbose)
+	lpars, err := c.GetLogicalPartitionsQuickAll(systemUUID, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve logical partitions: %v", err)
 	}

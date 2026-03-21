@@ -51,7 +51,7 @@ func main() {
 	defer restClient.Logoff()
 
 	sysUUID, _, _ := restClient.GetManagedSystemByName(*sysName, *verbose)
-	lpars, _ := restClient.GetLogicalPartitionQuickAll(sysUUID, *verbose)
+	lpars, _ := restClient.GetLogicalPartitionsQuickAll(sysUUID, *verbose)
 
 	var targetLparUUID string
 	var currentState string

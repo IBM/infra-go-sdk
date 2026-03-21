@@ -35,7 +35,7 @@ func main() {
 
 	// 4. Get all Logical Partitions using the Quick/All endpoint
 	// This uses the optimized JSON streaming you just added to logicalpartitions.go
-	partitions, err := restClient.GetLogicalPartitionQuickAll(sysUUID, verbose)
+	partitions, err := restClient.GetLogicalPartitionsQuickAll(sysUUID, verbose)
 	if err != nil {
 		log.Fatalf("Failed to fetch partitions: %v", err)
 	}
