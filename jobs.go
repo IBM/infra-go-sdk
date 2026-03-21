@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/beevik/etree"
 )
 
-// FetchJobResponse retrieves the full job response XML as an etree.Document
-func (c *HmcRestClient) FetchJobResponse(jobID string, verbose bool) (*etree.Document, error) {
+// FetchJobResponse retrieves the full job response and returns it as a structured JobResponseDetail
+func (c *HmcRestClient) FetchJobResponse(jobID string, verbose bool) (*JobResponseDetail, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
 	if verbose {
 		hmcLogger.Printf("Fetching job response for JobID: %s, URL: %s", jobID, url)
@@ -57,11 +58,60 @@ func (c *HmcRestClient) FetchJobResponse(jobID string, verbose bool) (*etree.Doc
 		return nil, fmt.Errorf("failed to parse XML: %v", err)
 	}
 
-	return doc, nil
+	// Parse the XML document into JobResponseDetail struct
+	jobResp := &JobResponseDetail{
+		JobID:   jobID,
+		Results: make(map[string]string),
+	}
+
+	// Extract Status
+	if statusElem := doc.FindElement("//Status"); statusElem != nil {
+		jobResp.Status = statusElem.Text()
+	}
+
+	// Extract PercentComplete
+	if percentElem := doc.FindElement("//PercentComplete"); percentElem != nil {
+		if percent, err := strconv.Atoi(percentElem.Text()); err == nil {
+			jobResp.PercentComplete = percent
+		}
+	}
+
+	// Extract TimeStarted
+	if timeStartedElem := doc.FindElement("//TimeStarted"); timeStartedElem != nil {
+		jobResp.TimeStarted = timeStartedElem.Text()
+	}
+
+	// Extract TimeCompleted
+	if timeCompletedElem := doc.FindElement("//TimeCompleted"); timeCompletedElem != nil {
+		jobResp.TimeCompleted = timeCompletedElem.Text()
+	}
+
+	// Extract Results (JobParameters)
+	for _, param := range doc.FindElements("//Results/JobParameter") {
+		nameElem := param.FindElement("ParameterName")
+		valueElem := param.FindElement("ParameterValue")
+		if nameElem != nil && valueElem != nil {
+			paramName := strings.TrimSpace(nameElem.Text())
+			paramValue := strings.TrimSpace(valueElem.Text())
+			jobResp.Results[paramName] = paramValue
+		}
+	}
+
+	// Extract error message if present
+	if errMsgElem := doc.FindElement("//ResponseException//Message"); errMsgElem != nil {
+		jobResp.ErrorMessage = errMsgElem.Text()
+	}
+
+	if verbose {
+		hmcLogger.Printf("Parsed job response: Status=%s, PercentComplete=%d%%", jobResp.Status, jobResp.PercentComplete)
+	}
+
+	return jobResp, nil
 }
 
 // FetchJobStatus fetches the job status and response, waiting for completion or error
-func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin int, verbose bool) (*etree.Document, error) {
+// Returns a structured JobResponseDetail instead of raw XML
+func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin int, verbose bool) (*JobResponseDetail, error) {
 	// Construct URL based on template flag
 	var url string
 	if template {
@@ -81,6 +131,8 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 	checkInterval := 1 * time.Second
 	var jobStatus string // To use in timeout error message
 	var doc *etree.Document
+	var jobResp *JobResponseDetail
+	
 	for i := 0; i < maxChecks; i++ {
 		if i > 0 {
 			time.Sleep(checkInterval)
@@ -108,7 +160,7 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 		}
 
 		// Parse XML and strip namespaces
-		doc, err = xmlStripNamespace(body) // Don't shadow the outer doc variable
+		doc, err = xmlStripNamespace(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 		}
@@ -120,44 +172,72 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 		}
 		jobStatus = statusElem.Text()
 
+		// Build JobResponseDetail struct
+		jobResp = &JobResponseDetail{
+			JobID:   jobID,
+			Status:  jobStatus,
+			Results: make(map[string]string),
+		}
+
+		// Extract PercentComplete
+		if percentElem := doc.FindElement("//PercentComplete"); percentElem != nil {
+			if percent, err := strconv.Atoi(percentElem.Text()); err == nil {
+				jobResp.PercentComplete = percent
+			}
+		}
+
+		// Extract TimeStarted
+		if timeStartedElem := doc.FindElement("//TimeStarted"); timeStartedElem != nil {
+			jobResp.TimeStarted = timeStartedElem.Text()
+		}
+
+		// Extract TimeCompleted
+		if timeCompletedElem := doc.FindElement("//TimeCompleted"); timeCompletedElem != nil {
+			jobResp.TimeCompleted = timeCompletedElem.Text()
+		}
+
+		// Extract Results (JobParameters)
+		for _, param := range doc.FindElements("//Results/JobParameter") {
+			nameElem := param.FindElement("ParameterName")
+			valueElem := param.FindElement("ParameterValue")
+			if nameElem != nil && valueElem != nil {
+				paramName := strings.TrimSpace(nameElem.Text())
+				paramValue := strings.TrimSpace(valueElem.Text())
+				jobResp.Results[paramName] = paramValue
+			}
+		}
+
 		// Log status if verbose
 		if verbose {
-			hmcLogger.Printf("Job status: %s", jobStatus)
+			hmcLogger.Printf("Job status: %s (PercentComplete: %d%%)", jobStatus, jobResp.PercentComplete)
 		}
 
 		// Handle different job statuses
-
 		switch jobStatus {
 		case "COMPLETED_OK":
 			if verbose {
-				hmcLogger.Printf("Job completed successfully, response body:\n%s", string(body))
+				hmcLogger.Printf("Job completed successfully")
 			}
-			return doc, nil
+			return jobResp, nil
 
 		case "COMPLETED_WITH_ERROR":
 			if verbose {
 				hmcLogger.Printf("Job completed with error")
 			}
-			// Look for the 'result' parameter specifically, not just any ParameterValue
+			// Look for the 'result' parameter specifically
 			var errMsg string
-			for _, param := range doc.FindElements("//Results/JobParameter") {
-				nameElem := param.FindElement("ParameterName")
-				valueElem := param.FindElement("ParameterValue")
-				if nameElem != nil && valueElem != nil {
-					paramName := strings.TrimSpace(nameElem.Text())
-					if paramName == "result" {
-						errMsg = strings.TrimSpace(valueElem.Text())
-						break
-					}
+			if resultMsg, ok := jobResp.Results["result"]; ok {
+				errMsg = resultMsg
+			} else if len(jobResp.Results) > 0 {
+				// Fallback to first result if 'result' not found
+				for _, v := range jobResp.Results {
+					errMsg = v
+					break
 				}
 			}
-			if errMsg == "" {
-				// Fallback to first ParameterValue if 'result' not found
-				if resultElem := doc.FindElement("//Results/JobParameter/ParameterValue"); resultElem != nil {
-					errMsg = strings.TrimSpace(resultElem.Text())
-				}
-			}
+			
 			if errMsg != "" {
+				jobResp.ErrorMessage = errMsg
 				if verbose {
 					hmcLogger.Printf("Error message: %s", errMsg)
 				}
@@ -176,13 +256,13 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 				}
 				if errMsgElem != nil {
 					errMsg := errMsgElem.Text()
+					jobResp.ErrorMessage = errMsg
 					return nil, fmt.Errorf("job failed: %s", errMsg)
 				}
 				return nil, fmt.Errorf("job failed with status %s", jobStatus)
 			}
 			// If status is "RUNNING", continue looping
 		}
-
 	}
 
 	// Timeout reached

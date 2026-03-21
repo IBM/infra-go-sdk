@@ -116,33 +116,28 @@ func (c *HmcRestClient) ConfigDevice(viosID string, devName string, verbose bool
 	}
 
 	// Fetch the job response
-	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to fetch job response: %v", err)
 	}
 
 	// Log the job response
-	var jobDocStr string
 	if verbose {
-		jobDocStr, _ = jobDoc.WriteToString()
-		hmcLogger.Printf("ConfigDevice job response:\n%s", jobDocStr)
+		hmcLogger.Printf("ConfigDevice job response: Status=%s, PercentComplete=%d%%",
+			jobResp.Status, jobResp.PercentComplete)
 	}
 
 	// Check job status
-	statusElem := jobDoc.FindElement("//Status")
-	if statusElem == nil || statusElem.Text() != "COMPLETED_OK" {
-		messageElem := jobDoc.FindElement("//Message")
-		msg := ""
-		if messageElem != nil {
-			msg = messageElem.Text()
+	if jobResp.Status != "COMPLETED_OK" {
+		if jobResp.ErrorMessage != "" {
+			return fmt.Errorf("job failed: status %s, message: %s", jobResp.Status, jobResp.ErrorMessage)
 		}
-		return fmt.Errorf("job failed: status %s, message: %s", statusElem.Text(), msg)
+		return fmt.Errorf("job failed: status %s", jobResp.Status)
 	}
 
-	// Optionally check StdError
-	stdErrorElem := jobDoc.FindElement("//StdError")
-	if stdErrorElem != nil && stdErrorElem.Text() != "" {
-		return fmt.Errorf("config device error: %s", stdErrorElem.Text())
+	// Check for StdError in results
+	if stdError, ok := jobResp.Results["StdError"]; ok && stdError != "" {
+		return fmt.Errorf("config device error: %s", stdError)
 	}
 
 	return nil
@@ -300,30 +295,28 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]Physi
 	}
 
 	// Fetch the job response
-	pvDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job response: %v", err)
 	}
 
 	// Log the job response
-	var pvDocStr string
 	if verbose {
-		pvDocStr, _ = pvDoc.WriteToString()
-		hmcLogger.Printf("Free Physical Volume job response:\n%s", pvDocStr)
+		hmcLogger.Printf("Free Physical Volume job response: Status=%s", jobResp.Status)
 	}
-	// Extract the result XML from the job response
-	resultElem := pvDoc.FindElement("//Results/JobParameter/ParameterValue")
-	if verbose {
-		if resultElem != nil {
-			hmcLogger.Printf("resultElem content: %s", resultElem.Text())
-		} else {
-			hmcLogger.Printf("resultElem is nil: no ParameterValue found for ParameterName 'result'")
+
+	// Extract the result XML from the job response Results map
+	pvXML, ok := jobResp.Results["result"]
+	if !ok {
+		if verbose {
+			hmcLogger.Printf("result parameter not found in job response")
 		}
+		return nil, fmt.Errorf("result not found in job response")
 	}
-	if resultElem == nil {
-		return nil, fmt.Errorf("result not found in job response: %s", pvDocStr)
+	
+	if verbose {
+		hmcLogger.Printf("resultElem content: %s", pvXML)
 	}
-	pvXML := resultElem.Text()
 
 	// Strip namespaces from the physical volumes XML
 	strippedDoc, err := xmlStripNamespace([]byte(pvXML))
@@ -796,24 +789,21 @@ func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) (string, 
 		}
 		
 		// 5. Wait for job completion and capture the resulting document
-		jobRespDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
+		jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
 		if err != nil {
 			return "", fmt.Errorf("CLIRunner job failed: %v", err)
 		}
 
-		// 6. Extract the stdout from the Job Results
-		if jobRespDoc != nil {
-			for _, param := range jobRespDoc.FindElements("//JobParameter") {
-				nameElem := param.FindElement("ParameterName")
-				valElem := param.FindElement("ParameterValue")
-				
-				if nameElem != nil && valElem != nil {
-					if nameElem.Text() == "stdout" {
-						cmdOutput = valElem.Text()
-					} else if nameElem.Text() == "stderr" && valElem.Text() != "" && verbose {
-						hmcLogger.Printf("CLIRunner stderr output: %s", valElem.Text())
-					}
-				}
+		// 6. Extract the stdout from the Job Results map
+		if jobResp != nil {
+			// Get stdout from results
+			if stdout, ok := jobResp.Results["stdout"]; ok {
+				cmdOutput = stdout
+			}
+			
+			// Log stderr if present and verbose
+			if stderr, ok := jobResp.Results["stderr"]; ok && stderr != "" && verbose {
+				hmcLogger.Printf("CLIRunner stderr output: %s", stderr)
 			}
 		}
 

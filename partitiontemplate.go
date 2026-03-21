@@ -118,43 +118,31 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	}
 
 	// Fetch and return the job status
-	depDoc, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, true, 10, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	statusElem := depDoc.FindElement("//Status")
-	statusE := statusElem.Text()
 	if verbose {
-		hmcLogger.Printf("Deploy job status: %s", statusE)
+		hmcLogger.Printf("Deploy job status: %s", jobResp.Status)
+		log.Printf("Job status: %s", jobResp.Status)
 	}
-	if verbose {
-		log.Printf("Job status: %s", statusE)
-	}
-	//var partUUID string
-	if statusE == "COMPLETED_OK" {
-		stripNamespace(depDoc.Root())
-		jobParams := depDoc.FindElements("//JobParameter")
-		for _, param := range jobParams {
-			// Look for ParameterName = PartitionUuid
-			nameElem := param.FindElement("ParameterName")
-			if nameElem != nil && strings.TrimSpace(nameElem.Text()) == "PartitionUuid" {
-				partUUID := param.FindElement("ParameterValue")
-				if partUUID != nil {
-				if verbose {
-					fmt.Printf("Partition creation completed successfully UUID %s\n", partUUID.Text())
-					return partUUID.Text(), nil
-				}
+
+	if jobResp.Status == "COMPLETED_OK" {
+		// Look for PartitionUuid in the Results map
+		if partUUID, ok := jobResp.Results["PartitionUuid"]; ok {
+			if verbose {
+				fmt.Printf("Partition creation completed successfully UUID %s\n", partUUID)
 			}
-			}
+			return partUUID, nil
 		}
-
 	}
-	if statusE == "FAILED" || statusE == "COMPLETED_WITH_ERROR" {
-		log.Fatalf("Partition creation failed with status: %s", statusE)
+	
+	if jobResp.Status == "FAILED" || jobResp.Status == "COMPLETED_WITH_ERROR" {
+		log.Fatalf("Partition creation failed with status: %s", jobResp.Status)
 	}
 
-	return statusE, err
+	return jobResp.Status, err
 }
 
 // GetPartitionTemplateID retrieves the AtomID for a partition template by name
@@ -602,7 +590,8 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose boo
 }
 
 // TransformPartitionTemplate transforms a draft partition template for a managed system
-func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, verbose bool) (*etree.Document, error) {
+// Returns a TransformResult struct with the transformation details
+func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, verbose bool) (*TransformResult, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/transform", c.hmcIP, draftUUID)
 	if verbose {
 		hmcLogger.Printf("Transforming partition template UUID %s for system UUID %s, URL: %s", draftUUID, cecUUID, url)
@@ -696,16 +685,38 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 	}
 
 	// Monitor job status
-	jobDoc, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, true, 10, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	return jobDoc, nil
+	// Build TransformResult from job response
+	result := &TransformResult{
+		JobID:    jobID,
+		Status:   jobResp.Status,
+		Success:  jobResp.Status == "COMPLETED_OK",
+	}
+
+	// Extract transformed UUID from results if available
+	if transformedUUID, ok := jobResp.Results["TransformedUuid"]; ok {
+		result.TransformedUUID = transformedUUID
+	}
+
+	// Set error message if job failed
+	if jobResp.ErrorMessage != "" {
+		result.ErrorMessage = jobResp.ErrorMessage
+	}
+
+	if verbose {
+		hmcLogger.Printf("Transform result: Success=%v, Status=%s", result.Success, result.Status)
+	}
+
+	return result, nil
 }
 
 // CheckPartitionTemplate checks a partition template for a managed system
-func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, verbose bool) (*etree.Document, error) {
+// Returns a TemplateValidationResult struct with validation details
+func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, verbose bool) (*TemplateValidationResult, error) {
 	if verbose {
 		hmcLogger.Printf("Checking partition template %s for system UUID %s", templateName, cecUUID)
 	}
@@ -819,10 +830,46 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 	}
 
 	// Monitor job status
-	jobDoc, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, true, 10, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	return jobDoc, nil
+	// Build TemplateValidationResult from job response
+	result := &TemplateValidationResult{
+		JobID:        jobID,
+		Status:       jobResp.Status,
+		IsValid:      jobResp.Status == "COMPLETED_OK",
+		Errors:       []string{},
+		Warnings:     []string{},
+	}
+
+	// Parse validation results from job response
+	if jobResp.Status == "COMPLETED_WITH_ERROR" || jobResp.Status == "FAILED" {
+		result.IsValid = false
+		if jobResp.ErrorMessage != "" {
+			result.ErrorMessage = jobResp.ErrorMessage
+			result.Errors = append(result.Errors, jobResp.ErrorMessage)
+		}
+		// Add any other error messages from Results
+		for key, value := range jobResp.Results {
+			if strings.Contains(strings.ToLower(key), "error") {
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", key, value))
+			}
+		}
+	}
+
+	// Look for warnings in results
+	for key, value := range jobResp.Results {
+		if strings.Contains(strings.ToLower(key), "warning") {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %s", key, value))
+		}
+	}
+
+	if verbose {
+		hmcLogger.Printf("Template validation result: IsValid=%v, Status=%s, Errors=%d, Warnings=%d",
+			result.IsValid, result.Status, len(result.Errors), len(result.Warnings))
+	}
+
+	return result, nil
 }

@@ -99,18 +99,13 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsou
 	jobID := jobIDElem.Text()
 
 	// Monitor job status. The verbose flag is safely passed down here too.
-	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	// Extract the Status from the returned job document
-	statusElem := jobDoc.FindElement("//Status")
-	if statusElem != nil {
-		return statusElem.Text(), nil
-	}
-
-	return "UNKNOWN_STATUS", nil
+	// Return the status from the structured response
+	return jobResp.Status, nil
 }
 
 // PowerOffPartition powers off a logical partition directly by its UUID and returns the job status string.
@@ -208,18 +203,13 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 	jobID := jobIDElem.Text()
 
 	// Monitor the background job for completion
-	jobDoc, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	// Extract the Status from the returned job document
-	statusElem := jobDoc.FindElement("//Status")
-	if statusElem != nil {
-		return statusElem.Text(), nil
-	}
-
-	return "UNKNOWN_STATUS", nil
+	// Return the status from the structured response
+	return jobResp.Status, nil
 }
 
 // GetLogicalPartitionsInSystem retrieves the advanced list of logical partitions for a managed system as a slice of deeply parsed Go structs.
@@ -611,7 +601,7 @@ func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparReq
         </uom:SharedProcessorConfiguration>
         <uom:SharingMode>%s</uom:SharingMode>
     </uom:PartitionProcessorConfiguration>
-    <uom:PartitionType>%s/Linux</uom:PartitionType>
+    <uom:PartitionType>%s</uom:PartitionType>
 </uom:LogicalPartition>`,
 		req.DesiredMem, req.MaxMem, req.MinMem, 
 		req.Name, 

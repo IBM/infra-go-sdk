@@ -37,6 +37,9 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
+	// Derive volume name from LPAR name
+	volumeName := fmt.Sprintf("%s_boot_vol", strings.ReplaceAll(*lparName, " ", "_"))
+
 	log.Println("=========================================================================")
 	log.Println(" 🚀 Starting Modern PowerVM LPAR Creation & SAN Provisioning")
 	log.Println("=========================================================================")
@@ -117,7 +120,8 @@ func main() {
 		defer wg.Done()
 		log.Printf("[Thread-LPAR] Creating LPAR '%s'...", *lparName)
 		req := hmc.CreateLparRequest{
-			Name:             *lparName,
+			Name:             "Go_LPAR_99",
+			OsType:           "AIX/Linux", // ❌ Do not use "/Linux" or "Linux"
 			MinMem:           2048,
 			DesiredMem:       4096,
 			MaxMem:           8192,
@@ -125,7 +129,7 @@ func main() {
 			DesiredProcUnits: 0.5,
 			MaxProcUnits:     2.0,
 			MinVcpus:         1,
-			DesiredVcpus:     1,
+			DesiredVcpus:     2,
 			MaxVcpus:         4,
 			SharingMode:      "uncapped",
 		}
@@ -218,7 +222,7 @@ func main() {
 		defer wg.Done()
 		log.Println("[Thread-SVC] Starting SVC storage provisioning...")
 		var err error
-		targetVol, selectedViosName, err = provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, *verbose)
+		targetVol, selectedViosName, err = provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, volumeName, *verbose)
 		if err != nil {
 			storageErr = fmt.Errorf("failed to provision SVC storage: %v", err)
 			return
@@ -373,7 +377,7 @@ func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bo
 	return viosWwpnMap, viosUuidMap, nil
 }
 
-func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string, error) {
+func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, volumeName string, verbose bool) (*svc.Vdisk, string, error) {
 
 	var selectedViosName string
 	var selectedHostName string
@@ -431,7 +435,7 @@ func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMa
 	}
 
 	volume := svc.Volume{
-		Name: fmt.Sprintf("lpar_boot_vol_%d", time.Now().Unix()), 
+		Name: volumeName,
 		MdiskGrp: "0", Size: 120, Unit: "gb",
 		RSize: "2%", Warning: "80%", AutoExpand: true, GrainSize: 256,
 	}

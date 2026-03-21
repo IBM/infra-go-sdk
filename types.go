@@ -1251,3 +1251,41 @@ type LparBootListInformation struct {
 	ShadowBootDeviceList   string `xml:"ShadowBootDeviceList"`
 	LastBootedDeviceString string `xml:"LastBootedDeviceString"`
 }
+
+// =====================================================================
+// JOB RESPONSE STRUCTURES
+// =====================================================================
+
+// JobResponseDetail represents a detailed job response from HMC
+type JobResponseDetail struct {
+	JobID           string
+	Status          string
+	PercentComplete int
+	Results         map[string]string
+	ErrorMessage    string
+	TimeStarted     string
+	TimeCompleted   string
+}
+
+// =====================================================================
+// PARTITION TEMPLATE OPERATION RESULTS
+// =====================================================================
+
+// TransformResult represents the result of transforming a partition template
+type TransformResult struct {
+	JobID           string
+	Status          string
+	TransformedUUID string
+	ErrorMessage    string
+	Success         bool
+}
+
+// TemplateValidationResult represents the result of checking/validating a partition template
+type TemplateValidationResult struct {
+	IsValid      bool
+	Errors       []string
+	Warnings     []string
+	JobID        string
+	Status       string
+	ErrorMessage string
+}
