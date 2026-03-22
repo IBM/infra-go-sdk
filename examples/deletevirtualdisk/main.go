@@ -19,7 +19,7 @@ func main() {
 	
 	// For destructive operations, we make vios-name mandatory for safety.
 	viosName := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS (Required)")
-	diskName := flag.String("disk-name", "auto_lv01", "Name of the Virtual Disk to delete")
+	diskName := flag.String("disk-name", "Go_LPAR_99_1", "Name of the Virtual Disk to delete")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()

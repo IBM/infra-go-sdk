@@ -352,59 +352,6 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]Physi
 	return listPv, nil
 }
 
-// GetViosSCSIMappings retrieves the VSCSI mappings for a VIOS using the extended group.
-func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, verbose bool) ([]*etree.Element, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching VSCSI mappings for VIOS UUID %s, URL: %s", viosUUID, url)
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/atom+xml")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if verbose {
-		hmcLogger.Printf("GetViosSCSIMappings response status: %s", resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	if verbose {
-		hmcLogger.Printf("GetViosSCSIMappings response body:\n%s", string(body))
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
-	}
-
-	doc, err := xmlStripNamespace(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
-	}
-
-	mappings := doc.FindElements("//VirtualSCSIMapping")
-	if verbose {
-		hmcLogger.Printf("Found %d VSCSI mappings for VIOS %s", len(mappings), viosUUID)
-	}
-
-	return mappings, nil
-}
 // RemoveVolumeLPARMapping deletes the LPAR Client Adapter (unmaps the disk from the partition) via the REST API.
 // RemoveVolumeLPARMapping removes one or more volume mappings between a VIOS and an LPAR.
 // It accepts a slice of volume names and returns a slice of VolumeMappingInfo for each successfully processed volume.
@@ -1423,46 +1370,8 @@ func (c *HmcRestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID str
 	return nil
 }
 
-// GetViosSCSIMapping filters all VSCSI mappings on a VIOS to return only those associated with a specific LPAR UUID.
-func (c *HmcRestClient) GetViosSCSIMapping(viosUUID, lparUUID string, verbose bool) ([]*etree.Element, error) {
-	if verbose {
-		hmcLogger.Printf("Filtering VSCSI mappings on VIOS %s for LPAR UUID %s", viosUUID, lparUUID)
-	}
-
-	// 1. Get all mappings for the VIOS using your existing SDK function
-	allMappings, err := c.GetViosSCSIMappings(viosUUID, verbose)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch all mappings: %v", err)
-	}
-	if verbose {
-		hmcLogger.Printf("GetViosSCSIMappings response body:\n%v", allMappings)
-	}
-	var filteredMappings []*etree.Element
-	targetLparLower := strings.ToLower(lparUUID)
-
-	// 2. Iterate and filter based on AssociatedLogicalPartition href
-	for _, mapping := range allMappings {
-		assocLpar := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
-		if assocLpar == nil {
-			continue
-		}
-
-		href := strings.ToLower(assocLpar.SelectAttrValue("href", ""))
-		// Check if the href (URL) ends with our LPAR UUID
-		if strings.HasSuffix(href, targetLparLower) {
-			filteredMappings = append(filteredMappings, mapping)
-		}
-	}
-
-	if verbose {
-		hmcLogger.Printf("Found %d mappings for LPAR %s on VIOS %s", len(filteredMappings), lparUUID, viosUUID)
-	}
-
-	return filteredMappings, nil
-}
-
-// GetViosSCSIMappingDetails retrieves and fully parses all VSCSI mappings for a specific VIOS.
-func (c *HmcRestClient) GetViosSCSIMappingDetails(viosUUID string, verbose bool) ([]ViosSCSIMappingDetails, error) {
+// GetViosSCSIMappings retrieves and fully parses all VSCSI mappings for a specific VIOS.
+func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, verbose bool) ([]ViosSCSIMappingDetails, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
 
 	if verbose {
@@ -1565,6 +1474,9 @@ func (c *HmcRestClient) GetViosSCSIMappingDetails(viosUUID string, verbose bool)
 				detail.Storage.IsISCSIBacked = getElementText(pv, "IsISCSIBacked")
 				detail.Storage.StorageLabel = getElementText(pv, "StorageLabel")
 				detail.Storage.DescriptorPage83 = getElementText(pv, "DescriptorPage83")
+			} else if vd := storage.FindElement("VirtualDisk"); vd != nil {
+				detail.Storage.StorageType = "VirtualDisk"
+				detail.Storage.VolumeName = getElementText(vd, "DiskName")
 			} else if opt := storage.FindElement("VirtualOpticalMedia"); opt != nil {
 				detail.Storage.StorageType = "VirtualOpticalMedia"
 				detail.Storage.MediaName = getElementText(opt, "MediaName")
@@ -1581,6 +1493,11 @@ func (c *HmcRestClient) GetViosSCSIMappingDetails(viosUUID string, verbose bool)
 				detail.TargetDevice.LogicalUnitAddress = getElementText(vOpt, "LogicalUnitAddress")
 				detail.TargetDevice.TargetName = getElementText(vOpt, "TargetName")
 				detail.TargetDevice.UniqueDeviceID = getElementText(vOpt, "UniqueDeviceID")
+			} else if lvVtd := target.FindElement("LogicalVolumeVirtualTargetDevice"); lvVtd != nil {
+				detail.TargetDevice.DeviceType = "LogicalVolumeVirtualTargetDevice"
+				detail.TargetDevice.LogicalUnitAddress = getElementText(lvVtd, "LogicalUnitAddress")
+				detail.TargetDevice.TargetName = getElementText(lvVtd, "TargetName")
+				detail.TargetDevice.UniqueDeviceID = getElementText(lvVtd, "UniqueDeviceID")
 			} else if pVtd := target.FindElement("PhysicalVolumeVirtualTargetDevice"); pVtd != nil {
 				detail.TargetDevice.DeviceType = "PhysicalVolumeVirtualTargetDevice"
 				detail.TargetDevice.LogicalUnitAddress = getElementText(pVtd, "LogicalUnitAddress")
@@ -2959,7 +2876,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
 
 	if verbose {
-		hmcLogger.Printf("Fetching VIOS %s to locate and remove virtual disk mappings...", viosUUID)
+		hmcLogger.Printf("Fetching VIOS %s to locate and remove virtual disk mappings for disks: %v", viosUUID, diskNames)
 	}
 
 	doc, err := c.fetchAndParseHMCXML(url, verbose)
@@ -3005,6 +2922,9 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 		}
 		
 		if targetDisks[diskNameElem.Text()] {
+			if verbose {
+				hmcLogger.Printf("Found mapping for virtual disk '%s' to LPAR %s", diskNameElem.Text(), lparUUID)
+			}
 			mappingsToRemove = append(mappingsToRemove, mapping)
 		}
 	}
@@ -3020,7 +2940,11 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 	if verbose {
 		hmcLogger.Printf("Found %d virtual disk mapping(s) to remove. Removing from XML tree...", len(mappingsToRemove))
 	}
-	for _, mapping := range mappingsToRemove {
+	for i, mapping := range mappingsToRemove {
+		diskNameElem := mapping.FindElement("Storage/VirtualDisk/DiskName")
+		if diskNameElem != nil && verbose {
+			hmcLogger.Printf("Removing mapping %d/%d: virtual disk '%s'", i+1, len(mappingsToRemove), diskNameElem.Text())
+		}
 		mappingsList.RemoveChild(mapping)
 	}
 
@@ -3103,7 +3027,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
 
 	if verbose {
-		hmcLogger.Printf("Fetching VIOS %s to locate and remove virtual optical mappings...", viosUUID)
+		hmcLogger.Printf("Fetching VIOS %s to locate and remove virtual optical mappings for media: %v", viosUUID, mediaNames)
 	}
 
 	doc, err := c.fetchAndParseHMCXML(url, verbose)
@@ -3149,6 +3073,9 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 		}
 		
 		if targetMedia[mediaNameElem.Text()] {
+			if verbose {
+				hmcLogger.Printf("Found mapping for optical media '%s' to LPAR %s", mediaNameElem.Text(), lparUUID)
+			}
 			mappingsToRemove = append(mappingsToRemove, mapping)
 		}
 	}
@@ -3164,7 +3091,11 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 	if verbose {
 		hmcLogger.Printf("Found %d virtual optical mapping(s) to remove. Removing from XML tree...", len(mappingsToRemove))
 	}
-	for _, mapping := range mappingsToRemove {
+	for i, mapping := range mappingsToRemove {
+		mediaNameElem := mapping.FindElement("Storage/VirtualOpticalMedia/MediaName")
+		if mediaNameElem != nil && verbose {
+			hmcLogger.Printf("Removing mapping %d/%d: optical media '%s'", i+1, len(mappingsToRemove), mediaNameElem.Text())
+		}
 		mappingsList.RemoveChild(mapping)
 	}
 

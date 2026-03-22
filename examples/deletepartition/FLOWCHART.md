@@ -112,8 +112,8 @@ This flowchart illustrates the complete workflow for deleting a PowerVM partitio
                 ▼                        ▼
         ┌───────────────┐         ┌──────────────────────┐
         │ Skip Storage  │         │ PROCEED WITH CLEANUP │
-        │   Cleanup     │         │   (Steps 3-6)        │
-        │ Go to Step 7  │         └──────┬───────────────┘
+        │   Cleanup     │         │   (Steps 3-7)        │
+        │ Go to Step 8  │         └──────┬───────────────┘
         └───────────────┘                │
                                          ▼
 ═══════════════════════════════════════════════════════════════════
@@ -156,12 +156,38 @@ This flowchart illustrates the complete workflow for deleting a PowerVM partitio
                              │
                              ▼
 ═══════════════════════════════════════════════════════════════════
-                    PHASE 4: SVC STORAGE CLEANUP
+                    PHASE 4: VIRTUAL DISK DELETION
 ═══════════════════════════════════════════════════════════════════
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                  STEP 4: SVC SAN CLEANUP                         │
+│              STEP 4: DELETE VIRTUAL DISKS FROM VIOS              │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ For Each Discovered Mapping:                              │  │
+│  │                                                            │  │
+│  │ ┌──────────────────────────────────────────────────────┐  │  │
+│  │ │ 4.1 Filter Virtual Disks                             │  │  │
+│  │ │     • Skip if has Volume UDID (physical volume)      │  │  │
+│  │ │     • Skip if `hdisk*` or `nvme*` (physical)         │  │  │
+│  │ │     • Skip if optical media (`vtopt*`)               │  │  │
+│  │ │     • Skip if empty volume name                      │  │  │
+│  │ ├──────────────────────────────────────────────────────┤  │  │
+│  │ │ 4.2 Delete Logical Volume from VIOS                  │  │  │
+│  │ │     • RunVIOSCommand("rmlv -f <lv_name>")            │  │  │
+│  │ │     • Removes virtual disk (logical volume)          │  │  │
+│  │ │     • Frees up space in volume group                 │  │  │
+│  │ └──────────────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+═══════════════════════════════════════════════════════════════════
+                    PHASE 5: SVC STORAGE CLEANUP
+═══════════════════════════════════════════════════════════════════
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  STEP 5: SVC SAN CLEANUP                         │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │ 4.1 Initialize SVC Client                                 │  │
 │  │     • Create SVC client with TLS insecure                 │  │
@@ -199,26 +225,26 @@ This flowchart illustrates the complete workflow for deleting a PowerVM partitio
                              │
                              ▼
 ═══════════════════════════════════════════════════════════════════
-                    PHASE 5: VIOS DEVICE WIPING
+                    PHASE 6: VIOS DEVICE WIPING
 ═══════════════════════════════════════════════════════════════════
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              STEP 5: WIPE PHYSICAL DISKS FROM VIOS               │
+│              STEP 6: WIPE PHYSICAL DISKS FROM VIOS               │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │ For Each Discovered Mapping:                              │  │
 │  │                                                            │  │
 │  │ ┌──────────────────────────────────────────────────────┐  │  │
-│  │ │ 5.1 Filter Physical Disks                            │  │  │
+│  │ │ 6.1 Filter Physical Disks                            │  │  │
 │  │ │     • Skip if not `hdisk*` or `nvme*`                │  │  │
 │  │ │     • Skip virtual optical media (`vopt*`)           │  │  │
 │  │ ├──────────────────────────────────────────────────────┤  │  │
-│  │ │ 5.2 Remove Device from VIOS ODM                      │  │  │
+│  │ │ 6.2 Remove Device from VIOS ODM                      │  │  │
 │  │ │     • RunVIOSCommand("rmdev -dev \<disk\> -recursive") │  │  │
 │  │ │     • Removes device and all children                │  │  │
 │  │ │     • Cleans up ODM entries                          │  │  │
 │  │ ├──────────────────────────────────────────────────────┤  │  │
-│  │ │ 5.3 Track Processed VIOS                             │  │  │
+│  │ │ 6.3 Track Processed VIOS                             │  │  │
 │  │ │     • Store VIOS UUID and name                       │  │  │
 │  │ │     • Prepare for cfgdev operation                   │  │  │
 │  │ └──────────────────────────────────────────────────────┘  │  │
@@ -227,7 +253,7 @@ This flowchart illustrates the complete workflow for deleting a PowerVM partitio
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              STEP 6: REFRESH VIOS DEVICE TREE                    │
+│              STEP 7: REFRESH VIOS DEVICE TREE                    │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │ For Each Processed VIOS:                                  │  │
 │  │   • ConfigDevice(vios_uuid, "")                           │  │
@@ -239,12 +265,12 @@ This flowchart illustrates the complete workflow for deleting a PowerVM partitio
                              │
                              ▼
 ═══════════════════════════════════════════════════════════════════
-                    PHASE 6: LPAR DELETION
+                    PHASE 7: LPAR DELETION
 ═══════════════════════════════════════════════════════════════════
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              STEP 7: DELETE LOGICAL PARTITION                    │
+│              STEP 8: DELETE LOGICAL PARTITION                    │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │ • DeleteLogicalPartition(lpar_uuid)                       │  │
 │  │ • Removes LPAR definition from HMC                        │  │

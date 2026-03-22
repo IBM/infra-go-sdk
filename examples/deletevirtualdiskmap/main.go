@@ -21,10 +21,10 @@ func main() {
 	// Dynamic Target Identifiers
 	lparName := flag.String("lpar-name", "Go_LPAR_99", "Name of the Client LPAR")
 	viosName := flag.String("vios-name", "ltc09u31-vios1", "Name of the VIOS hosting the virtual disks")
-	viosProfile := flag.String("vios-profile", "default_profile", "Name of the VIOS profile to overwrite")
+	lparProfile := flag.String("lpar-profile", "default_profile", "Name of the LPAR profile to overwrite")
 	
 	// Virtual Disks (Logical Volumes)
-	diskNamesStr := flag.String("disk-names", "lv01,lv02", "Comma-separated list of Virtual Disks (logical volumes) to unmap")
+	diskNamesStr := flag.String("disk-names", "Go_LPAR_99_1,Go_LPAR_99", "Comma-separated list of Virtual Disks (logical volumes) to unmap")
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	forceSave := flag.Bool("force-save", true, "Force overwrite of the target profile")
@@ -75,7 +75,7 @@ func main() {
 	fmt.Printf("\n[Verify] Checking which virtual disks are currently mapped...\n")
 	
 	// Get all SCSI mappings for this VIOS
-	mappings, err := restClient.GetViosSCSIMappingDetails(viosUUID, *verbose)
+	mappings, err := restClient.GetViosSCSIMappings(viosUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get VIOS mappings: %v", err)
 	}
@@ -88,10 +88,14 @@ func main() {
 		// Check if this mapping belongs to our target LPAR
 		if strings.HasSuffix(strings.ToLower(mapping.AssociatedLparURI), targetLparLower) {
 			// For virtual disks, use the BackingDeviceName from ServerAdapter
-			// Virtual disks typically start with "lv" (logical volumes)
 			diskName := mapping.ServerAdapter.BackingDeviceName
-			if diskName != "" && strings.HasPrefix(diskName, "lv") {
-				mappedDisks[diskName] = true
+			if diskName != "" {
+				// Exclude physical volumes (hdisk*, nvme*) and optical media (vopt_*)
+				if !strings.HasPrefix(diskName, "hdisk") &&
+				   !strings.HasPrefix(diskName, "nvme") &&
+				   !strings.HasPrefix(diskName, "vopt_") {
+					mappedDisks[diskName] = true
+				}
 			}
 		}
 	}
@@ -135,13 +139,13 @@ func main() {
 	// 4. SAVE PROFILE (PERSIST CHANGES)
 	// =========================================================================
 	if status == "SUCCESS" {
-		fmt.Printf("\n[Profile] Saving running configuration to VIOS profile '%s'...\n", *viosProfile)
+		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
 		
-		saveErr := restClient.SaveCurrentLparConfig(viosUUID, *viosProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(lparUUID, *lparProfile, *forceSave, *verbose)
 		if saveErr != nil {
-			log.Printf("⚠️ Warning: Virtual disks unmapped dynamically, but failed to save VIOS profile: %v\n", saveErr)
+			log.Printf("⚠️ Warning: Virtual disks unmapped dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {
-			fmt.Println("✅ Success: VIOS profile saved. Virtual disk mapping removals will persist across reboots.")
+			fmt.Println("✅ Success: LPAR profile saved. Virtual disk mapping removals will persist across reboots.")
 		}
 	} else if status == "NOT_FOUND" {
 		fmt.Printf("\n⚠️ Notice: None of the specified virtual disks were mapped. No changes made.\n")

@@ -72,7 +72,7 @@ func main() {
 	fmt.Printf("\n[Verify] Checking which disks are currently mapped...\n")
 	
 	// Get all SCSI mappings for this VIOS
-	mappings, err := restClient.GetViosSCSIMappingDetails(viosUUID, *verbose)
+	mappings, err := restClient.GetViosSCSIMappings(viosUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get VIOS mappings: %v", err)
 	}

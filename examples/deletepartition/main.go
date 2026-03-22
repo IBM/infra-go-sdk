@@ -28,7 +28,7 @@ func main() {
 	hmcUser := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
 	hmcPass := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "test-test-test", "LPAR Name to delete")
+	lparName := flag.String("lpar-name", "Go_LPAR_100", "LPAR Name to delete")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
 	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
@@ -85,22 +85,31 @@ func main() {
 	}
 
 	// =========================================================================
-	// PHASE 2: STORAGE DISCOVERY (Using Detailed Structs)
+	// PHASE 2: STORAGE DISCOVERY (Using GetViosSCSIMappings)
 	// =========================================================================
 	fmt.Println("\nStep 2: Discovering storage mappings...")
 	vioses, _ := restClient.GetVirtualIOServersQuick(sysUUID, *verbose)
 	var discoveredMappings []mappingData
+	
+	// Storage categorization for batch deletion
+	type viosStorage struct {
+		physicalVols []string
+		virtualDisks []string
+		opticalMedia []string
+	}
+	viosStorageMap := make(map[string]*viosStorage)
+	viosNames := make(map[string]string)
 
 	for _, v := range vioses {
-		// Build Slot -> UUID map for this VIOS Server Adapters
-		adapterList, _ := restClient.GetVirtualSCSIServerAdapters(v.UUID, *verbose)
-		slotToUUID := make(map[string]string)
-		for _, a := range adapterList {
-			slotToUUID[a.VirtualSlotNumber] = a.UUID
+		viosNames[v.UUID] = v.PartitionName
+		viosStorageMap[v.UUID] = &viosStorage{
+			physicalVols: []string{},
+			virtualDisks: []string{},
+			opticalMedia: []string{},
 		}
-
+		
 		// Fetch all detailed mappings for the VIOS
-		mappings, err := restClient.GetViosSCSIMappingDetails(v.UUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMappings(v.UUID, *verbose)
 		if err != nil {
 			log.Printf("⚠️ Warning: Failed to get mappings for VIOS %s: %v", v.PartitionName, err)
 			continue
@@ -112,18 +121,41 @@ func main() {
 				continue
 			}
 
-			// Extract properties cleanly from the struct
+			// Extract volume name and determine storage type
 			volName := m.ServerAdapter.BackingDeviceName
 			if volName == "" {
 				volName = "Unknown"
 			}
 
+			// Categorize by storage type based on the Storage field
+			storageType := m.Storage.StorageType
+			
+			// Fallback: If StorageType is empty, infer from TargetDevice type
+			if storageType == "" {
+				if m.TargetDevice.DeviceType == "LogicalVolumeVirtualTargetDevice" {
+					storageType = "VirtualDisk"
+				} else if m.TargetDevice.DeviceType == "PhysicalVolumeVirtualTargetDevice" {
+					storageType = "PhysicalVolume"
+				} else if m.TargetDevice.DeviceType == "VirtualOpticalTargetDevice" {
+					storageType = "VirtualOpticalMedia"
+				}
+			}
+			
+			switch storageType {
+			case "PhysicalVolume":
+				viosStorageMap[v.UUID].physicalVols = append(viosStorageMap[v.UUID].physicalVols, volName)
+			case "VirtualDisk":
+				viosStorageMap[v.UUID].virtualDisks = append(viosStorageMap[v.UUID].virtualDisks, volName)
+			case "VirtualOpticalMedia":
+				viosStorageMap[v.UUID].opticalMedia = append(viosStorageMap[v.UUID].opticalMedia, volName)
+			}
+
+			// Store for SVC cleanup and adapter deletion
 			discoveredMappings = append(discoveredMappings, mappingData{
 				ViosUUID:    v.UUID,
 				ViosName:    v.PartitionName,
 				VolName:     volName,
-				VtdName:     m.TargetDevice.TargetName,
-				AdapterUUID: slotToUUID[m.ServerAdapter.VirtualSlotNumber],
+				AdapterUUID: m.ServerAdapter.UniqueDeviceID,
 				VolumeUDID:  m.Storage.VolumeUniqueID,
 			})
 		}
@@ -136,30 +168,45 @@ func main() {
 	}
 
 	// =========================================================================
-	// PHASE 3: HMC MAPPING REMOVAL (Sequence: Client -> CLI VTD -> Server)
+	// PHASE 3: HMC MAPPING REMOVAL (Using Batch Delete Functions)
 	// =========================================================================
 	if len(discoveredMappings) > 0 {
-		fmt.Println("\nStep 3: Removing HMC VSCSI Architectures...")
-		for _, m := range discoveredMappings {
-			fmt.Printf("--- Processing Mapping for %s ---\n", m.VolName)
-
-			// 3.1 Delete Client Adapter
-			restClient.RemoveVolumeLPARMapping(m.ViosUUID, targetLparUUID, []string{m.VolName}, *verbose)
-			fmt.Println("   ✅ Client mapping removed.")
-			time.Sleep(10 * time.Second)
-
-			// 3.2 Remove Backing Device (VTD) via CLI to unlock Server Adapter
-			if m.VtdName != "" {
-				cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmvdev -vtd %s"`, *sysName, m.ViosName, m.VtdName)
-				restClient.RunVIOSCommand(cmd, *verbose)
-				fmt.Printf("   ✅ VTD %s removed via CLI.\n", m.VtdName)
-				time.Sleep(5 * time.Second)
+		fmt.Println("\nStep 3: Removing HMC Storage Mappings...")
+		
+		for viosUUID, storage := range viosStorageMap {
+			viosName := viosNames[viosUUID]
+			
+			// Delete Physical Volumes
+			if len(storage.physicalVols) > 0 {
+				fmt.Printf("   VIOS %s: Unmapping physical volumes: %s\n", viosName, strings.Join(storage.physicalVols, ", "))
+				result, err := restClient.DeletePhysicalVolumeMaps(sysUUID, viosUUID, targetLparUUID, storage.physicalVols, *verbose)
+				if err != nil {
+					log.Printf("⚠️ Warning: Failed to delete physical volume mappings: %v", err)
+				} else {
+					fmt.Printf("   ✅ Physical volumes unmapped: %s\n", result)
+				}
 			}
-
-			// 3.3 Delete Server Adapter via REST
-			if m.AdapterUUID != "" {
-				restClient.DeleteVirtualSCSIServerAdapter(m.ViosUUID, m.AdapterUUID, *verbose)
-				fmt.Println("   ✅ Server adapter (vhost) deleted.")
+			
+			// Delete Virtual Disks
+			if len(storage.virtualDisks) > 0 {
+				fmt.Printf("   VIOS %s: Unmapping virtual disks: %s\n", viosName, strings.Join(storage.virtualDisks, ", "))
+				result, err := restClient.DeleteVirtualDiskMaps(sysUUID, viosUUID, targetLparUUID, storage.virtualDisks, *verbose)
+				if err != nil {
+					log.Printf("⚠️ Warning: Failed to delete virtual disk mappings: %v", err)
+				} else {
+					fmt.Printf("   ✅ Virtual disks unmapped: %s\n", result)
+				}
+			}
+			
+			// Delete Optical Media
+			if len(storage.opticalMedia) > 0 {
+				fmt.Printf("   VIOS %s: Unmapping optical media: %s\n", viosName, strings.Join(storage.opticalMedia, ", "))
+				result, err := restClient.DeleteVirtualOpticalMaps(sysUUID, viosUUID, targetLparUUID, storage.opticalMedia, *verbose)
+				if err != nil {
+					log.Printf("⚠️ Warning: Failed to delete optical media mappings: %v", err)
+				} else {
+					fmt.Printf("   ✅ Optical media unmapped: %s\n", result)
+				}
 			}
 		}
 
@@ -212,9 +259,9 @@ func main() {
 		}
 
 		// =========================================================================
-		// PHASE 5: VIOS DEVICE WIPING
+		// PHASE 6: VIOS DEVICE WIPING
 		// =========================================================================
-		fmt.Println("\nStep 5: Wiping physical hdisks from VIOS ODM...")
+		fmt.Println("\nStep 6: Wiping physical hdisks from VIOS ODM...")
 		processedVios := make(map[string]string)
 		for _, m := range discoveredMappings {
 			// Skip wiping if it's virtual optical media
@@ -227,7 +274,7 @@ func main() {
 		}
 
 		// Run cfgdev on affected VIOSes
-		fmt.Println("\nStep 6: Running cfgdev on VIOSes...")
+		fmt.Println("\nStep 7: Running cfgdev on VIOSes...")
 		for uuid, name := range processedVios {
 			if err := restClient.ConfigDevice(uuid, "", *verbose); err == nil {
 				fmt.Printf("✅ Device tree cleaned on %s.\n", name)
@@ -238,9 +285,9 @@ func main() {
 	}
 
 	// =========================================================================
-	// PHASE 6: LPAR DELETION
+	// PHASE 5: LPAR DELETION
 	// =========================================================================
-	fmt.Printf("\nStep 7: Deleting Logical Partition %s...\n", *lparName)
+	fmt.Printf("\nStep 5: Deleting Logical Partition %s...\n", *lparName)
 	if err := restClient.DeleteLogicalPartition(targetLparUUID, *verbose); err != nil {
 		log.Printf("⚠️ Warning: LPAR delete failed: %v", err)
 	} else {
