@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
@@ -20,13 +21,19 @@ func main() {
     
     // Virtual Disk specific flags
     lparName := flag.String("lpar-name", "Go_LPAR_03", "Target LPAR Name")
-    diskName := flag.String("disk-name", "auto_lv01", "Name of the Virtual Disk (LV) on the VIOS")
+    diskNamesStr := flag.String("disk-names", "auto_lv01", "Comma-separated list of Virtual Disks (LVs) on the VIOS (e.g., 'lv01,lv02,lv03')")
     
     verbose := flag.Bool("verbose", false, "Enable verbose output")
     flag.Parse()
 
-    if *password == "" || *viosName == "" || *lparName == "" || *diskName == "" {
-        log.Fatal("Error: hmc-pass, vios-name, lpar-name, and disk-name are required.")
+    if *password == "" || *viosName == "" || *lparName == "" || *diskNamesStr == "" {
+        log.Fatal("Error: hmc-pass, vios-name, lpar-name, and disk-names are required.")
+    }
+
+    // Parse comma-separated disk names
+    diskNames := strings.Split(*diskNamesStr, ",")
+    for i := range diskNames {
+        diskNames[i] = strings.TrimSpace(diskNames[i])
     }
 
     // =========================================================================
@@ -54,14 +61,15 @@ func main() {
     }
 
     // =========================================================================
-    // EXECUTE VIRTUAL DISK MAPPING
+    // EXECUTE VIRTUAL DISK MAPPING (BATCH OPERATION)
     // =========================================================================
-    fmt.Printf("\n⚠️  Attempting to map Virtual Disk (LV) '%s' from VIOS '%s' to LPAR '%s'...\n", *diskName, *viosName, *lparName)
+    fmt.Printf("\n⚠️  Attempting to map %d Virtual Disk(s) (LV) from VIOS '%s' to LPAR '%s'...\n", len(diskNames), *viosName, *lparName)
+    fmt.Printf("Disks to map: %v\n", diskNames)
 
-    mappingUUID, err := restClient.CreateVirtualDiskMap(systems.UUID, viosUUID, lparUUID, *diskName, *verbose)
+    mappingUUID, err := restClient.CreateVirtualDiskMaps(systems.UUID, viosUUID, lparUUID, diskNames, *verbose)
     if err != nil {
         log.Fatalf("❌ Storage Mapping Failed: %v", err)
     }
 
-    fmt.Printf("\n💾 Successfully mapped Virtual Disk. Result: %s\n", mappingUUID)
+    fmt.Printf("\n💾 Successfully mapped %d Virtual Disk(s). Status: %s\n", len(diskNames), mappingUUID)
 }

@@ -20,13 +20,13 @@ func main() {
 	
 	// Dynamic Target Identifiers
 	lparName := flag.String("lpar-name", "Go_LPAR_99", "Name of the Client LPAR")
-	viosName := flag.String("vios-name", "ltc09u31-vios1", "Name of the VIOS hosting the disks")
+	viosName := flag.String("vios-name", "ltc09u31-vios1", "Name of the VIOS hosting the virtual disks")
 	viosProfile := flag.String("vios-profile", "default_profile", "Name of the VIOS profile to overwrite")
 	
-	// Disks
-	diskNamesStr := flag.String("disk-names", "hdisk3,hdisk4", "Comma-separated list of Physical Volumes to unmap")
+	// Virtual Disks (Logical Volumes)
+	diskNamesStr := flag.String("disk-names", "lv01,lv02", "Comma-separated list of Virtual Disks (logical volumes) to unmap")
 	
-	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	forceSave := flag.Bool("force-save", true, "Force overwrite of the target profile")
 	flag.Parse()
 
@@ -41,7 +41,7 @@ func main() {
 	}
 
 	fmt.Println("=========================================================================")
-	fmt.Printf(" 🗑️  Starting Bulk SAN Storage Unmapping for %d Disks\n", len(disksToUnmap))
+	fmt.Printf(" 🗑️  Starting Bulk Virtual Disk Unmapping for %d Disks\n", len(disksToUnmap))
 	fmt.Println("=========================================================================")
 
 	// =========================================================================
@@ -70,9 +70,9 @@ func main() {
 	}
 
 	// =========================================================================
-	// 2. VERIFY DISK MAPPINGS EXIST
+	// 2. VERIFY VIRTUAL DISK MAPPINGS EXIST
 	// =========================================================================
-	fmt.Printf("\n[Verify] Checking which disks are currently mapped...\n")
+	fmt.Printf("\n[Verify] Checking which virtual disks are currently mapped...\n")
 	
 	// Get all SCSI mappings for this VIOS
 	mappings, err := restClient.GetViosSCSIMappingDetails(viosUUID, *verbose)
@@ -80,18 +80,17 @@ func main() {
 		log.Fatalf("❌ Failed to get VIOS mappings: %v", err)
 	}
 	
-	// Build a map of currently mapped disks for this LPAR
+	// Build a map of currently mapped virtual disks for this LPAR
 	mappedDisks := make(map[string]bool)
 	targetLparLower := strings.ToLower(lparUUID)
 	
 	for _, mapping := range mappings {
 		// Check if this mapping belongs to our target LPAR
 		if strings.HasSuffix(strings.ToLower(mapping.AssociatedLparURI), targetLparLower) {
+			// For virtual disks, use the BackingDeviceName from ServerAdapter
+			// Virtual disks typically start with "lv" (logical volumes)
 			diskName := mapping.ServerAdapter.BackingDeviceName
-			if diskName == "" && mapping.Storage.VolumeName != "" {
-				diskName = mapping.Storage.VolumeName
-			}
-			if diskName != "" {
+			if diskName != "" && strings.HasPrefix(diskName, "lv") {
 				mappedDisks[diskName] = true
 			}
 		}
@@ -111,25 +110,25 @@ func main() {
 	
 	// Report findings
 	if len(notMappedDisks) > 0 {
-		fmt.Printf("⚠️  Skipping disks (not mapped): %v\n", notMappedDisks)
+		fmt.Printf("⚠️  Skipping virtual disks (not mapped): %v\n", notMappedDisks)
 	}
 	
 	if len(disksToDelete) == 0 {
-		fmt.Printf("\n⚠️ Notice: None of the specified disks are currently mapped. No changes needed.\n")
+		fmt.Printf("\n⚠️ Notice: None of the specified virtual disks are currently mapped. No changes needed.\n")
 		fmt.Println("=========================================================================")
 		return
 	}
 	
-	fmt.Printf("✅ Found %d disk(s) to unmap: %v\n", len(disksToDelete), disksToDelete)
+	fmt.Printf("✅ Found %d virtual disk(s) to unmap: %v\n", len(disksToDelete), disksToDelete)
 	
 	// =========================================================================
 	// 3. EXECUTE BULK UNMAP OPERATION
 	// =========================================================================
-	fmt.Printf("\n[Unmap] Detaching %v from LPAR '%s' via VIOS '%s'...\n", disksToDelete, *lparName, *viosName)
+	fmt.Printf("\n[Unmap] Detaching virtual disks %v from LPAR '%s' via VIOS '%s'...\n", disksToDelete, *lparName, *viosName)
 	
-	status, err := restClient.DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID, disksToDelete, *verbose)
+	status, err := restClient.DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID, disksToDelete, *verbose)
 	if err != nil {
-		log.Fatalf("❌ Bulk Unmap Operation Failed: %v", err)
+		log.Fatalf("❌ Bulk Virtual Disk Unmap Operation Failed: %v", err)
 	}
 
 	// =========================================================================
@@ -138,16 +137,17 @@ func main() {
 	if status == "SUCCESS" {
 		fmt.Printf("\n[Profile] Saving running configuration to VIOS profile '%s'...\n", *viosProfile)
 		
-		// Using your exact function here, passing the VIOS UUID!
-		saveErr := restClient.SaveCurrentLparConfig(lparUUID, *viosProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(viosUUID, *viosProfile, *forceSave, *verbose)
 		if saveErr != nil {
-			log.Printf("⚠️ Warning: Disks unmapped dynamically, but failed to save VIOS profile: %v\n", saveErr)
+			log.Printf("⚠️ Warning: Virtual disks unmapped dynamically, but failed to save VIOS profile: %v\n", saveErr)
 		} else {
-			fmt.Println("✅ Success: VIOS profile saved. Mapping removals will persist across reboots.")
+			fmt.Println("✅ Success: VIOS profile saved. Virtual disk mapping removals will persist across reboots.")
 		}
 	} else if status == "NOT_FOUND" {
-		fmt.Printf("\n⚠️ Notice: None of the specified disks were mapped. No changes made.\n")
+		fmt.Printf("\n⚠️ Notice: None of the specified virtual disks were mapped. No changes made.\n")
 	}
 	
 	fmt.Println("=========================================================================")
 }
+
+// Made with Bob

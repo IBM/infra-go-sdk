@@ -167,7 +167,7 @@ func main() {
 	// =========================================================================
 	log.Printf("[HMC] Step 3: Attaching Virtual Disk '%s' to LPAR '%s'...", *diskName, *lparName)
 	
-	mappingUUID, err := restClient.CreateVirtualDiskMap(sysUUID, storage.viosUUID, finalLparUUID, *diskName, *verbose)
+	mappingUUID, err := restClient.CreateVirtualDiskMaps(sysUUID, storage.viosUUID, finalLparUUID, []string{*diskName}, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Storage Mapping Failed: %v", err)
 	}

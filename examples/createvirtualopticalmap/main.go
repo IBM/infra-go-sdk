@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
@@ -19,13 +20,19 @@ func main() {
 	
 	viosName := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS")
 	lparName := flag.String("lpar-name", "Go_LPAR_04", "Target LPAR Name")
-	mediaName := flag.String("media-name", "test_iso", "Name of the ISO file to map")
+	mediaNamesStr := flag.String("media-names", "test_iso", "Comma-separated list of ISO files to map (e.g., 'rhel9.iso,aix73.iso')")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
-	if *password == "" || *viosName == "" || *lparName == "" || *mediaName == "" {
-		log.Fatal("Error: hmc-pass, vios-name, lpar-name, and media-name are required.")
+	if *password == "" || *viosName == "" || *lparName == "" || *mediaNamesStr == "" {
+		log.Fatal("Error: hmc-pass, vios-name, lpar-name, and media-names are required.")
+	}
+
+	// Parse comma-separated media names
+	mediaNames := strings.Split(*mediaNamesStr, ",")
+	for i := range mediaNames {
+		mediaNames[i] = strings.TrimSpace(mediaNames[i])
 	}
 
 	// =========================================================================
@@ -54,14 +61,15 @@ func main() {
 	}
 
 	// =========================================================================
-	// EXECUTE OPTICAL MAPPING
+	// EXECUTE OPTICAL MAPPING (BATCH OPERATION)
 	// =========================================================================
-	fmt.Printf("\n⚠️  Attempting to map Virtual Optical Media '%s' from VIOS '%s' to LPAR '%s'...\n", *mediaName, *viosName, *lparName)
+	fmt.Printf("\n⚠️  Attempting to map %d Virtual Optical Media from VIOS '%s' to LPAR '%s'...\n", len(mediaNames), *viosName, *lparName)
+	fmt.Printf("Media to map: %v\n", mediaNames)
 
-	mappingUUID, err := restClient.CreateVirtualOpticalMap(sysUUID, viosUUID, lparUUID, *mediaName, *verbose)
+	mappingUUID, err := restClient.CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID, mediaNames, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Storage Mapping Failed: %v", err)
 	}
 
-	fmt.Printf("\n💿 Successfully created Virtual Optical Device and loaded media! Result: %s\n", mappingUUID)
+	fmt.Printf("\n💿 Successfully created %d Virtual Optical Device(s) and loaded media! Status: %s\n", len(mediaNames), mappingUUID)
 }

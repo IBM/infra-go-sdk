@@ -262,7 +262,7 @@ func main() {
 	log.Printf("[HMC] ✅ Matched SVC LUN to VIOS Disk: %s", diskName)
 
 	log.Printf("[HMC] Attaching '%s' to LPAR '%s'...", diskName, *lparName)
-	mappingUUID, err := restClient.CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID, diskName, *verbose)
+	mappingUUID, err := restClient.CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID, []string{diskName}, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Storage Mapping Failed: %v", err)
 	}

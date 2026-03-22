@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
@@ -20,7 +21,7 @@ func main() {
 	
 	// Additional flags for storage mapping
 	lparName := flag.String("lpar-name", "Go_LPAR_99", "Target LPAR Name")
-	diskName := flag.String("disk-name", "hdisk3", "Name of the physical volume on the VIOS")
+	diskNamesStr := flag.String("disk-names", "hdisk3,hdisk4", "Comma-separated list of physical volumes on the VIOS (e.g., 'hdisk3,hdisk4,hdisk5')")
 	
 	// NEW: Flags for profile saving
 	viosProfile := flag.String("vios-profile", "default_profile", "Name of the VIOS profile to overwrite")
@@ -29,8 +30,14 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
-	if *password == "" || *viosName == "" || *lparName == "" || *diskName == "" {
-		log.Fatal("Error: hmc-pass, vios-name, lpar-name, and disk-name are required.")
+	if *password == "" || *viosName == "" || *lparName == "" || *diskNamesStr == "" {
+		log.Fatal("Error: hmc-pass, vios-name, lpar-name, and disk-names are required.")
+	}
+
+	// Parse comma-separated disk names
+	diskNames := strings.Split(*diskNamesStr, ",")
+	for i := range diskNames {
+		diskNames[i] = strings.TrimSpace(diskNames[i])
 	}
 
 	// =========================================================================
@@ -60,16 +67,69 @@ func main() {
 	}
 
 	// =========================================================================
-	// EXECUTE STORAGE MAPPING
+	// VERIFY WHICH DISKS ARE ALREADY MAPPED
 	// =========================================================================
-	fmt.Printf("\n⚠️  Attempting to map Physical Volume '%s' from VIOS '%s' to LPAR '%s'...\n", *diskName, *viosName, *lparName)
+	fmt.Printf("\n[Verify] Checking which disks are currently mapped...\n")
+	
+	// Get all SCSI mappings for this VIOS
+	mappings, err := restClient.GetViosSCSIMappingDetails(viosUUID, *verbose)
+	if err != nil {
+		log.Fatalf("❌ Failed to get VIOS mappings: %v", err)
+	}
+	
+	// Build a map of currently mapped disks for this LPAR
+	mappedDisks := make(map[string]bool)
+	targetLparLower := strings.ToLower(lparUUID)
+	
+	for _, mapping := range mappings {
+		// Check if this mapping belongs to our target LPAR
+		if strings.HasSuffix(strings.ToLower(mapping.AssociatedLparURI), targetLparLower) {
+			diskName := mapping.ServerAdapter.BackingDeviceName
+			if diskName == "" && mapping.Storage.VolumeName != "" {
+				diskName = mapping.Storage.VolumeName
+			}
+			if diskName != "" {
+				mappedDisks[diskName] = true
+			}
+		}
+	}
+	
+	// Filter disks to only those that are NOT already mapped
+	var disksToMap []string
+	var alreadyMappedDisks []string
+	
+	for _, disk := range diskNames {
+		if mappedDisks[disk] {
+			alreadyMappedDisks = append(alreadyMappedDisks, disk)
+		} else {
+			disksToMap = append(disksToMap, disk)
+		}
+	}
+	
+	// Report findings
+	if len(alreadyMappedDisks) > 0 {
+		fmt.Printf("⚠️  Skipping disks (already mapped): %v\n", alreadyMappedDisks)
+	}
+	
+	if len(disksToMap) == 0 {
+		fmt.Printf("\n⚠️ Notice: All specified disks are already mapped. No changes needed.\n")
+		fmt.Println("=========================================================================")
+		return
+	}
+	
+	fmt.Printf("✅ Found %d disk(s) to map: %v\n", len(disksToMap), disksToMap)
 
-	mappingUUID, err := restClient.CreatePhysicalVolumeMap(systems.UUID, viosUUID, lparUUID, *diskName, *verbose)
+	// =========================================================================
+	// EXECUTE STORAGE MAPPING (BATCH OPERATION)
+	// =========================================================================
+	fmt.Printf("\n⚠️  Mapping %d Physical Volume(s) from VIOS '%s' to LPAR '%s'...\n", len(disksToMap), *viosName, *lparName)
+
+	mappingUUID, err := restClient.CreatePhysicalVolumeMap(systems.UUID, viosUUID, lparUUID, disksToMap, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Storage Mapping Failed: %v", err)
 	}
 
-	fmt.Printf("\n💾 Successfully mapped Physical Volume. Mapping UUID: %s\n", mappingUUID)
+	fmt.Printf("\n💾 Successfully mapped %d Physical Volume(s). Status: %s\n", len(disksToMap), mappingUUID)
 	
 	// =========================================================================
 	// SAVE PROFILE (PERSIST CHANGES)
