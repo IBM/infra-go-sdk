@@ -109,8 +109,35 @@ func (c *HmcRestClient) FetchJobResponse(jobID string, verbose bool) (*JobRespon
 	return jobResp, nil
 }
 
-// FetchJobStatus fetches the job status and response, waiting for completion or error
-// Returns a structured JobResponseDetail instead of raw XML
+// FetchJobStatus fetches the job status and response, waiting for completion or error.
+// Returns a structured JobResponseDetail instead of raw XML.
+//
+// This function polls the HMC job status endpoint and handles all documented job statuses
+// according to IBM PowerVM HMC REST API specification.
+//
+// Supported Job Statuses:
+//   - COMPLETED_OK: Job completed successfully (returns JobResponseDetail, nil)
+//   - COMPLETED_WITH_WARNINGS: Job completed with warnings (returns JobResponseDetail, nil)
+//   - COMPLETED_WITH_ERROR: Job completed with errors (returns nil, error)
+//   - CANCELED_BEFORE_START: Job was canceled before starting (returns nil, error)
+//   - CANCELED_WHILE_RUNNING: Job was canceled during execution (returns nil, error)
+//   - FAILED_TO_START: Job failed to start (returns nil, error)
+//   - FAILED_BEFORE_COMPLETION: Job failed during execution (returns nil, error)
+//   - FAILED_BEFORE_COMPLETION_RETRY: Job failed but HMC will retry (continues polling)
+//   - NOT_STARTED: Job queued but not started yet (continues polling)
+//   - RUNNING: Job is executing (continues polling)
+//
+// Parameters:
+//   - jobID: The job identifier to monitor
+//   - template: If true, uses template API endpoint; if false, uses UOM endpoint
+//   - timeoutInMin: Maximum time to wait for job completion (in minutes)
+//   - verbose: If true, logs detailed status information
+//
+// Returns:
+//   - *JobResponseDetail: Job response with status, results, and metadata (on success)
+//   - error: Error if job fails, is canceled, or times out
+//
+// Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-job-status
 func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin int, verbose bool) (*JobResponseDetail, error) {
 	// Construct URL based on template flag
 	var url string
@@ -212,15 +239,27 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 			hmcLogger.Printf("Job status: %s (PercentComplete: %d%%)", jobStatus, jobResp.PercentComplete)
 		}
 
-		// Handle different job statuses
+		// Handle different job statuses according to IBM PowerVM HMC REST API documentation
+		// Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-job-status
 		switch jobStatus {
 		case "COMPLETED_OK":
+			// Job completed successfully
+			// Note: May still have warnings according to IBM documentation
 			if verbose {
 				hmcLogger.Printf("Job completed successfully")
 			}
 			return jobResp, nil
 
+		case "COMPLETED_WITH_WARNINGS":
+			// Job completed but issued warnings
+			if verbose {
+				hmcLogger.Printf("Job completed with warnings")
+			}
+			// Return success - warnings are informational, not errors
+			return jobResp, nil
+
 		case "COMPLETED_WITH_ERROR":
+			// Job completed but encountered errors
 			if verbose {
 				hmcLogger.Printf("Job completed with error")
 			}
@@ -245,23 +284,90 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 			}
 			return nil, fmt.Errorf("job completed with error, but no result message found")
 
-		default:
-			if jobStatus != "RUNNING" {
-				if verbose {
-					hmcLogger.Printf("Job failed with status: %s", jobStatus)
-				}
-				errMsgElem := doc.FindElement("//ResponseException//Message")
-				if errMsgElem == nil {
-					errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
-				}
-				if errMsgElem != nil {
-					errMsg := errMsgElem.Text()
-					jobResp.ErrorMessage = errMsg
-					return nil, fmt.Errorf("job failed: %s", errMsg)
-				}
-				return nil, fmt.Errorf("job failed with status %s", jobStatus)
+		case "CANCELED_BEFORE_START":
+			// Job was canceled before it started execution
+			if verbose {
+				hmcLogger.Printf("Job was canceled before starting")
 			}
-			// If status is "RUNNING", continue looping
+			return nil, fmt.Errorf("job was canceled before it could start")
+
+		case "CANCELED_WHILE_RUNNING":
+			// Job was canceled during execution
+			if verbose {
+				hmcLogger.Printf("Job was canceled while running")
+			}
+			return nil, fmt.Errorf("job was canceled during execution")
+
+		case "FAILED_TO_START":
+			// Job failed to start - typically a configuration or prerequisite issue
+			if verbose {
+				hmcLogger.Printf("Job failed to start")
+			}
+			// Extract error message
+			errMsgElem := doc.FindElement("//ResponseException//Message")
+			if errMsgElem == nil {
+				errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
+			}
+			if errMsgElem != nil {
+				errMsg := errMsgElem.Text()
+				jobResp.ErrorMessage = errMsg
+				return nil, fmt.Errorf("job failed to start: %s", errMsg)
+			}
+			return nil, fmt.Errorf("job failed to start")
+
+		case "FAILED_BEFORE_COMPLETION":
+			// Job failed during execution
+			if verbose {
+				hmcLogger.Printf("Job failed before completion")
+			}
+			// Extract error message
+			errMsgElem := doc.FindElement("//ResponseException//Message")
+			if errMsgElem == nil {
+				errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
+			}
+			if errMsgElem != nil {
+				errMsg := errMsgElem.Text()
+				jobResp.ErrorMessage = errMsg
+				return nil, fmt.Errorf("job failed during execution: %s", errMsg)
+			}
+			return nil, fmt.Errorf("job failed during execution")
+
+		case "FAILED_BEFORE_COMPLETION_RETRY":
+			// Job failed but HMC will retry the operation
+			// Continue polling - this is not a terminal state
+			if verbose {
+				hmcLogger.Printf("Job failed but will be retried by HMC")
+			}
+			// Don't return error - continue waiting for retry outcome
+			continue
+
+		case "NOT_STARTED":
+			// Job has not yet started execution
+			// Continue polling - job is queued but not running yet
+			if verbose {
+				hmcLogger.Printf("Job not started yet, waiting...")
+			}
+			continue
+
+		case "RUNNING":
+			// Job is currently executing - continue polling
+			continue
+
+		default:
+			// Unknown or undocumented status - treat as error
+			if verbose {
+				hmcLogger.Printf("Unknown job status: %s", jobStatus)
+			}
+			errMsgElem := doc.FindElement("//ResponseException//Message")
+			if errMsgElem == nil {
+				errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
+			}
+			if errMsgElem != nil {
+				errMsg := errMsgElem.Text()
+				jobResp.ErrorMessage = errMsg
+				return nil, fmt.Errorf("job encountered unknown status '%s': %s", jobStatus, errMsg)
+			}
+			return nil, fmt.Errorf("job encountered unknown status: %s", jobStatus)
 		}
 	}
 
@@ -275,4 +381,81 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 		return nil, fmt.Errorf("job %s timed out in state %s", operationName, jobStatus)
 	}
 	return nil, fmt.Errorf("job timed out")
+}
+
+
+// DeleteJob deletes a job from the HMC.
+// According to IBM documentation, after a job is completed, you must delete the job.
+// This function sends a DELETE request to remove the job specified by jobID.
+//
+// Parameters:
+//   - jobID: The job identifier to delete
+//   - template: If true, uses template API endpoint; if false, uses UOM endpoint
+//   - verbose: If true, logs detailed information
+//
+// Returns:
+//   - error: Error if the deletion fails, nil on success
+//
+// Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-jobs
+func (c *HmcRestClient) DeleteJob(jobID string, template bool, verbose bool) error {
+	// Construct URL based on template flag
+	var url string
+	if template {
+		url = fmt.Sprintf("https://%s/rest/api/templates/jobs/%s", c.hmcIP, jobID)
+	} else {
+		url = fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Deleting job: %s, URL: %s", jobID, url)
+	}
+
+	// Create DELETE request
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete request: %v", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Session", c.session)
+
+	// Set up timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// Execute request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body for error details if needed
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Delete job response status: %s", resp.Status)
+		if len(body) > 0 {
+			hmcLogger.Printf("Delete job response body: %s", string(body))
+		}
+	}
+
+	// Check response status
+	// DELETE typically returns 204 No Content on success, but may also return 200 OK
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		if len(body) > 0 {
+			return fmt.Errorf("failed to delete job (status %s): %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("failed to delete job with status: %s", resp.Status)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Job %s deleted successfully", jobID)
+	}
+
+	return nil
 }

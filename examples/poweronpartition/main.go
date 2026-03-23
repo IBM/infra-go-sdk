@@ -90,19 +90,38 @@ func main() {
 		return
 	}
 
-	// 3. Resolve Profile UUID from LPAR UUID 
+	// 3. Get detailed LPAR information to extract default profile name and UUID
 	if *verbose {
-		fmt.Printf("Resolving default Profile UUID for LPAR '%s'...\n", *lparName)
+		fmt.Printf("Fetching detailed LPAR information to get default profile...\n")
 	}
-	profileUUID, err := restClient.GetPartitionProfile(partUUID, *verbose)
-	if err != nil || profileUUID == "" {
+	
+	lparDetailed, err := restClient.GetLogicalPartitionDetailed(partUUID, *verbose)
+	if err != nil {
 		if *verbose {
-			log.Fatalf("Failed to retrieve partition profile: %v", err)
+			log.Fatalf("Failed to retrieve detailed LPAR information: %v", err)
 		}
-		log.Fatal("❌ Failed to retrieve partition profile.")
+		log.Fatal("❌ Failed to retrieve detailed LPAR information.")
 	}
+	
+	// Extract the default profile name
+	profileName := lparDetailed.DefaultProfileName
+	if profileName == "" {
+		log.Fatal("❌ No default profile name found for this LPAR.")
+	}
+	
+	// Extract the profile UUID from the AssociatedPartitionProfile href
+	// The href format is: https://host/rest/api/uom/LogicalPartition/{lpar-uuid}/LogicalPartitionProfile/{profile-uuid}
+	profileHref := lparDetailed.AssociatedPartitionProfile.Href
+	if profileHref == "" {
+		log.Fatal("❌ No associated partition profile found for this LPAR.")
+	}
+	
+	// Extract UUID from the href (last segment after the last '/')
+	profileUUID := profileHref[len(profileHref)-36:] // UUID is always 36 characters
+	
 	if *verbose {
-		fmt.Printf("✅ Found Profile UUID: %s\n\n", profileUUID)
+		fmt.Printf("✅ Default Profile Name: %s\n", profileName)
+		fmt.Printf("✅ Profile UUID: %s\n\n", profileUUID)
 	}
 
 	// =========================================================================

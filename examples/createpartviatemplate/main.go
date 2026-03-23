@@ -522,12 +522,29 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 	}
 	if verbose {
 		log.Printf("[HMC-DEPLOY] Partition deployed successfully. New LPAR UUID: %s", partUUID)
-		log.Printf("[HMC-DEPLOY] Fetching active Partition Profile UUID...")
+		log.Printf("[HMC-DEPLOY] Fetching default Partition Profile UUID...")
 	}
 
-	profileUUID, _ := restClient.GetPartitionProfile(partUUID, verbose)
+	// Fetch detailed LPAR information to get the default profile UUID
+	lparDetails, err := restClient.GetLogicalPartitionDetailed(partUUID, verbose)
+	if err != nil {
+		log.Fatalf("[HMC-DEPLOY] Failed to get LPAR details: %v", err)
+	}
+
+	// Extract profile UUID from the AssociatedPartitionProfile href
+	profileHref := lparDetails.AssociatedPartitionProfile.Href
+	if profileHref == "" {
+		log.Fatalf("[HMC-DEPLOY] No associated partition profile found for LPAR")
+	}
+	
+	// Extract UUID from href (last 36 characters)
+	if len(profileHref) < 36 {
+		log.Fatalf("[HMC-DEPLOY] Invalid profile href format: %s", profileHref)
+	}
+	profileUUID := profileHref[len(profileHref)-36:]
 
 	if verbose {
+		log.Printf("[HMC-DEPLOY] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
 		log.Printf("[HMC-DEPLOY] Powering on LPAR (UUID: %s) with Profile: %s", partUUID, profileUUID)
 	}
 	if _, err := restClient.PowerOnPartition(partUUID, profileUUID, "manual", "", osType, verbose); err != nil {

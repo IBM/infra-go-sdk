@@ -107,6 +107,7 @@ func main() {
 	log.Println("")
 	log.Println("🔀 Starting 3-Way Parallel Operations: LPAR Creation || VIOS Discovery || vSwitch Resolution...")
 	
+	var lparDetails *hmc.LogicalPartitionDetailed
 	var lparUUID string
 	var viosWwpnMap map[string][]string
 	var viosUuidMap map[string]string
@@ -135,11 +136,12 @@ func main() {
 		}
 
 		var err error
-		lparUUID, err = restClient.CreateLogicalPartition(sysUUID, req, *verbose)
+		lparDetails, err = restClient.CreateLogicalPartition(sysUUID, req, *verbose)
 		if err != nil {
 			lparErr = fmt.Errorf("LPAR creation failed: %v", err)
 			return
 		}
+		lparUUID = lparDetails.MetadataID
 		log.Printf("[Thread-LPAR] ✅ LPAR Created! UUID: %s", lparUUID)
 	}()
 	
@@ -276,7 +278,8 @@ func main() {
 	// =========================================================================
 	// 6. SAVE CONFIGURATION & POWER ON THE LPAR
 	// =========================================================================
-	profileName := "default_profile"
+	// Use the default profile name from the LPAR details
+	profileName := lparDetails.DefaultProfileName
 	log.Println("")
 	log.Printf("[HMC] Saving active configuration to profile '%s'...", profileName)
 	err = restClient.SaveCurrentLparConfig(lparUUID, profileName, true, *verbose)
@@ -288,10 +291,20 @@ func main() {
 	log.Println("")
 	log.Printf("[HMC] Step 7: Powering on LPAR '%s'...", *lparName)
 	
-	// We need the profile UUID to power it on.
-	profileUUID, err := restClient.GetPartitionProfile(lparUUID, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Failed to get default partition profile: %v", err)
+	// Extract profile UUID from the AssociatedPartitionProfile href (already available from CreateLogicalPartition)
+	profileHref := lparDetails.AssociatedPartitionProfile.Href
+	if profileHref == "" {
+		log.Fatalf("[HMC] No associated partition profile found for LPAR")
+	}
+	
+	// Extract UUID from href (last 36 characters)
+	if len(profileHref) < 36 {
+		log.Fatalf("[HMC] Invalid profile href format: %s", profileHref)
+	}
+	profileUUID := profileHref[len(profileHref)-36:]
+	
+	if *verbose {
+		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
 	}
 
 	_, err = restClient.PowerOnPartition(lparUUID, profileUUID, "normal", "", *osType, *verbose)

@@ -53,7 +53,11 @@ func main() {
 	// =========================================================================
 	// 2. PARALLEL EXECUTION WITH CHANNELS
 	// =========================================================================
-	lparUUIDCh := make(chan string, 1)
+	type lparResult struct {
+		details *hmc.LogicalPartitionDetailed
+		uuid    string
+	}
+	lparResCh := make(chan lparResult, 1)
 	lparErrCh := make(chan error, 1)
 	networkErrCh := make(chan error, 1)
 
@@ -85,15 +89,16 @@ func main() {
 			SharingMode:      "uncapped",
 		}
 
-		lparUUID, err := restClient.CreateLogicalPartition(sysUUID, req, *verbose)
+		lparDetails, err := restClient.CreateLogicalPartition(sysUUID, req, *verbose)
 		if err != nil {
 			lparErrCh <- fmt.Errorf("LPAR Creation failed: %v", err)
 			return
 		}
+		lparUUID := lparDetails.MetadataID
 		log.Printf("[Branch 1] ✅ LPAR Created! UUID: %s", lparUUID)
 		
 		// UNLOCK MAIN THREAD for Storage Mapping
-		lparUUIDCh <- lparUUID 
+		lparResCh <- lparResult{details: lparDetails, uuid: lparUUID}
 
 		// Attach Network Adapter
 		log.Printf("[Branch 1] Resolving Virtual Switch '%s'...", *vswitchName)
@@ -144,12 +149,14 @@ func main() {
 	// =========================================================================
 	// 3. SYNCHRONIZATION POINT 1: WAIT FOR LPAR & STORAGE
 	// =========================================================================
-	var finalLparUUID string
+	var lparRes lparResult
 	select {
 	case err := <-lparErrCh:
 		log.Fatalf("❌ Branch 1 Failed: %v", err)
-	case finalLparUUID = <-lparUUIDCh:
+	case lparRes = <-lparResCh:
 	}
+	finalLparUUID := lparRes.uuid
+	lparDetails := lparRes.details
 
 	var storage storageResult
 	select {
@@ -198,9 +205,20 @@ func main() {
 	// =========================================================================
 	log.Printf("\n[HMC] Step 6: Powering on LPAR '%s'...", *lparName)
 	
-	profileUUID, err := restClient.GetPartitionProfile(finalLparUUID, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Failed to get default partition profile: %v", err)
+	// Extract profile UUID from the AssociatedPartitionProfile href (already available from CreateLogicalPartition)
+	profileHref := lparDetails.AssociatedPartitionProfile.Href
+	if profileHref == "" {
+		log.Fatalf("[HMC] No associated partition profile found for LPAR")
+	}
+	
+	// Extract UUID from href (last 36 characters)
+	if len(profileHref) < 36 {
+		log.Fatalf("[HMC] Invalid profile href format: %s", profileHref)
+	}
+	profileUUID := profileHref[len(profileHref)-36:]
+	
+	if *verbose {
+		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
 	}
 
 	_, err = restClient.PowerOnPartition(finalLparUUID, profileUUID, "normal", "", *osType, *verbose)

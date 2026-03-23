@@ -341,63 +341,6 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose b
 	return &partition, nil
 }
 
-// GetPartitionQuick retrieves quick properties of a partition as a map
-func (c *HmcRestClient) GetPartitionQuick(lparUUID string, verbose bool) (map[string]interface{}, error) {
-	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick", c.hmcIP, lparUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching quick partition properties for UUID %s, URL: %s", lparUUID, url)
-	}
-
-	// Create and configure the GET request
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/json")
-
-	// Set timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	// Send the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("GetPartitionQuick response status: %s", resp.Status)
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// Log response body if verbose
-	if verbose {
-		hmcLogger.Printf("GetPartitionQuick response body:\n%s", string(body))
-	}
-
-	// Check for non-200 status codes
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
-	}
-
-	// Parse JSON response
-	var partitionProps map[string]interface{}
-	if err := json.Unmarshal(body, &partitionProps); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
-	}
-
-	return partitionProps, nil
-}
-
 // GetLogicalPartitionsQuickAll retrieves the quick list of logical partitions for a system
 func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
@@ -568,8 +511,8 @@ func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool)
 
 
 
-// CreateLogicalPartition creates a new LPAR using the direct UOM PUT method.
-func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparRequest, verbose bool) (string, error) {
+// CreateLogicalPartition creates a new LPAR using the direct UOM PUT method and returns the complete LPAR details.
+func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparRequest, verbose bool) (*LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, sysUUID)
 
 	// The HMC demands STRICT ALPHABETICAL ORDERING for elements.
@@ -613,7 +556,7 @@ func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparReq
 
 	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	httpReq.Header.Set("X-API-Session", c.session)
@@ -626,31 +569,52 @@ func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparReq
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("UOM creation failed (%s): %s", resp.Status, string(body))
+		return nil, fmt.Errorf("UOM creation failed (%s): %s", resp.Status, string(body))
 	}
 
+	if verbose {
+		hmcLogger.Printf("CreateLogicalPartition response status: %s", resp.Status)
+		hmcLogger.Printf("CreateLogicalPartition response body:\n%s", string(body))
+	}
+
+	// Parse the complete LogicalPartition response
 	doc, err := xmlStripNamespace(body)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("failed to strip namespaces: %v", err)
 	}
 
-	atomID := doc.FindElement("//AtomID")
-	if atomID == nil {
-		return "", fmt.Errorf("LPAR created, but failed to extract UUID from response")
+	// Extract the LogicalPartition element
+	lparElem := doc.FindElement("//LogicalPartition")
+	if lparElem == nil {
+		return nil, fmt.Errorf("LogicalPartition element not found in response")
 	}
 
-	newUUID := atomID.Text()
+	// Convert etree element back to XML bytes for unmarshaling
+	lparDoc := etree.NewDocument()
+	lparDoc.SetRoot(lparElem.Copy())
+	lparXML, err := lparDoc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize LogicalPartition element: %v", err)
+	}
+
+	// Unmarshal into LogicalPartitionDetailed struct
+	var lpar LogicalPartitionDetailed
+	if err := xml.Unmarshal(lparXML, &lpar); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal LogicalPartition: %v", err)
+	}
+
 	if verbose {
-		hmcLogger.Printf("🚀 LPAR Created! UUID: %s", newUUID)
+		hmcLogger.Printf("🚀 LPAR Created! UUID: %s, Name: %s, Profile: %s",
+			lpar.MetadataID, lpar.PartitionName, lpar.DefaultProfileName)
 	}
 
-	return newUUID, nil
+	return &lpar, nil
 }
 
 // CreateVirtualSCSIClientAdapter adds a vSCSI Client Adapter and strictly maps it to a VIOS.
@@ -1096,4 +1060,95 @@ func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue stri
 	}
 
 	return logicalPartitions, nil
+}
+
+// ChangeDefaultProfileName changes the default profile of a logical partition.
+// This job is used to assign another profile of a logical partition as the default profile.
+//
+// Parameters:
+//   - lparUUID: The UUID of the logical partition
+//   - profileName: The name of the profile to be assigned as the default profile
+//   - verbose: If true, logs detailed information
+//
+// Returns:
+//   - jobID: The job ID for tracking the operation
+//   - error: Error if the operation fails, nil on success
+//
+// Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=jobs-changedefaultprofilename-logicalpartition-job
+func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, verbose bool) (string, error) {
+	// Construct the URL for the ChangeDefaultProfileName operation
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/ChangeDefaultProfileName", c.hmcIP, lparUUID)
+
+	if verbose {
+		hmcLogger.Printf("Changing default profile for LPAR UUID %s to profile '%s', URL: %s", lparUUID, profileName, url)
+	}
+
+	// Define operation details for the JobRequest
+	reqdOperation := map[string]string{
+		"OperationName": "ChangeDefaultProfileName",
+		"GroupName":     "LogicalPartition",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// Build job parameters with the profile name
+	jobParams := map[string]string{
+		"DefaultProfileName": profileName,
+	}
+
+	// Create XML payload using existing helper
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to create job request payload: %v", err)
+	}
+
+	// Configure and execute the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
+	req.Header.Set("Accept", "*/*")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Response status: %s", resp.Status)
+		hmcLogger.Printf("Response body: %s", string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse XML response and extract JobID
+	doc, err := xmlStripNamespace(respBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return "", fmt.Errorf("JobID not found in response")
+	}
+	jobID := jobIDElem.Text()
+
+	if verbose {
+		hmcLogger.Printf("ChangeDefaultProfileName job submitted successfully, JobID: %s", jobID)
+	}
+
+	return jobID, nil
 }

@@ -3,6 +3,7 @@ package hmc
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,7 +14,8 @@ import (
 )
 
 // GetLogicalPartitionProfiles retrieves the logical partition profiles for a specific partition by UUID.
-func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, verbose bool) ([]*etree.Element, error) {
+// Returns structured profile data using the same pattern as GetAllLogicalPartitionsInHmc.
+func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, verbose bool) ([]LogicalPartitionProfile, error) {
     url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile", c.hmcIP, partitionUUID)
     if verbose {
         hmcLogger.Printf("Fetching logical partition profiles for UUID %s, URL: %s", partitionUUID, url)
@@ -53,14 +55,45 @@ func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, verbos
         return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
     }
 
+    // Strip namespaces from XML
     doc, err := xmlStripNamespace(body)
     if err != nil {
         return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
     }
 
-    profiles := doc.FindElements("//LogicalPartitionProfile")
+    // Find all LogicalPartitionProfile elements
+    profileElements := doc.FindElements("//LogicalPartitionProfile")
     if verbose {
-        hmcLogger.Printf("Found %d logical partition profiles for partition %s", len(profiles), partitionUUID)
+        hmcLogger.Printf("Found %d logical partition profiles for partition %s", len(profileElements), partitionUUID)
+    }
+
+    // Parse each profile element into structured data
+    var profiles []LogicalPartitionProfile
+    for _, profileElem := range profileElements {
+        // Isolate the element XML
+        profileDoc := etree.NewDocument()
+        profileDoc.SetRoot(profileElem.Copy())
+        profileBytes, err := profileDoc.WriteToBytes()
+        if err != nil {
+            if verbose {
+                hmcLogger.Printf("Skipping profile due to XML serialization error: %v", err)
+            }
+            continue
+        }
+
+        // Unmarshal into the struct
+        var profile LogicalPartitionProfile
+        if err := xml.Unmarshal(profileBytes, &profile); err != nil {
+            if verbose {
+                hmcLogger.Printf("Skipping profile due to unmarshal error: %v", err)
+            }
+            continue
+        }
+        profiles = append(profiles, profile)
+    }
+
+    if verbose {
+        hmcLogger.Printf("Successfully parsed %d profiles for partition %s", len(profiles), partitionUUID)
     }
 
     return profiles, nil
@@ -137,21 +170,21 @@ func (c *HmcRestClient) UpdateLogicalPartitionProfile(partitionUUID string, prof
     return nil
 }
 
-// GetPartitionProfile retrieves the UUID of a partition profile for a logical partition
-func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (string, error) {
+// GetPartitionProfiles retrieves all partition profiles (UUID and name) for a logical partition
+func (c *HmcRestClient) GetPartitionProfiles(lparUUID string, verbose bool) ([]PartitionProfileQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/quick/All", c.hmcIP, lparUUID)
 	if verbose {
-		hmcLogger.Printf("Fetching partition profile for partition UUID %s, URL: %s", lparUUID, url)
+		hmcLogger.Printf("Fetching partition profiles for partition UUID %s, URL: %s", lparUUID, url)
 	}
 
 	// Create and configure the GET request
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=LogicalPartitionProfile")
-	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept", "application/json")
 
 	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -161,53 +194,42 @@ func (c *HmcRestClient) GetPartitionProfile(lparUUID string, verbose bool) (stri
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %v", err)
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	// Log response status if verbose
 	if verbose {
-		hmcLogger.Printf("GetPartitionProfile response status: %s", resp.Status)
+		hmcLogger.Printf("GetPartitionProfiles response status: %s", resp.Status)
 	}
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %v", err)
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	// Log response body if verbose
 	if verbose {
-		hmcLogger.Printf("GetPartitionProfile response body:\n%s", string(body))
+		hmcLogger.Printf("GetPartitionProfiles response body:\n%s", string(body))
 	}
 
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
 	}
 
 	// Parse JSON response
 	var profiles []PartitionProfileQuick
 	if err := json.Unmarshal(body, &profiles); err != nil {
-		return "", fmt.Errorf("failed to parse JSON response: %v", err)
-	}
-
-	// Check if any profiles were found
-	if len(profiles) == 0 {
-		return "", fmt.Errorf("no partition profiles found for partition UUID %s", lparUUID)
-	}
-
-	// Return the UUID of the first profile
-	profileUUID := profiles[0].UUID
-	if profileUUID == "" {
-		return "", fmt.Errorf("profile UUID not found in response for partition UUID %s", lparUUID)
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
 	if verbose {
-		hmcLogger.Printf("Found partition profile %s with UUID %s", profiles[0].ProfileName, profileUUID)
+		hmcLogger.Printf("Found %d partition profiles for partition UUID %s", len(profiles), lparUUID)
 	}
 
-	return profileUUID, nil
+	return profiles, nil
 }
 
 // SaveCurrentLparConfig saves the current active configuration of a Logical Partition to a profile.

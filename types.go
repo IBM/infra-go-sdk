@@ -599,6 +599,103 @@ type ClientNetworkAdapter struct {
 	VirtualNetworkURIs                  []LinkXML `xml:"VirtualNetworks>link"`
 }
 
+// =====================================================================
+// LOGICAL PARTITION PROFILE DATA STRUCTURES
+// =====================================================================
+
+// AssociatedPartitionLink represents the link to the associated partition
+type AssociatedPartitionLink struct {
+	Href string `xml:"href,attr"`
+}
+
+// LogicalPartitionProfile represents a complete LPAR profile configuration
+type LogicalPartitionProfile struct {
+	XMLName xml.Name `xml:"LogicalPartitionProfile"`
+	
+	// Metadata
+	UUID        string `xml:"Metadata>Atom>AtomID"`
+	AtomCreated string `xml:"Metadata>Atom>AtomCreated"`
+	
+	// Basic Profile Information
+	ProfileName                          string `xml:"ProfileName"`
+	ProfileType                          string `xml:"ProfileType"`
+	SettingID                            string `xml:"SettingID"`
+	
+	// Partition Association
+	AssociatedPartition                  AssociatedPartitionLink `xml:"AssociatedPartition"`
+	
+	// Configuration Flags
+	AffinityGroupID                      string `xml:"AffinityGroupID"`
+	AssignAllResources                   string `xml:"AssignAllResources"`
+	AutoStart                            string `xml:"AutoStart"`
+	BootMode                             string `xml:"BootMode"`
+	ConnectionMonitoringEnabled          string `xml:"ConnectionMonitoringEnabled"`
+	DesiredProcessorCompatibilityMode    string `xml:"DesiredProcessorCompatibilityMode"`
+	RedundantErrorPathReportingEnabled   string `xml:"RedundantErrorPathReportingEnabled"`
+	
+	// I/O Configuration
+	MaximumVirtualIOSlots                string `xml:"IOConfigurationInstance>MaximumVirtualIOSlots"`
+	
+	// Processor Configuration
+	ProcessorConfig                      ProfileProcessorConfig `xml:"ProcessorAttributes"`
+	
+	// Memory Configuration
+	MemoryConfig                         ProfileMemoryConfig `xml:"ProfileMemory"`
+}
+
+// ProfileProcessorConfig holds processor-related configuration for a profile
+type ProfileProcessorConfig struct {
+	HasDedicatedProcessors               string `xml:"HasDedicatedProcessors"`
+	SharingMode                          string `xml:"SharingMode"`
+	
+	// Shared Processor Configuration
+	SharedConfig                         SharedProcessorConfig `xml:"SharedProcessorConfiguration"`
+	
+	// Dedicated Processor Configuration
+	DedicatedConfig                      DedicatedProcessorConfig `xml:"DedicatedProcessorConfiguration"`
+}
+
+// SharedProcessorConfig holds shared processor configuration
+type SharedProcessorConfig struct {
+	DesiredProcessingUnits               string `xml:"DesiredProcessingUnits"`
+	DesiredVirtualProcessors             string `xml:"DesiredVirtualProcessors"`
+	MaximumProcessingUnits               string `xml:"MaximumProcessingUnits"`
+	MaximumVirtualProcessors             string `xml:"MaximumVirtualProcessors"`
+	MinimumProcessingUnits               string `xml:"MinimumProcessingUnits"`
+	MinimumVirtualProcessors             string `xml:"MinimumVirtualProcessors"`
+	SharedProcessorPoolID                string `xml:"SharedProcessorPoolID"`
+	SharedProcessorPoolName              string `xml:"SharedProcessorPoolName"`
+	UncappedWeight                       string `xml:"UncappedWeight"`
+}
+
+// DedicatedProcessorConfig holds dedicated processor configuration
+type DedicatedProcessorConfig struct {
+	DesiredProcessors                    string `xml:"DesiredProcessors"`
+	MaximumProcessors                    string `xml:"MaximumProcessors"`
+	MinimumProcessors                    string `xml:"MinimumProcessors"`
+}
+
+// ProfileMemoryConfig holds memory-related configuration for a profile
+type ProfileMemoryConfig struct {
+	DesiredMemory                        string `xml:"DesiredMemory"`
+	MaximumMemory                        string `xml:"MaximumMemory"`
+	MinimumMemory                        string `xml:"MinimumMemory"`
+	
+	// Advanced Memory Features
+	ActiveMemoryExpansionEnabled         string `xml:"ActiveMemoryExpansionEnabled"`
+	ActiveMemorySharingEnabled           string `xml:"ActiveMemorySharingEnabled"`
+	
+	// Huge Pages
+	DesiredHugePageCount                 string `xml:"DesiredHugePageCount"`
+	MaximumHugePageCount                 string `xml:"MaximumHugePageCount"`
+	MinimumHugePageCount                 string `xml:"MinimumHugePageCount"`
+	
+	// Page Table Configuration
+	ExpansionFactor                      string `xml:"ExpansionFactor"`
+	HardwarePageTableRatio               string `xml:"HardwarePageTableRatio"`
+	DesiredPhysicalPageTableRatio        string `xml:"DesiredPhysicalPageTableRatio"`
+}
+
 
 // =====================================================================
 // EXHAUSTIVE MANAGED SYSTEM XML STRUCTURES
