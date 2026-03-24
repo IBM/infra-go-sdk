@@ -23,7 +23,7 @@ func main() {
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
 	lparName := flag.String("lpar-name", "Go_LPAR_100", "Name for the new LPAR")
-	osType := flag.String("os-type", "linux", "OS type (aix, linux, aix_linux, ibmi)")
+	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
 	vswitchName := flag.String("vswitch-name", "VNET0", "Name of the Virtual Switch")
@@ -145,7 +145,7 @@ func main() {
 		log.Printf("[Thread-LPAR] Creating LPAR '%s'...", *lparName)
 		req := hmc.CreateLparRequest{
 			Name:             *lparName,
-			OsType:           "AIX/Linux",
+			OsType:           *osType,
 			MinMem:           2048,
 			DesiredMem:       4096,
 			MaxMem:           8192,
