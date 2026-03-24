@@ -98,6 +98,133 @@ func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, verbos
 
     return profiles, nil
 }
+
+// GetLogicalPartitionProfile retrieves a single logical partition profile by its UUID.
+// This is more efficient than GetLogicalPartitionProfiles when you only need one specific profile.
+func (c *HmcRestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUID string, verbose bool) (*LogicalPartitionProfile, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/%s", c.hmcIP, partitionUUID, profileUUID)
+	if verbose {
+		hmcLogger.Printf("Fetching logical partition profile %s for partition UUID %s, URL: %s", profileUUID, partitionUUID, url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitionProfile response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("GetLogicalPartitionProfile response body:\n%s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	// Strip namespaces from XML
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	// Find the LogicalPartitionProfile element
+	profileElement := doc.FindElement("//LogicalPartitionProfile")
+	if profileElement == nil {
+		return nil, fmt.Errorf("LogicalPartitionProfile element not found in response")
+	}
+
+	// Isolate the element XML
+	profileDoc := etree.NewDocument()
+	profileDoc.SetRoot(profileElement.Copy())
+	profileBytes, err := profileDoc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize profile XML: %v", err)
+	}
+
+	// Unmarshal into the struct
+	var profile LogicalPartitionProfile
+	if err := xml.Unmarshal(profileBytes, &profile); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal profile: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully retrieved profile %s (%s) for partition %s", profile.ProfileName, profileUUID, partitionUUID)
+	}
+
+	return &profile, nil
+}
+// DeleteLogicalPartitionProfile deletes a logical partition profile by its UUID.
+// This permanently removes the profile from the partition.
+// Note: You cannot delete the profile that is currently in use by a running partition.
+func (c *HmcRestClient) DeleteLogicalPartitionProfile(partitionUUID string, profileUUID string, verbose bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/%s", c.hmcIP, partitionUUID, profileUUID)
+	if verbose {
+		hmcLogger.Printf("Deleting logical partition profile %s for partition UUID %s, URL: %s", profileUUID, partitionUUID, url)
+	}
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if verbose {
+		hmcLogger.Printf("DeleteLogicalPartitionProfile response status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if verbose && len(body) > 0 {
+		hmcLogger.Printf("DeleteLogicalPartitionProfile response body:\n%s", string(body))
+	}
+
+	// DELETE typically returns 204 No Content on success, but may also return 200
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	if verbose {
+		hmcLogger.Printf("Successfully deleted profile %s for partition %s", profileUUID, partitionUUID)
+	}
+
+	return nil
+}
+
+
 // UpdateLogicalPartitionProfile updates a logical partition profile by its UUID with the provided XML payload.
 func (c *HmcRestClient) UpdateLogicalPartitionProfile(partitionUUID string, profileName string, updatedProfileXML string, verbose bool) error {
     // STEP 1: GET the full LogicalPartition entry
