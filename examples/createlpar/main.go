@@ -26,8 +26,8 @@ func main() {
 	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
-	vswitchName := flag.String("vswitch-name", "VNET0", "Name of the Virtual Switch")
-	vlanID := flag.Int("vlan-id", 1, "VLAN ID for the Client Network Adapter")
+	vswitchName := flag.String("vswitch-name", "ETHERNET0(Default)", "Name of the Virtual Switch")
+	vlanID := flag.Int("vlan-id", 1337, "VLAN ID for the Client Network Adapter")
 
 	// SVC Config (for Physical Disk)
 	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
@@ -36,8 +36,8 @@ func main() {
 	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
 
 	// Virtual Disk Config
-	targetVios := flag.String("vios-name", "", "Target VIOS for virtual disk (Leave empty for auto-select)")
-	targetVg := flag.String("vg-name", "", "Target Volume Group (Leave empty for auto-select)")
+	targetVios := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS for virtual disk (Leave empty for auto-select)")
+	targetVg := flag.String("vg-name", "auto_vg01", "Target Volume Group (Leave empty for auto-select)")
 	virtualDiskName := flag.String("vdisk-name", "", "Name of the Virtual Disk (auto-generated if empty)")
 	virtualDiskSize := flag.Int("vdisk-size", 51200, "Size of the Virtual Disk in Megabytes")
 
@@ -417,7 +417,7 @@ func main() {
 		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
 	}
 
-	_, err = restClient.PowerOnPartition(lparUUID, profileUUID, "normal", "", *osType, *verbose)
+	_, err = restClient.PowerOnPartition(lparUUID, profileUUID, "normal", "", *osType, "", "", "", "", "", "", *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}

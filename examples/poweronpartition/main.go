@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
+	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
 
 func main() {
@@ -17,127 +17,150 @@ func main() {
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
 	lparName := flag.String("lpar-name", "Go_LPAR_91", "Target LPAR Name")
-	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	
+	// Boot Options
+	keylock := flag.String("keylock", "normal", "Keylock position: normal, manual")
+	bootMode := flag.String("boot-mode", "", "Boot mode: norm, dd, ds, of, sms (default: norm)")
+	iiplSource := flag.String("iipl-source", "", "IBM i IPL source: a, b, c, or d")
+	osType := flag.String("os-type", "", "OS type: OS400 (for IBM i IPL source)")
+	
+	// Network Boot Options (optional - for netboot mode)
+	netboot := flag.Bool("netboot", false, "Enable network boot mode")
+	macAddr := flag.String("mac", "", "MAC address of boot adapter (required for netboot)")
+	clientIP := flag.String("client-ip", "", "Client IP address (for netboot)")
+	serverIP := flag.String("server-ip", "", "Server IP address (for netboot)")
+	gateway := flag.String("gateway", "", "Gateway address (for netboot)")
+	netmask := flag.String("netmask", "", "Subnet mask (for netboot)")
+	
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
 	// Validation
 	if *password == "" || *sysName == "" || *lparName == "" {
 		log.Fatal("❌ Error: hmc-pass, system-name, and lpar-name are required.")
 	}
+	
+	if *netboot && *macAddr == "" {
+		log.Fatal("❌ Error: --mac is required when --netboot is enabled.")
+	}
+
+	fmt.Println("=========================================================================")
+	fmt.Printf(" 🚀 PowerOn Partition: %s\n", *lparName)
+	if *netboot {
+		fmt.Println("    Mode: Network Boot")
+		fmt.Printf("    MAC:  %s\n", *macAddr)
+	} else {
+		fmt.Println("    Mode: Normal Boot")
+		fmt.Printf("    Keylock: %s\n", *keylock)
+	}
+	fmt.Println("=========================================================================")
 
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-
-	if *verbose {
-		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
-	}
 	if err := restClient.Login(*username, *password, *verbose); err != nil {
-		if *verbose {
-			log.Fatalf("Logon failed: %v", err)
-		}
-		log.Fatal("❌ Logon failed. (Run with -verbose for details)")
+		log.Fatalf("❌ Logon failed: %v", err)
 	}
-	defer func() {
-		if err := restClient.Logoff(); err != nil {
-			if *verbose {
-				log.Printf("Logoff failed: %v", err)
-			}
-		} else if *verbose {
-			log.Println("Logged off successfully")
-		}
-	}()
+	defer restClient.Logoff()
 
 	// =========================================================================
 	// DYNAMIC RESOLUTION & STATE CHECK
 	// =========================================================================
 	
-	// 1. Resolve System UUID from System Name 
+	// 1. Resolve System UUID
 	if *verbose {
-		fmt.Printf("\nResolving System UUID for '%s'...\n", *sysName)
+		fmt.Printf("\n🔍 Resolving System UUID for '%s'...\n", *sysName)
 	}
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
 	if err != nil || sysUUID == "" {
-		if *verbose {
-			log.Fatalf("System '%s' not found: %v", *sysName, err)
-		}
-		log.Fatalf("❌ System '%s' not found.", *sysName)
+		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
+	}
+	if *verbose {
+		fmt.Printf("✅ System UUID: %s\n", sysUUID)
 	}
 
-	// 2. Resolve LPAR UUID and Details from LPAR Name 
+	// 2. Resolve LPAR UUID and Check State
 	if *verbose {
-		fmt.Printf("Resolving LPAR UUID for '%s'...\n", *lparName)
+		fmt.Printf("🔍 Resolving LPAR UUID for '%s'...\n", *lparName)
 	}
 	lpar, partUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
 	if err != nil || partUUID == "" {
-		if *verbose {
-			log.Fatalf("LPAR '%s' not found: %v", *lparName, err)
-		}
-		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
+		log.Fatalf("❌ LPAR '%s' not found: %v", *lparName, err)
 	}
 	
 	if *verbose {
-		fmt.Printf("✅ Found LPAR UUID: %s\n", partUUID)
-		fmt.Printf("🔍 Current LPAR State: %s\n", lpar.PartitionState)
+		fmt.Printf("✅ LPAR UUID: %s\n", partUUID)
+		fmt.Printf("📊 Current State: %s\n", lpar.PartitionState)
 	}
 
-	// -> NEW: Check the state before proceeding
+	// Check if already running
 	if lpar.PartitionState == "running" {
-		// Even if not verbose, it's good practice to let the user know why we skipped
-		fmt.Printf("⚠️ LPAR '%s' is already running. Skipping Power On.\n", *lparName)
+		fmt.Printf("⚠️  LPAR '%s' is already running. Skipping Power On.\n", *lparName)
 		return
 	}
 
-	// 3. Get detailed LPAR information to extract default profile name and UUID
+	// 3. Get Profile UUID
 	if *verbose {
-		fmt.Printf("Fetching detailed LPAR information to get default profile...\n")
+		fmt.Println("🔍 Fetching partition profile...")
 	}
-	
 	lparDetailed, err := restClient.GetLogicalPartitionDetailed(partUUID, *verbose)
 	if err != nil {
-		if *verbose {
-			log.Fatalf("Failed to retrieve detailed LPAR information: %v", err)
-		}
-		log.Fatal("❌ Failed to retrieve detailed LPAR information.")
+		log.Fatalf("❌ Failed to retrieve LPAR details: %v", err)
 	}
 	
-	// Extract the default profile name
-	profileName := lparDetailed.DefaultProfileName
-	if profileName == "" {
-		log.Fatal("❌ No default profile name found for this LPAR.")
-	}
-	
-	// Extract the profile UUID from the AssociatedPartitionProfile href
-	// The href format is: https://host/rest/api/uom/LogicalPartition/{lpar-uuid}/LogicalPartitionProfile/{profile-uuid}
 	profileHref := lparDetailed.AssociatedPartitionProfile.Href
 	if profileHref == "" {
-		log.Fatal("❌ No associated partition profile found for this LPAR.")
+		log.Fatal("❌ No associated partition profile found.")
 	}
-	
-	// Extract UUID from the href (last segment after the last '/')
-	profileUUID := profileHref[len(profileHref)-36:] // UUID is always 36 characters
+	profileUUID := profileHref[len(profileHref)-36:]
 	
 	if *verbose {
-		fmt.Printf("✅ Default Profile Name: %s\n", profileName)
-		fmt.Printf("✅ Profile UUID: %s\n\n", profileUUID)
+		fmt.Printf("✅ Profile: %s (UUID: %s)\n", lparDetailed.DefaultProfileName, profileUUID)
+	}
+
+	// =========================================================================
+	// NETWORK BOOT: TRANSLATE MAC TO LOCATION CODE
+	// =========================================================================
+	var locationCode string
+	var bootModeStr string
+	
+	if *netboot {
+		fmt.Printf("\n🔍 Translating MAC %s to Location Code...\n", *macAddr)
+		locationCode, err = restClient.GetLocationCodeByMac(sysUUID, partUUID, *macAddr, *verbose)
+		if err != nil {
+			log.Fatalf("❌ MAC translation failed: %v", err)
+		}
+		fmt.Printf("✅ Location Code: %s\n", locationCode)
+		bootModeStr = "netboot"
+	} else {
+		bootModeStr = *bootMode
 	}
 
 	// =========================================================================
 	// EXECUTE POWER ON
 	// =========================================================================
-	if *verbose {
-		fmt.Println("Initiating Power On...")
-	}
-	status, err := restClient.PowerOnPartition(partUUID, profileUUID, "normal", "", "", *verbose)
+	fmt.Println("\n🚀 Initiating Power On...")
+	
+	status, err := restClient.PowerOnPartition(
+		partUUID,
+		profileUUID,
+		*keylock,
+		*iiplSource,
+		*osType,
+		bootModeStr,
+		locationCode,
+		*clientIP,
+		*serverIP,
+		*gateway,
+		*netmask,
+		*verbose,
+	)
+	
 	if err != nil {
-		if *verbose {
-			log.Fatalf("Failed to power on partition: %v", err)
-		}
-		log.Fatal("❌ Failed to power on partition.")
+		log.Fatalf("❌ Power On failed: %v", err)
 	}
 	
-	// This will print the status seamlessly.
-	fmt.Printf("🚀 PowerOn Job Status: %s\n", status)
+	fmt.Printf("\n✅ Power On Complete! Status: %s\n", status)
+	fmt.Println("=========================================================================")
 }

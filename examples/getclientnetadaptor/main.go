@@ -17,7 +17,7 @@ func main() {
 	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_91", "Target LPAR Name")
+	lparName := flag.String("lpar-name", "Go_LPAR_100", "Target LPAR Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
@@ -73,6 +73,7 @@ func main() {
 		fmt.Printf("Port VLAN ID:   %s\n", a.PortVLANID)
 		fmt.Printf("Virtual Switch: %s (ID: %s)\n", a.VirtualSwitchName, a.VirtualSwitchID)
 		fmt.Printf("Switch URI:     %s\n", a.AssociatedVirtualSwitchURI.Href)
+		fmt.Printf("Location Code: %s\n", a.LocationCode)
 		
 		fmt.Println("Attached Networks:")
 		for _, net := range a.VirtualNetworkURIs {

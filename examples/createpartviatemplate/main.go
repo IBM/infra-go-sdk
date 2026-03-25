@@ -547,7 +547,7 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 		log.Printf("[HMC-DEPLOY] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
 		log.Printf("[HMC-DEPLOY] Powering on LPAR (UUID: %s) with Profile: %s", partUUID, profileUUID)
 	}
-	if _, err := restClient.PowerOnPartition(partUUID, profileUUID, "manual", "", osType, verbose); err != nil {
+	if _, err := restClient.PowerOnPartition(partUUID, profileUUID, "manual", "", osType, "", "", "", "", "", "", verbose); err != nil {
 		log.Fatalf("[HMC-DEPLOY] Failed to PowerOn Partition: %v", err)
 	}
 	if verbose {

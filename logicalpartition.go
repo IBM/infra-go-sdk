@@ -13,52 +13,59 @@ import (
 	"github.com/beevik/etree"
 )
 
-// PowerOnPartition powers on a logical partition directly by its UUID and returns the job status string.
-func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsource, osType string, verbose bool) (string, error) {
-	// Updated URL to target the LogicalPartition UUID directly
+// PowerOnPartition powers on a logical partition. Supports static IP netbooting.
+func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsource, osType, bootMode, locationCode, clientIP, serverIP, gateway, netmask string, verbose bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOn", c.hmcIP, lparUUID)
-	
-	// This will ONLY print if verbose == true
+
 	if verbose {
-		hmcLogger.Printf("Powering on partition UUID %s, URL: %s", lparUUID, url)
+		hmcLogger.Printf("Powering on partition UUID %s (Mode: %s), URL: %s", lparUUID, bootMode, url)
 	}
 
-	// Define operation details for the JobRequest 
 	reqdOperation := map[string]string{
 		"OperationName": "PowerOn",
 		"GroupName":     "LogicalPartition",
 		"ProgressType":  "DISCRETE",
 	}
 
-	// Build job parameters 
-	jobParams := map[string]string{
-		"force":    "false",
-		"novsi":    "true",
-		"bootmode": "norm",
-	}
+	jobParams := make(map[string]string)
+	schemaVersion := "V1_0"
 
-	if profileUUID != "" {
-		jobParams["LogicalPartitionProfile"] = profileUUID
-	}
+	// Apply Netboot Logic & IP Parameters
+	if bootMode == "netboot" {
+		jobParams["OperationType"] = "netboot"
+		schemaVersion = "V1_2_0" 
 
-	if keylock != "" {
-		if keylock == "normal" {
-			keylock = "norm" // Normalize keylock string 
+		// The Hypervisor strictly requires these for netboot:
+		jobParams["LogicalPartitionProfileUUID"] = profileUUID 
+		jobParams["ConnectionSpeed"] = "auto"
+		jobParams["DuplexMode"] = "auto"
+
+		if locationCode != "" { jobParams["SlotPhysicalLocationCode"] = locationCode }
+		if clientIP != "" { jobParams["IPAddress"] = clientIP }
+		if serverIP != "" { jobParams["ServerIPAddress"] = serverIP }
+		if gateway != "" { jobParams["Gateway"] = gateway }
+		if netmask != "" { jobParams["SubnetMask"] = netmask }
+		
+	} else {
+		// Normal boot parameters
+		if bootMode == "" { bootMode = "norm" }
+		jobParams["bootmode"] = bootMode
+		jobParams["force"] = "false"
+		jobParams["novsi"] = "true"
+
+		if profileUUID != "" { jobParams["LogicalPartitionProfile"] = profileUUID }
+		if keylock != "" {
+			if keylock == "normal" { keylock = "norm" }
+			jobParams["keylock"] = keylock
 		}
-		jobParams["keylock"] = keylock
+		if osType == "OS400" && iIPLsource != "" { jobParams["iIPLsource"] = iIPLsource }
 	}
 
-	if osType == "OS400" && iIPLsource != "" {
-		jobParams["iIPLsource"] = iIPLsource
-	}
-
-	// Create XML payload using existing helper. The verbose flag is passed down here.
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, schemaVersion, verbose, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
 
-	// Configure and execute the PUT request 
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %v", err)
@@ -66,10 +73,7 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsou
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
 	req.Header.Set("Accept", "*/*")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
+	req.Header.Set("X-HMC-Schema-Version", schemaVersion) 
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -78,15 +82,10 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsou
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
 		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
-	// Parse XML response and extract JobID 
 	doc, err := xmlStripNamespace(respBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to strip namespaces from XML: %v", err)
@@ -98,13 +97,11 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsou
 	}
 	jobID := jobIDElem.Text()
 
-	// Monitor job status. The verbose flag is safely passed down here too.
-	jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, false, 15, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	// Return the status from the structured response
 	return jobResp.Status, nil
 }
 

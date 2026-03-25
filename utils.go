@@ -876,3 +876,51 @@ func parseLogicalPartitionElements(elements []*etree.Element, verbose bool) ([]L
 	}
 	return detailedPartitions, nil
 }
+
+
+// GetLocationCodeByMac calls GetClientNetworkAdapters and finds the matching LocationCode for a MAC address.
+func (c *HmcRestClient) GetLocationCodeByMac(sysUUID, lparUUID, targetMac string, verbose bool) (string, error) {
+	if verbose {
+		hmcLogger.Printf("Translating MAC %s using ClientNetworkAdapters endpoint...", targetMac)
+	}
+
+	// 1. Fetch all adapters using your existing, robust function!
+	adapters, err := c.GetClientNetworkAdapters(sysUUID, lparUUID, verbose)
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve adapters for MAC translation: %v", err)
+	}
+
+	// Clean the target MAC (strip colons, uppercase)
+	cleanTargetMac := strings.ToUpper(strings.ReplaceAll(targetMac, ":", ""))
+	var availableMacs []string
+
+	// 2. Iterate through the cleanly parsed Go structs
+	for _, adapter := range adapters {
+		// Clean the adapter's MAC for a safe comparison
+		cleanAdapterMac := strings.ToUpper(strings.ReplaceAll(adapter.MACAddress, ":", ""))
+		
+		// Format the found MAC nicely for error logging
+		displayMac := cleanAdapterMac
+		if len(cleanAdapterMac) == 12 {
+			displayMac = fmt.Sprintf("%s:%s:%s:%s:%s:%s", 
+				cleanAdapterMac[0:2], cleanAdapterMac[2:4], cleanAdapterMac[4:6], 
+				cleanAdapterMac[6:8], cleanAdapterMac[8:10], cleanAdapterMac[10:12])
+		}
+		availableMacs = append(availableMacs, displayMac)
+
+		// 3. Match found!
+		if cleanAdapterMac == cleanTargetMac {
+			if adapter.LocationCode != "" {
+				return adapter.LocationCode, nil
+			}
+			
+			// Fallback warning if the HMC returned the adapter but hid the LocationCode
+			if verbose {
+				hmcLogger.Printf("⚠️ Matched MAC %s, but LocationCode is empty! VirtualSlotNumber is: %s", displayMac, adapter.VirtualSlotNumber)
+			}
+			return "", fmt.Errorf("MAC %s found, but the HMC did not provide a LocationCode for it", displayMac)
+		}
+	}
+
+	return "", fmt.Errorf("MAC %s not found. Available MACs on this LPAR: %v", targetMac, availableMacs)
+}
