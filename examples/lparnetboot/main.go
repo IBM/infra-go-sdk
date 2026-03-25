@@ -100,20 +100,18 @@ func main() {
 	// =========================================================================
 	fmt.Println("\n🚀 Sending Netboot Job to Hypervisor...")
 
-	status, err := restClient.PowerOnPartition(
-		partUUID, 
-		profileUUID, 
-		"normal", 
-		"", 
-		"", 
-		"netboot",    
-		locationCode, 
-		*clientIP, 
-		*serverIP, 
-		*gateway, 
-		*netmask, 
-		*verbose,
-	)
+	// Create PowerOnOptions for netboot
+	options := &hmc.PowerOnOptions{
+		ProfileUUID:  profileUUID,
+		BootMode:     "netboot",
+		LocationCode: locationCode,
+		ClientIP:     *clientIP,
+		ServerIP:     *serverIP,
+		Gateway:      *gateway,
+		Netmask:      *netmask,
+	}
+	
+	status, err := restClient.PowerOnPartition(partUUID, options, *verbose)
 
 	if err != nil {
 		log.Fatalf("❌ Failed to network boot partition: %v", err)

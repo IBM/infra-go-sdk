@@ -1395,3 +1395,28 @@ type TemplateValidationResult struct {
 	Status       string
 	ErrorMessage string
 }
+
+// PowerOnOptions contains parameters for powering on a logical partition
+type PowerOnOptions struct {
+	// Required
+	ProfileUUID string // Partition profile UUID
+	
+	// Boot Configuration
+	Keylock  string // "normal" or "manual" (default: "normal")
+	BootMode string // "norm", "dd", "ds", "of", "sms", "netboot" (default: "norm")
+	
+	// IBM i Specific
+	IIPLSource string // IPL source: "a", "b", "c", "d" (for OS400)
+	OSType     string // "AIX/Linux", "OS400", "Virtual IO Server"
+	
+	// Network Boot Parameters
+	LocationCode string // Physical location code (e.g., "U78DA.ND0.WZS00AR-P1-C7-T1")
+	ClientIP     string // Client IP address for netboot
+	ServerIP     string // Server/NIM IP address for netboot
+	Gateway      string // Gateway address for netboot
+	Netmask      string // Subnet mask for netboot
+	
+	// Advanced Network Boot (extensible for future IBM parameters)
+	ConnectionSpeed string // "auto", "1", "10", "100", "1000"
+	DuplexMode      string // "auto", "half", "full"
+}

@@ -13,12 +13,12 @@ import (
 	"github.com/beevik/etree"
 )
 
-// PowerOnPartition powers on a logical partition. Supports static IP netbooting.
-func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsource, osType, bootMode, locationCode, clientIP, serverIP, gateway, netmask string, verbose bool) (string, error) {
+// PowerOnPartition powers on a logical partition using options struct.
+func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOptions, verbose bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOn", c.hmcIP, lparUUID)
 
 	if verbose {
-		hmcLogger.Printf("Powering on partition UUID %s (Mode: %s), URL: %s", lparUUID, bootMode, url)
+		hmcLogger.Printf("Powering on partition UUID %s (Mode: %s), URL: %s", lparUUID, options.BootMode, url)
 	}
 
 	reqdOperation := map[string]string{
@@ -30,35 +30,72 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID, profileUUID, keylock, iIPLsou
 	jobParams := make(map[string]string)
 	schemaVersion := "V1_0"
 
+	// Apply defaults
+	bootMode := options.BootMode
+	if bootMode == "" {
+		bootMode = "norm"
+	}
+	
+	keylock := options.Keylock
+	if keylock == "" {
+		keylock = "normal"
+	}
+
 	// Apply Netboot Logic & IP Parameters
 	if bootMode == "netboot" {
 		jobParams["OperationType"] = "netboot"
-		schemaVersion = "V1_2_0" 
+		schemaVersion = "V1_2_0"
 
 		// The Hypervisor strictly requires these for netboot:
-		jobParams["LogicalPartitionProfileUUID"] = profileUUID 
-		jobParams["ConnectionSpeed"] = "auto"
-		jobParams["DuplexMode"] = "auto"
-
-		if locationCode != "" { jobParams["SlotPhysicalLocationCode"] = locationCode }
-		if clientIP != "" { jobParams["IPAddress"] = clientIP }
-		if serverIP != "" { jobParams["ServerIPAddress"] = serverIP }
-		if gateway != "" { jobParams["Gateway"] = gateway }
-		if netmask != "" { jobParams["SubnetMask"] = netmask }
+		jobParams["LogicalPartitionProfileUUID"] = options.ProfileUUID
 		
+		// Use provided values or defaults
+		if options.ConnectionSpeed != "" {
+			jobParams["ConnectionSpeed"] = options.ConnectionSpeed
+		} else {
+			jobParams["ConnectionSpeed"] = "auto"
+		}
+		
+		if options.DuplexMode != "" {
+			jobParams["DuplexMode"] = options.DuplexMode
+		} else {
+			jobParams["DuplexMode"] = "auto"
+		}
+
+		if options.LocationCode != "" {
+			jobParams["SlotPhysicalLocationCode"] = options.LocationCode
+		}
+		if options.ClientIP != "" {
+			jobParams["IPAddress"] = options.ClientIP
+		}
+		if options.ServerIP != "" {
+			jobParams["ServerIPAddress"] = options.ServerIP
+		}
+		if options.Gateway != "" {
+			jobParams["Gateway"] = options.Gateway
+		}
+		if options.Netmask != "" {
+			jobParams["SubnetMask"] = options.Netmask
+		}
+
 	} else {
 		// Normal boot parameters
-		if bootMode == "" { bootMode = "norm" }
 		jobParams["bootmode"] = bootMode
 		jobParams["force"] = "false"
 		jobParams["novsi"] = "true"
 
-		if profileUUID != "" { jobParams["LogicalPartitionProfile"] = profileUUID }
-		if keylock != "" {
-			if keylock == "normal" { keylock = "norm" }
-			jobParams["keylock"] = keylock
+		if options.ProfileUUID != "" {
+			jobParams["LogicalPartitionProfile"] = options.ProfileUUID
 		}
-		if osType == "OS400" && iIPLsource != "" { jobParams["iIPLsource"] = iIPLsource }
+		
+		if keylock == "normal" {
+			keylock = "norm"
+		}
+		jobParams["keylock"] = keylock
+		
+		if options.OSType == "OS400" && options.IIPLSource != "" {
+			jobParams["iIPLsource"] = options.IIPLSource
+		}
 	}
 
 	payload, err := createJobRequestPayload(reqdOperation, jobParams, schemaVersion, verbose, true)

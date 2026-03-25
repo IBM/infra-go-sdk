@@ -222,7 +222,14 @@ func main() {
 		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
 	}
 
-	_, err = restClient.PowerOnPartition(finalLparUUID, profileUUID, "normal", "", *osType, "", "", "", "", "", "", *verbose)
+	// Create PowerOnOptions
+	options := &hmc.PowerOnOptions{
+		ProfileUUID: profileUUID,
+		Keylock:     "normal",
+		OSType:      *osType,
+	}
+	
+	_, err = restClient.PowerOnPartition(finalLparUUID, options, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}

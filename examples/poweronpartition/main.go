@@ -142,20 +142,21 @@ func main() {
 	// =========================================================================
 	fmt.Println("\n🚀 Initiating Power On...")
 	
-	status, err := restClient.PowerOnPartition(
-		partUUID,
-		profileUUID,
-		*keylock,
-		*iiplSource,
-		*osType,
-		bootModeStr,
-		locationCode,
-		*clientIP,
-		*serverIP,
-		*gateway,
-		*netmask,
-		*verbose,
-	)
+	// Create PowerOnOptions
+	options := &hmc.PowerOnOptions{
+		ProfileUUID:  profileUUID,
+		Keylock:      *keylock,
+		IIPLSource:   *iiplSource,
+		OSType:       *osType,
+		BootMode:     bootModeStr,
+		LocationCode: locationCode,
+		ClientIP:     *clientIP,
+		ServerIP:     *serverIP,
+		Gateway:      *gateway,
+		Netmask:      *netmask,
+	}
+	
+	status, err := restClient.PowerOnPartition(partUUID, options, *verbose)
 	
 	if err != nil {
 		log.Fatalf("❌ Power On failed: %v", err)
