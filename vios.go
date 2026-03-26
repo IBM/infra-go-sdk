@@ -649,176 +649,6 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, verbose bo
 	return fmt.Errorf("JobID not found in RemoveDevice response")
 }
 
-// RunVIOSCommand executes an OS-level command by tunneling it through the HMC CLIRunner job via viosvrcmd.
-// It returns the stdout of the command as a string, and an error if the job fails.
-func (c *HmcRestClient) RunVIOSCommand(cmdString string, verbose bool) (string, error) {
-	// 1. Fetch the Management Console UUID
-	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
-
-	req, err := http.NewRequest("GET", mcURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/atom+xml")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	resp, err := c.client.Do(req.WithContext(ctx))
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch Management Console: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get Management Console (HTTP %d): %s", resp.StatusCode, string(body))
-	}
-
-	mcDoc, err := xmlStripNamespace(body)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse Management Console XML: %v", err)
-	}
-
-	// Extract the Management Console UUID
-	var mcUUID string
-	if entryElem := mcDoc.FindElement("//entry/id"); entryElem != nil {
-		mcUUID = entryElem.Text()
-	} else if uuidElem := mcDoc.FindElement("//ManagementConsole/Metadata/Atom/AtomID"); uuidElem != nil {
-		mcUUID = uuidElem.Text()
-	} else if uuidElem := mcDoc.FindElement("//UUID"); uuidElem != nil {
-		mcUUID = uuidElem.Text()
-	}
-
-	if mcUUID == "" {
-		if verbose {
-			hmcLogger.Printf("Management Console response:\n%s", string(body))
-		}
-		return "", fmt.Errorf("could not resolve Management Console UUID from response")
-	}
-
-	if verbose {
-		hmcLogger.Printf("Resolved Management Console UUID: %s", mcUUID)
-	}
-
-	// 2. Target the Management Console's CLIRunner Job endpoint
-	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/%s/do/CLIRunner", c.hmcIP, mcUUID)
-
-	if verbose {
-		hmcLogger.Printf("Executing HMC CLI Command: %s", cmdString)
-	}
-
-	// 3. Construct the CLIRunner Job Payload
-	payload := fmt.Sprintf(`<JobRequest:JobRequest xmlns:JobRequest="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2" schemaVersion="V1_0">
-       <Metadata>
-           <Atom/>
-       </Metadata>
-       <RequestedOperation kxe="false" kb="CUR" schemaVersion="V1_0">
-           <Metadata>
-               <Atom/>
-           </Metadata>
-           <OperationName kxe="false" kb="ROR">CLIRunner</OperationName>
-           <GroupName kxe="false" kb="ROR">ManagementConsole</GroupName>
-       </RequestedOperation>
-       <JobParameters kxe="false" kb="CUR" schemaVersion="V1_0">
-           <Metadata>
-               <Atom/>
-           </Metadata>
-           <JobParameter schemaVersion="V1_0">
-               <Metadata>
-                   <Atom/>
-               </Metadata>
-               <ParameterName kxe="false" kb="ROR">cmd</ParameterName>
-               <ParameterValue kxe="false" kb="CUR">%s</ParameterValue>
-           </JobParameter>
-           <JobParameter schemaVersion="V1_0">
-               <Metadata>
-                   <Atom/>
-               </Metadata>
-               <ParameterName kxe="false" kb="ROR">acknowledgeThisAPIMayGoAwayInTheFuture</ParameterName>
-               <ParameterValue kxe="false" kb="CUR">true</ParameterValue>
-           </JobParameter>
-       </JobParameters>
-</JobRequest:JobRequest>`, cmdString)
-
-	// 4. Submit the JobRequest via PUT
-	req2, err := http.NewRequest("PUT", url, strings.NewReader(payload))
-	if err != nil {
-		return "", fmt.Errorf("failed to create CLIRunner request: %v", err)
-	}
-	req2.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
-	req2.Header.Set("X-API-Session", c.session)
-	req2.Header.Set("Accept", "application/atom+xml")
-
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel2()
-
-	resp2, err := c.client.Do(req2.WithContext(ctx2))
-	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp2.Body.Close()
-
-	body2, err := io.ReadAll(resp2.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read CLIRunner response: %v", err)
-	}
-
-	if resp2.StatusCode != http.StatusOK && resp2.StatusCode != http.StatusAccepted && resp2.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("CLIRunner failed with status %s: %s", resp2.Status, string(body2))
-	}
-
-	doc2, err := xmlStripNamespace(body2)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse CLIRunner response XML: %v", err)
-	}
-
-	jobIDElem := doc2.FindElement("//JobID")
-	if jobIDElem == nil {
-		jobIDElem = doc2.FindElement("//JobResponse/JobID")
-	}
-
-	var cmdOutput string
-
-	if jobIDElem != nil {
-		jobID := jobIDElem.Text()
-		if verbose {
-			hmcLogger.Printf("CLIRunner Job submitted (Job ID: %s), waiting for completion...", jobID)
-		}
-		
-		// 5. Wait for job completion and capture the resulting document
-		jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
-		if err != nil {
-			return "", fmt.Errorf("CLIRunner job failed: %v", err)
-		}
-
-		// 6. Extract the stdout from the Job Results map
-		if jobResp != nil {
-			// Get stdout from results
-			if stdout, ok := jobResp.Results["stdout"]; ok {
-				cmdOutput = stdout
-			}
-			
-			// Log stderr if present and verbose
-			if stderr, ok := jobResp.Results["stderr"]; ok && stderr != "" && verbose {
-				hmcLogger.Printf("CLIRunner stderr output: %s", stderr)
-			}
-		}
-
-		if verbose {
-			hmcLogger.Printf("✅ CLIRunner job completed successfully")
-		}
-	} else {
-		return "", fmt.Errorf("JobID not found in CLIRunner response: %s", string(body2))
-	}
-
-	return cmdOutput, nil
-}
 
 
 
@@ -1884,7 +1714,7 @@ func (c *HmcRestClient) CreateVirtualDisk(sysName, viosUUID, viosName, vgName, d
 	// Syntax: mklv -lv <diskName> <vgName> <Size>M
 	mklvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mklv -lv %s %s %dM"`, sysName, viosName, diskName, vgName, capacityMB)
 
-	output, err := c.RunVIOSCommand(mklvCmd, verbose)
+	output, err := c.CliRunner(mklvCmd, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to create Virtual Disk via mklv: %v\nOutput: %s", err, output)
 	}
@@ -1915,7 +1745,7 @@ func (c *HmcRestClient) DeleteVirtualDisk(sysName, viosName, diskName string, ve
 		hmcLogger.Printf("Executing: %s", rmlvCmd)
 	}
 
-	output, err := c.RunVIOSCommand(rmlvCmd, verbose)
+	output, err := c.CliRunner(rmlvCmd, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to delete Virtual Disk via rmlv: %v\nOutput: %s", err, output)
 	}
@@ -1984,7 +1814,7 @@ func (c *HmcRestClient) ExtendVirtualDisk(sysName, viosUUID, viosName, diskName 
 
 	extendlvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "extendlv %s %dM"`, sysName, viosName, diskName, additionalMB)
 	
-	output, err := c.RunVIOSCommand(extendlvCmd, verbose)
+	output, err := c.CliRunner(extendlvCmd, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to extend Virtual Disk via extendlv: %v\nOutput: %s", err, output)
 	}
@@ -2053,7 +1883,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMedia(sysName, viosUUID, viosName, m
 	}
 
 	// 3. Execute the creation/import via CLI
-	output, err := c.RunVIOSCommand(mkvoptCmd, verbose)
+	output, err := c.CliRunner(mkvoptCmd, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to create/import Virtual Optical Media: %v\nOutput: %s", err, output)
 	}
@@ -2127,7 +1957,7 @@ func (c *HmcRestClient) CreateMediaRepository(sysName, viosUUID, viosName, vgNam
 	// Syntax: mkrep -sp <vgName> -size <sizeMB>M
 	mkrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mkrep -sp %s -size %dM"`, sysName, viosName, vgName, sizeMB)
 
-	output, err := c.RunVIOSCommand(mkrepCmd, verbose)
+	output, err := c.CliRunner(mkrepCmd, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to create Media Repository via mkrep: %v\nOutput: %s", err, output)
 	}
@@ -2196,7 +2026,7 @@ func (c *HmcRestClient) DeleteMediaRepository(sysName, viosUUID, viosName, repoN
 
 	rmrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmrep%s"`, sysName, viosName, forceFlag)
 	
-	output, err := c.RunVIOSCommand(rmrepCmd, verbose)
+	output, err := c.CliRunner(rmrepCmd, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to delete Media Repository via CLI: %v\nOutput: %s", err, output)
 	}
@@ -2265,7 +2095,7 @@ func (c *HmcRestClient) ChangeMediaRepository(sysName, viosUUID, viosName string
 	// Syntax: chrep -size <Size>M
 	chrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "chrep -size %dM"`, sysName, viosName, additionalMB)
 	
-	output, err := c.RunVIOSCommand(chrepCmd, verbose)
+	output, err := c.CliRunner(chrepCmd, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to extend Media Repository via chrep: %v\nOutput: %s", err, output)
 	}

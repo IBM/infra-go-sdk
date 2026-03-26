@@ -22,18 +22,21 @@ func main() {
 	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_100", "Name for the new LPAR")
+	lparName := flag.String("lpar-name", "helpernode", "Name for the new LPAR")
 	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
 	vswitchName := flag.String("vswitch-name", "ETHERNET0(Default)", "Name of the Virtual Switch")
 	vlanID := flag.Int("vlan-id", 1337, "VLAN ID for the Client Network Adapter")
 
+	// Storage Type Selection
+	storageTypes := flag.String("storage", "physical,virtual,optical", "Comma-separated storage types: physical,virtual,optical")
+
 	// SVC Config (for Physical Disk)
 	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC Username")
 	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC Password")
-	baseImageName := flag.String("base-image", "volume-empty-volume-for-empty-image-d81ee77d-1cc5", "Base image name for FlashCopy")
+	baseImageName := flag.String("base-image", "image-ibm-default-centos-9", "Base image name for FlashCopy (leave empty to create fresh volume without FlashCopy)")
 
 	// Virtual Disk Config
 	targetVios := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS for virtual disk (Leave empty for auto-select)")
@@ -46,6 +49,12 @@ func main() {
 
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+
+	// Parse storage types
+	storageTypesMap := parseStorageTypes(*storageTypes)
+	usePhysical := storageTypesMap["physical"]
+	useVirtual := storageTypesMap["virtual"]
+	useOptical := storageTypesMap["optical"]
 
 	// Derive names from LPAR name with timestamp for uniqueness
 	timestamp := time.Now().Unix() % 10000 // Last 4 digits of timestamp
@@ -60,28 +69,31 @@ func main() {
 	}
 
 	log.Println("=========================================================================")
-	log.Println(" 🚀 Starting Multi-Storage PowerVM LPAR Provisioning")
-	log.Println("    - Physical SAN Disk (via SVC FlashCopy)")
-	log.Println("    - Virtual Disk (Native VIOS LV)")
-	if *mediaNamesStr != "" {
-		log.Println("    - Virtual Optical Media (ISO files)")
+	log.Println(" 🚀 Starting PowerVM LPAR Provisioning")
+	if usePhysical {
+		log.Println("    ✓ Physical SAN Disk (via SVC FlashCopy)")
+	}
+	if useVirtual {
+		log.Println("    ✓ Virtual Disk (Native VIOS LV)")
+	}
+	if useOptical && *mediaNamesStr != "" {
+		log.Println("    ✓ Virtual Optical Media (ISO files)")
 	}
 	log.Println("=========================================================================")
 
 	// =========================================================================
-	// 1. PARALLEL AUTHENTICATION (HMC + SVC)
+	// 1. AUTHENTICATION (HMC + SVC if needed)
 	// =========================================================================
 	log.Println("")
-	log.Println("🔀 Phase 1: Parallel Authentication (HMC || SVC)...")
+	log.Println("🔀 Phase 1: Authentication...")
 
 	var restClient *hmc.HmcRestClient
 	var svcclient *svc.Client
 	var wg sync.WaitGroup
 	var hmcErr, svcErr error
 
-	wg.Add(2)
-
-	// Authenticate to HMC in parallel
+	// Always authenticate to HMC
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		log.Println("[Auth-HMC] Connecting to HMC...")
@@ -93,17 +105,20 @@ func main() {
 		log.Println("[Auth-HMC] ✅ HMC Authentication Successful")
 	}()
 
-	// Authenticate to SVC in parallel
-	go func() {
-		defer wg.Done()
-		log.Println("[Auth-SVC] Connecting to SVC...")
-		svcclient = svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-		if err := svcclient.Authenticate(); err != nil {
-			svcErr = fmt.Errorf("SVC authentication failed: %v", err)
-			return
-		}
-		log.Println("[Auth-SVC] ✅ SVC Authentication Successful")
-	}()
+	// Authenticate to SVC only if physical storage is requested
+	if usePhysical {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Println("[Auth-SVC] Connecting to SVC...")
+			svcclient = svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+			if err := svcclient.Authenticate(); err != nil {
+				svcErr = fmt.Errorf("SVC authentication failed: %v", err)
+				return
+			}
+			log.Println("[Auth-SVC] ✅ SVC Authentication Successful")
+		}()
+	}
 
 	wg.Wait()
 
@@ -117,7 +132,7 @@ func main() {
 
 	defer restClient.Logoff()
 
-	log.Println("✅ Both authentications completed successfully")
+	log.Println("✅ Authentication completed successfully")
 
 	// =========================================================================
 	// 2. SYSTEM RESOLUTION & VALIDATION
@@ -137,7 +152,11 @@ func main() {
 	var vswitchUUID string
 	var lparErr, viosErr, vswitchErr error
 
-	wg.Add(3)
+	parallelOps := 2 // LPAR + vSwitch
+	if usePhysical {
+		parallelOps = 3 // Add VIOS discovery
+	}
+	wg.Add(parallelOps)
 
 	// Thread 1: Create LPAR
 	go func() {
@@ -167,18 +186,20 @@ func main() {
 		log.Printf("[Thread-LPAR] ✅ LPAR Created! UUID: %s", lparDetails.MetadataID)
 	}()
 
-	// Thread 2: Discover VIOS WWPNs
-	go func() {
-		defer wg.Done()
-		log.Println("[Thread-VIOS] Discovering VIOS WWPNs...")
-		var err error
-		viosWwpnMap, viosUuidMap, err = getViosWwpnMap(restClient, sysUUID, *verbose)
-		if err != nil {
-			viosErr = fmt.Errorf("VIOS discovery failed: %v", err)
-			return
-		}
-		log.Println("[Thread-VIOS] ✅ VIOS Discovery Complete.")
-	}()
+	// Thread 2: Discover VIOS WWPNs (only if physical storage needed)
+	if usePhysical {
+		go func() {
+			defer wg.Done()
+			log.Println("[Thread-VIOS] Discovering VIOS WWPNs...")
+			var err error
+			viosWwpnMap, viosUuidMap, err = getViosWwpnMap(restClient, sysUUID, *verbose)
+			if err != nil {
+				viosErr = fmt.Errorf("VIOS discovery failed: %v", err)
+				return
+			}
+			log.Println("[Thread-VIOS] ✅ VIOS Discovery Complete.")
+		}()
+	}
 
 	// Thread 3: Resolve Virtual Switch
 	go func() {
@@ -216,7 +237,7 @@ func main() {
 		log.Fatalf("❌ vSwitch Thread Failed: %v", vswitchErr)
 	}
 
-	log.Println("✅ All 3 parallel operations completed successfully")
+	log.Println("✅ All parallel operations completed successfully")
 
 	// =========================================================================
 	// 4. ATTACH NETWORK ADAPTER
@@ -236,10 +257,10 @@ func main() {
 	log.Printf("[HMC]    Location Code: %s", adapter.LocationCode)
 
 	// =========================================================================
-	// 5. PARALLEL STORAGE PROVISIONING: PHYSICAL SAN || VIRTUAL DISK
+	// 5. STORAGE PROVISIONING (CONDITIONAL BASED ON FLAGS)
 	// =========================================================================
 	log.Println("")
-	log.Println("🔀 Phase 4: Parallel Storage Provisioning (Physical SAN || Virtual Disk)...")
+	log.Println("🔀 Phase 4: Storage Provisioning...")
 
 	type physicalStorageResult struct {
 		targetVol        *svc.Vdisk
@@ -253,119 +274,148 @@ func main() {
 		viosName string
 	}
 
-	physicalResCh := make(chan physicalStorageResult, 1)
-	physicalErrCh := make(chan error, 1)
-	virtualResCh := make(chan virtualStorageResult, 1)
-	virtualErrCh := make(chan error, 1)
-
-	wg.Add(2)
-
-	// Branch A: Provision Physical SAN Disk
-	go func() {
-		defer wg.Done()
-		log.Println("[Branch-A] Starting SVC storage provisioning...")
-
-		targetVol, selectedViosName, err := provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, physicalVolumeName, *verbose)
-		if err != nil {
-			physicalErrCh <- fmt.Errorf("failed to provision SVC storage: %v", err)
-			return
-		}
-
-		selectedViosUUID := viosUuidMap[selectedViosName]
-
-		log.Printf("[Branch-A] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
-		if err := restClient.ConfigDevice(selectedViosUUID, "", *verbose); err != nil {
-			physicalErrCh <- fmt.Errorf("failed to run cfgdev: %v", err)
-			return
-		}
-
-		log.Printf("[Branch-A] Locating new physical volume matching SVC UID: %s...", targetVol.VdiskUID)
-		diskName, err := identifyFreeVolume(restClient, selectedViosUUID, selectedViosName, targetVol.VdiskUID, *verbose)
-		if err != nil {
-			physicalErrCh <- fmt.Errorf("failed to identify free volume: %v", err)
-			return
-		}
-		log.Printf("[Branch-A] ✅ Matched SVC LUN to VIOS Disk: %s", diskName)
-
-		physicalResCh <- physicalStorageResult{
-			targetVol:        targetVol,
-			selectedViosName: selectedViosName,
-			selectedViosUUID: selectedViosUUID,
-			diskName:         diskName,
-		}
-	}()
-
-	// Branch B: Provision Virtual Disk
-	go func() {
-		defer wg.Done()
-		log.Printf("[Branch-B] Discovering optimal Volume Group for %d MB virtual disk...", *virtualDiskSize)
-
-		viosUUID, viosName, err := provisionVirtualDisk(restClient, *sysName, sysUUID, *virtualDiskName, *targetVios, *targetVg, *virtualDiskSize, *verbose)
-		if err != nil {
-			virtualErrCh <- fmt.Errorf("failed to provision virtual disk: %v", err)
-			return
-		}
-
-		log.Printf("[Branch-B] ✅ Virtual Disk '%s' Provisioned on VIOS '%s'.", *virtualDiskName, viosName)
-		virtualResCh <- virtualStorageResult{viosUUID: viosUUID, viosName: viosName}
-	}()
-
-	wg.Wait()
-
-	// Check for errors
 	var physicalStorage physicalStorageResult
-	select {
-	case err := <-physicalErrCh:
-		log.Fatalf("❌ Physical Storage Branch Failed: %v", err)
-	case physicalStorage = <-physicalResCh:
-	}
-
 	var virtualStorage virtualStorageResult
-	select {
-	case err := <-virtualErrCh:
-		log.Fatalf("❌ Virtual Storage Branch Failed: %v", err)
-	case virtualStorage = <-virtualResCh:
+	var storageViosUUID, storageViosName string // For optical media mapping
+
+	storageOps := 0
+	if usePhysical {
+		storageOps++
+	}
+	if useVirtual {
+		storageOps++
 	}
 
-	log.Println("✅ Both storage provisioning branches completed successfully")
+	if storageOps > 0 {
+		physicalResCh := make(chan physicalStorageResult, 1)
+		physicalErrCh := make(chan error, 1)
+		virtualResCh := make(chan virtualStorageResult, 1)
+		virtualErrCh := make(chan error, 1)
+
+		wg.Add(storageOps)
+
+		// Branch A: Provision Physical SAN Disk (if requested)
+		if usePhysical {
+			go func() {
+				defer wg.Done()
+				log.Println("[Branch-Physical] Starting SVC storage provisioning...")
+
+				targetVol, selectedViosName, err := provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, physicalVolumeName, *verbose)
+				if err != nil {
+					physicalErrCh <- fmt.Errorf("failed to provision SVC storage: %v", err)
+					return
+				}
+
+				selectedViosUUID := viosUuidMap[selectedViosName]
+
+				log.Printf("[Branch-Physical] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
+				if err := restClient.ConfigDevice(selectedViosUUID, "", *verbose); err != nil {
+					physicalErrCh <- fmt.Errorf("failed to run cfgdev: %v", err)
+					return
+				}
+
+				log.Printf("[Branch-Physical] Locating new physical volume matching SVC UID: %s...", targetVol.VdiskUID)
+				diskName, err := identifyFreeVolume(restClient, selectedViosUUID, selectedViosName, targetVol.VdiskUID, *verbose)
+				if err != nil {
+					physicalErrCh <- fmt.Errorf("failed to identify free volume: %v", err)
+					return
+				}
+				log.Printf("[Branch-Physical] ✅ Matched SVC LUN to VIOS Disk: %s", diskName)
+
+				physicalResCh <- physicalStorageResult{
+					targetVol:        targetVol,
+					selectedViosName: selectedViosName,
+					selectedViosUUID: selectedViosUUID,
+					diskName:         diskName,
+				}
+			}()
+		}
+
+		// Branch B: Provision Virtual Disk (if requested)
+		if useVirtual {
+			go func() {
+				defer wg.Done()
+				log.Printf("[Branch-Virtual] Discovering optimal Volume Group for %d MB virtual disk...", *virtualDiskSize)
+
+				viosUUID, viosName, err := provisionVirtualDisk(restClient, *sysName, sysUUID, *virtualDiskName, *targetVios, *targetVg, *virtualDiskSize, *verbose)
+				if err != nil {
+					virtualErrCh <- fmt.Errorf("failed to provision virtual disk: %v", err)
+					return
+				}
+
+				log.Printf("[Branch-Virtual] ✅ Virtual Disk '%s' Provisioned on VIOS '%s'.", *virtualDiskName, viosName)
+				virtualResCh <- virtualStorageResult{viosUUID: viosUUID, viosName: viosName}
+			}()
+		}
+
+		wg.Wait()
+
+		// Check for errors and collect results
+		if usePhysical {
+			select {
+			case err := <-physicalErrCh:
+				log.Fatalf("❌ Physical Storage Branch Failed: %v", err)
+			case physicalStorage = <-physicalResCh:
+				storageViosUUID = physicalStorage.selectedViosUUID
+				storageViosName = physicalStorage.selectedViosName
+			}
+		}
+
+		if useVirtual {
+			select {
+			case err := <-virtualErrCh:
+				log.Fatalf("❌ Virtual Storage Branch Failed: %v", err)
+			case virtualStorage = <-virtualResCh:
+				// Virtual storage takes precedence for optical media if both exist
+				storageViosUUID = virtualStorage.viosUUID
+				storageViosName = virtualStorage.viosName
+			}
+		}
+
+		log.Println("✅ Storage provisioning completed successfully")
+	}
 
 	// =========================================================================
-	// 6. MAP BOTH DISKS TO LPAR
+	// 6. MAP DISKS TO LPAR
 	// =========================================================================
 	log.Println("")
-	log.Println("[HMC] Phase 5: Mapping both disks to LPAR...")
+	log.Println("[HMC] Phase 5: Mapping disks to LPAR...")
 
-	// Map Physical Disk
-	log.Printf("[HMC] Attaching Physical Disk '%s' to LPAR '%s'...", physicalStorage.diskName, *lparName)
-	mappingUUID1, err := restClient.CreatePhysicalVolumeMap(sysUUID, physicalStorage.selectedViosUUID, lparUUID, []string{physicalStorage.diskName}, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Physical Storage Mapping Failed: %v", err)
+	// Map Physical Disk (if provisioned)
+	if usePhysical {
+		log.Printf("[HMC] Attaching Physical Disk '%s' to LPAR '%s'...", physicalStorage.diskName, *lparName)
+		mappingUUID1, err := restClient.CreatePhysicalVolumeMap(sysUUID, physicalStorage.selectedViosUUID, lparUUID, []string{physicalStorage.diskName}, *verbose)
+		if err != nil {
+			log.Fatalf("[HMC] Physical Storage Mapping Failed: %v", err)
+		}
+
+		if mappingUUID1 == "SUCCESS_WITH_RMC_WARNING" {
+			log.Printf("[HMC] ✅ Physical disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
+		} else {
+			log.Printf("[HMC] ✅ Physical disk mapped successfully!")
+		}
 	}
 
-	if mappingUUID1 == "SUCCESS_WITH_RMC_WARNING" {
-		log.Printf("[HMC] ✅ Physical disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
-	} else {
-		log.Printf("[HMC] ✅ Physical disk mapped successfully!")
-	}
+	// Map Virtual Disk (if provisioned)
+	if useVirtual {
+		log.Printf("[HMC] Attaching Virtual Disk '%s' to LPAR '%s'...", *virtualDiskName, *lparName)
+		mappingUUID2, err := restClient.CreateVirtualDiskMaps(sysUUID, virtualStorage.viosUUID, lparUUID, []string{*virtualDiskName}, *verbose)
+		if err != nil {
+			log.Fatalf("[HMC] Virtual Storage Mapping Failed: %v", err)
+		}
 
-	// Map Virtual Disk
-	log.Printf("[HMC] Attaching Virtual Disk '%s' to LPAR '%s'...", *virtualDiskName, *lparName)
-	mappingUUID2, err := restClient.CreateVirtualDiskMaps(sysUUID, virtualStorage.viosUUID, lparUUID, []string{*virtualDiskName}, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Virtual Storage Mapping Failed: %v", err)
-	}
-
-	if mappingUUID2 == "SUCCESS_WITH_RMC_WARNING" {
-		log.Printf("[HMC] ✅ Virtual disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
-	} else {
-		log.Printf("[HMC] ✅ Virtual disk mapped successfully!")
+		if mappingUUID2 == "SUCCESS_WITH_RMC_WARNING" {
+			log.Printf("[HMC] ✅ Virtual disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
+		} else {
+			log.Printf("[HMC] ✅ Virtual disk mapped successfully!")
+		}
 	}
 
 	// =========================================================================
-	// 6. MAP OPTICAL MEDIA (OPTIONAL)
+	// 7. MAP OPTICAL MEDIA (OPTIONAL)
 	// =========================================================================
 	var opticalMediaCount int
-	if *mediaNamesStr != "" {
+	if useOptical && *mediaNamesStr != "" && storageViosUUID != "" {
 		log.Println("")
 		log.Println("[HMC] Phase 5.5: Mapping Virtual Optical Media...")
 		
@@ -376,7 +426,7 @@ func main() {
 		}
 		
 		log.Printf("[HMC] Attaching %d Virtual Optical Media to LPAR '%s'...", len(mediaNames), *lparName)
-		mappingUUID3, err := restClient.CreateVirtualOpticalMaps(sysUUID, virtualStorage.viosUUID, lparUUID, mediaNames, *verbose)
+		mappingUUID3, err := restClient.CreateVirtualOpticalMaps(sysUUID, storageViosUUID, lparUUID, mediaNames, *verbose)
 		if err != nil {
 			log.Printf("[HMC] ⚠️  Warning: Virtual Optical Media mapping failed: %v", err)
 		} else {
@@ -390,7 +440,7 @@ func main() {
 	}
 
 	// =========================================================================
-	// 7. SAVE CONFIGURATION & POWER ON THE LPAR
+	// 8. SAVE CONFIGURATION & POWER ON THE LPAR
 	// =========================================================================
 	// Use the default profile name from the LPAR details
 	profileName := lparDetails.DefaultProfileName
@@ -435,20 +485,37 @@ func main() {
 
 	log.Println("")
 	log.Println("=========================================================================")
-	log.Printf(" 🎉 SUCCESS: Multi-Storage PowerVM Provisioning Complete!")
+	log.Printf(" 🎉 SUCCESS: PowerVM Provisioning Complete!")
 	log.Printf("    - LPAR Name      : %s is BOOTING", *lparName)
 	log.Printf("    - Network        : Attached to %s (VLAN %d)", *vswitchName, *vlanID)
-	log.Printf("    - Physical Disk  : SVC Vol '%s' (%s) via %s", physicalStorage.targetVol.Name, physicalStorage.diskName, physicalStorage.selectedViosName)
-	log.Printf("    - Virtual Disk   : Native LV '%s' via %s", *virtualDiskName, virtualStorage.viosName)
+	if usePhysical {
+		log.Printf("    - Physical Disk  : SVC Vol '%s' (%s) via %s", physicalStorage.targetVol.Name, physicalStorage.diskName, physicalStorage.selectedViosName)
+	}
+	if useVirtual {
+		log.Printf("    - Virtual Disk   : Native LV '%s' via %s", *virtualDiskName, virtualStorage.viosName)
+	}
 	if opticalMediaCount > 0 {
-		log.Printf("    - Optical Media  : %d ISO(s) mounted via %s", opticalMediaCount, virtualStorage.viosName)
+		log.Printf("    - Optical Media  : %d ISO(s) mounted via %s", opticalMediaCount, storageViosName)
 	}
 	log.Println("=========================================================================")
 }
 
 // =========================================================================
-// WORKFLOW HELPER FUNCTIONS
+// HELPER FUNCTIONS
 // =========================================================================
+
+// parseStorageTypes parses comma-separated storage types into a map
+func parseStorageTypes(storageStr string) map[string]bool {
+	result := make(map[string]bool)
+	types := strings.Split(storageStr, ",")
+	for _, t := range types {
+		t = strings.TrimSpace(strings.ToLower(t))
+		if t == "physical" || t == "virtual" || t == "optical" {
+			result[t] = true
+		}
+	}
+	return result
+}
 
 func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
 	systems, err := restClient.GetManagedSystemQuickAll(verbose)
@@ -590,31 +657,50 @@ func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMa
 		return nil, "", fmt.Errorf("mkvdisk error: %v", err)
 	}
 
-	sourceVol, err := svcclient.LsVdiskByName(baseImageName)
-	if err != nil {
-		return nil, "", fmt.Errorf("error finding source volume %s: %v", baseImageName, err)
-	}
 	targetVol, err := svcclient.LsVdiskByName(volume.Name)
 	if err != nil {
 		return nil, "", fmt.Errorf("error finding target volume %s: %v", volume.Name, err)
 	}
 
-	fcmapping := svc.FlashCopyMapping{
-		Name:        fmt.Sprintf("fcmap_%d", time.Now().Unix()),
-		Source:      sourceVol.ID,
-		Target:      targetVol.ID,
-		CopyRate:    150,
-		GrainSize:   256,
-		Incremental: true,
-		AutoDelete:  true,
-	}
-	if err := svcclient.Mkfcmap(fcmapping); err != nil {
-		return nil, "", fmt.Errorf("mkfcmap error: %v", err)
-	}
+	// Perform FlashCopy only if baseImageName is provided
+	if baseImageName != "" {
+		if verbose {
+			log.Printf("[SVC] Creating FlashCopy from base image '%s'...", baseImageName)
+		}
+		
+		sourceVol, err := svcclient.LsVdiskByName(baseImageName)
+		if err != nil {
+			return nil, "", fmt.Errorf("error finding source volume %s: %v", baseImageName, err)
+		}
+		if verbose {
+			log.Printf("[SVC] Creating FlashCopy from base image ID '%s'...", sourceVol.ID)
+		}
 
-	fmapping := svc.FlashCopyMappingStart{ID: fcmapping.Name, Prep: true, Restore: true}
-	if err := svcclient.Startfcmap(fmapping); err != nil {
-		return nil, "", fmt.Errorf("startfcmap error: %v", err)
+		fcmapping := svc.FlashCopyMapping{
+			Name:        fmt.Sprintf("fcmap_%d", time.Now().Unix()),
+			Source:      sourceVol.ID,
+			Target:      targetVol.ID,
+			CopyRate:    150,
+			GrainSize:   256,
+			Incremental: true,
+			AutoDelete:  true,
+		}
+		if err := svcclient.Mkfcmap(fcmapping); err != nil {
+			return nil, "", fmt.Errorf("mkfcmap error: %v", err)
+		}
+
+		fmapping := svc.FlashCopyMappingStart{ID: fcmapping.Name, Prep: true, Restore: true}
+		if err := svcclient.Startfcmap(fmapping); err != nil {
+			return nil, "", fmt.Errorf("startfcmap error: %v", err)
+		}
+		
+		if verbose {
+			log.Printf("[SVC] ✅ FlashCopy completed successfully")
+		}
+	} else {
+		if verbose {
+			log.Printf("[SVC] Creating fresh volume without FlashCopy...")
+		}
 	}
 
 	mapping := svc.VolumeHostMap{Host: targetHost.ID, Force: true, VDisk: volume.Name}

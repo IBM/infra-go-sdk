@@ -942,7 +942,7 @@ func (c *HmcRestClient) GetLocationCodeByMac(sysUUID, lparUUID, targetMac string
 	return "", fmt.Errorf("MAC %s not found. Available MACs on this LPAR: %v", targetMac, availableMacs)
 }
 
-// MountNFS mounts an NFS export on a VIOS using the mount command via RunVIOSCommand.
+// MountNFS mounts an NFS export on a VIOS using the mount command via CliRunner.
 // Parameters:
 //   - restClient: The HMC REST client instance
 //   - sysName: The managed system name
@@ -985,7 +985,7 @@ func MountNFS(restClient *HmcRestClient, sysName, viosName, nfsServer, exportPat
 		hmcLogger.Printf("Executing NFS mount command: %s", cmd)
 	}
 
-	output, err := restClient.RunVIOSCommand(cmd, verbose)
+	output, err := restClient.CliRunner(cmd, verbose)
 	if err != nil {
 		return output, fmt.Errorf("failed to mount NFS: %v\nOutput: %s", err, output)
 	}
@@ -997,7 +997,7 @@ func MountNFS(restClient *HmcRestClient, sysName, viosName, nfsServer, exportPat
 	return output, nil
 }
 
-// UnmountNFS unmounts an NFS mount point on a VIOS using the unmount command via RunVIOSCommand.
+// UnmountNFS unmounts an NFS mount point on a VIOS using the unmount command via CliRunner.
 // Parameters:
 //   - restClient: The HMC REST client instance
 //   - sysName: The managed system name
@@ -1028,7 +1028,7 @@ func UnmountNFS(restClient *HmcRestClient, sysName, viosName, mountPoint string,
 		hmcLogger.Printf("Executing NFS unmount command: %s", cmd)
 	}
 
-	output, err := restClient.RunVIOSCommand(cmd, verbose)
+	output, err := restClient.CliRunner(cmd, verbose)
 	if err != nil {
 		return output, fmt.Errorf("failed to unmount NFS: %v\nOutput: %s", err, output)
 	}
@@ -1038,4 +1038,26 @@ func UnmountNFS(restClient *HmcRestClient, sysName, viosName, mountPoint string,
 	}
 
 	return output, nil
+}
+
+// CloseVirtualTerminal forcefully closes an open console session on an LPAR using the HMC CLIRunner.
+func (c *HmcRestClient) CloseVirtualTerminal(sysName, lparName string, verbose bool) error {
+	if verbose {
+		hmcLogger.Printf("Forcing closure of virtual terminal for LPAR '%s' on system '%s'...", lparName, sysName)
+	}
+
+	// The native HMC CLI command to kill a vterm session
+	cliCmd := fmt.Sprintf("rmvterm -m %s -p %s", sysName, lparName)
+
+	// Execute it using the CLIRunner function
+	output, err := c.CliRunner(cliCmd, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to close terminal: %v (Output: %s)", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Virtual terminal closed successfully. Output: %s", output)
+	}
+	
+	return nil
 }

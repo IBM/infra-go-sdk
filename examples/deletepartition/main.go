@@ -269,7 +269,7 @@ func main() {
 				continue
 			}
 			cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s -recursive"`, *sysName, m.ViosName, m.VolName)
-			restClient.RunVIOSCommand(cmd, *verbose)
+			restClient.CliRunner(cmd, *verbose)
 			processedVios[m.ViosUUID] = m.ViosName
 		}
 
