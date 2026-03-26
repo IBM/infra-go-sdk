@@ -124,8 +124,8 @@ func main() {
 			Name:             "Go_LPAR_99",
 			OsType:           *osType, // ❌ Do not use "/Linux" or "Linux"
 			MinMem:           2048,
-			DesiredMem:       4096,
-			MaxMem:           8192,
+			DesiredMem:       32768,
+			MaxMem:           65536,
 			MinProcUnits:     0.1,
 			DesiredProcUnits: 0.5,
 			MaxProcUnits:     2.0,
@@ -211,12 +211,15 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Printf("[Thread-Network] Attaching VLAN %d to LPAR...", *vlanID)
-		_, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
 		if err != nil {
 			networkErr2 = fmt.Errorf("failed to add network adapter: %v", err)
 			return
 		}
 		log.Printf("[Thread-Network] ✅ Network Adapter Attached.")
+		log.Printf("[Thread-Network]    Adapter UUID: %s", adapter.UUID)
+		log.Printf("[Thread-Network]    MAC Address: %s", hmc.FormatMACAddress(adapter.MACAddress))
+		log.Printf("[Thread-Network]    Virtual Slot: %s", adapter.VirtualSlotNumber)
 	}()
 	
 	// Thread 2: Provision SVC Storage

@@ -150,7 +150,7 @@ func buildLparConfigDict(verbose bool) map[string]string {
 	if verbose {
 		log.Println("[CONFIG] Building LPAR configuration dictionary with default values...")
 	}
-	proc, procUnit, mem, maxVirtualSlots := 2, 2, 2048, 50
+	proc, procUnit, mem, maxVirtualSlots := 2, 2, 65536, 50
 	
 	configDict := make(map[string]string)
 	configDict["vm_name"] = "test-test-test"

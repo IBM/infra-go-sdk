@@ -241,7 +241,8 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, ve
 }
 
 // CreateClientNetworkAdapter adds a new Virtual Ethernet Adapter to an LPAR and connects it to a Virtual Switch.
-func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID string, vlanID int, verbose bool) (string, error) {
+// Returns the complete ClientNetworkAdapter structure with all details.
+func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID string, vlanID int, verbose bool) (*ClientNetworkAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, lparUUID)
 
 	if verbose {
@@ -263,7 +264,7 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUI
 
 	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	httpReq.Header.Set("X-API-Session", c.session)
@@ -276,31 +277,57 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUI
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	
+	if verbose {
+		hmcLogger.Printf("CreateClientNetworkAdapter response status: %s", resp.Status)
+		hmcLogger.Printf("CreateClientNetworkAdapter response body:\n%s", string(body))
+	}
+	
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Adapter creation failed (%s): %s", resp.Status, string(body))
+		return nil, fmt.Errorf("Adapter creation failed (%s): %s", resp.Status, string(body))
 	}
 
+	// Parse the XML response and strip namespaces
 	doc, err := xmlStripNamespace(body)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
-	atomID := doc.FindElement("//AtomID")
-	if atomID == nil {
-		return "", fmt.Errorf("Adapter created successfully, but failed to extract new UUID")
+	// Extract the ClientNetworkAdapter element
+	adapterElement := doc.FindElement("//ClientNetworkAdapter")
+	if adapterElement == nil {
+		return nil, fmt.Errorf("ClientNetworkAdapter element not found in response")
 	}
 
-	newUUID := atomID.Text()
+	// Convert the element to a standalone document for unmarshaling
+	adapterDoc := etree.NewDocument()
+	adapterDoc.SetRoot(adapterElement.Copy())
+	adapterBytes, err := adapterDoc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize adapter element: %v", err)
+	}
+
+	// Unmarshal into the ClientNetworkAdapter struct
+	var adapter ClientNetworkAdapter
+	if err := xml.Unmarshal(adapterBytes, &adapter); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal adapter XML: %v", err)
+	}
+
 	if verbose {
-		hmcLogger.Printf("✅ Client Network Adapter created! UUID: %s", newUUID)
+		hmcLogger.Printf("✅ Client Network Adapter created successfully!")
+		hmcLogger.Printf("   UUID: %s", adapter.UUID)
+		hmcLogger.Printf("   MAC Address: %s", adapter.MACAddress)
+		hmcLogger.Printf("   VLAN ID: %s", adapter.PortVLANID)
+		hmcLogger.Printf("   Virtual Slot: %s", adapter.VirtualSlotNumber)
+		hmcLogger.Printf("   Location Code: %s", adapter.LocationCode)
 	}
 
-	return newUUID, nil
+	return &adapter, nil
 }
 // DeleteClientNetworkAdapter removes a specific Virtual Ethernet Adapter from an LPAR.
 func (c *HmcRestClient) DeleteClientNetworkAdapter(lparUUID, adapterUUID string, verbose bool) error {

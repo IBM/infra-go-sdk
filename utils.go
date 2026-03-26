@@ -12,6 +12,23 @@ import (
 	"github.com/beevik/etree"
 )
 
+// FormatMACAddress formats a MAC address string by inserting colons every 2 characters
+// Example: "DA20D7D4B802" -> "DA:20:D7:D4:B8:02"
+func FormatMACAddress(mac string) string {
+	if len(mac) != 12 {
+		return mac // Return as-is if not standard 12-character format
+	}
+	var formatted strings.Builder
+	for i := 0; i < len(mac); i += 2 {
+		if i > 0 {
+			formatted.WriteString(":")
+		}
+		formatted.WriteString(mac[i : i+2])
+	}
+	return formatted.String()
+}
+
+
 // VolumeConfig defines the configuration for a volume
 type VolumeConfig struct {
 	ViosName   string // Name of the VIOS managing the volume
@@ -923,4 +940,102 @@ func (c *HmcRestClient) GetLocationCodeByMac(sysUUID, lparUUID, targetMac string
 	}
 
 	return "", fmt.Errorf("MAC %s not found. Available MACs on this LPAR: %v", targetMac, availableMacs)
+}
+
+// MountNFS mounts an NFS export on a VIOS using the mount command via RunVIOSCommand.
+// Parameters:
+//   - restClient: The HMC REST client instance
+//   - sysName: The managed system name
+//   - viosName: The VIOS partition name
+//   - nfsServer: The NFS server hostname or IP address
+//   - exportPath: The NFS export path on the server (e.g., /export/data)
+//   - mountPoint: The local mount point on VIOS (e.g., /mnt/nfs)
+//   - options: NFS version to use (e.g., "3" or "4"). Use empty string for default
+//   - verbose: Enable verbose logging
+//
+// Returns the command output and any error encountered.
+//
+// Note: Uses AIX mount command. The mount point directory must exist before mounting.
+// Syntax: mount [-nfsvers version] Node:Directory Directory
+//
+// Example:
+//   output, err := MountNFS(client, "sys1", "vios1", "192.168.1.100", "/export/iso", "/mnt/iso", "3", true)
+func MountNFS(restClient *HmcRestClient, sysName, viosName, nfsServer, exportPath, mountPoint, options string, verbose bool) (string, error) {
+	if sysName == "" || viosName == "" || nfsServer == "" || exportPath == "" || mountPoint == "" {
+		return "", fmt.Errorf("sysName, viosName, nfsServer, exportPath, and mountPoint are required")
+	}
+
+	if verbose {
+		hmcLogger.Printf("Mounting NFS: %s:%s -> %s on VIOS %s (System: %s)",
+			nfsServer, exportPath, mountPoint, viosName, sysName)
+	}
+
+	// Build the mount command using AIX syntax
+	// Syntax: mount [-nfsvers version] Node:Directory Directory
+	var cmd string
+	if options != "" {
+		cmd = fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mount -nfsvers %s %s:%s %s"`,
+			sysName, viosName, options, nfsServer, exportPath, mountPoint)
+	} else {
+		cmd = fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mount %s:%s %s"`,
+			sysName, viosName, nfsServer, exportPath, mountPoint)
+	}
+
+	if verbose {
+		hmcLogger.Printf("Executing NFS mount command: %s", cmd)
+	}
+
+	output, err := restClient.RunVIOSCommand(cmd, verbose)
+	if err != nil {
+		return output, fmt.Errorf("failed to mount NFS: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ NFS mounted successfully. Output: %s", strings.TrimSpace(output))
+	}
+
+	return output, nil
+}
+
+// UnmountNFS unmounts an NFS mount point on a VIOS using the unmount command via RunVIOSCommand.
+// Parameters:
+//   - restClient: The HMC REST client instance
+//   - sysName: The managed system name
+//   - viosName: The VIOS partition name
+//   - mountPoint: The local mount point to unmount (e.g., /mnt/nfs)
+//   - verbose: Enable verbose logging
+//
+// Returns the command output and any error encountered.
+//
+// Example:
+//   output, err := UnmountNFS(client, "sys1", "vios1", "/mnt/iso", true)
+func UnmountNFS(restClient *HmcRestClient, sysName, viosName, mountPoint string, verbose bool) (string, error) {
+	if sysName == "" || viosName == "" || mountPoint == "" {
+		return "", fmt.Errorf("sysName, viosName, and mountPoint are required")
+	}
+
+	if verbose {
+		hmcLogger.Printf("Unmounting NFS: %s on VIOS %s (System: %s)",
+			mountPoint, viosName, sysName)
+	}
+
+	// Build the umount command
+	// Syntax: umount Directory
+	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "unmount %s"`,
+		sysName, viosName, mountPoint)
+
+	if verbose {
+		hmcLogger.Printf("Executing NFS unmount command: %s", cmd)
+	}
+
+	output, err := restClient.RunVIOSCommand(cmd, verbose)
+	if err != nil {
+		return output, fmt.Errorf("failed to unmount NFS: %v\nOutput: %s", err, output)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ NFS unmounted successfully. Output: %s", strings.TrimSpace(output))
+	}
+
+	return output, nil
 }

@@ -33,7 +33,7 @@ func main() {
 	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC Username")
 	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC Password")
-	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
+	baseImageName := flag.String("base-image", "volume-empty-volume-for-empty-image-d81ee77d-1cc5", "Base image name for FlashCopy")
 
 	// Virtual Disk Config
 	targetVios := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS for virtual disk (Leave empty for auto-select)")
@@ -42,7 +42,7 @@ func main() {
 	virtualDiskSize := flag.Int("vdisk-size", 51200, "Size of the Virtual Disk in Megabytes")
 
 	// Optical Media Config
-	mediaNamesStr := flag.String("media-names", "test_iso", "Comma-separated list of ISO files to map (e.g., 'rhel9.iso,aix73.iso'). Leave empty to skip optical mapping.")
+	mediaNamesStr := flag.String("media-names", "ocp_1774438837", "Comma-separated list of ISO files to map (e.g., 'rhel9.iso,aix73.iso'). Leave empty to skip optical mapping.")
 
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
@@ -147,10 +147,10 @@ func main() {
 			Name:             *lparName,
 			OsType:           *osType,
 			MinMem:           2048,
-			DesiredMem:       4096,
-			MaxMem:           8192,
+			DesiredMem:       32768,
+			MaxMem:           65536,
 			MinProcUnits:     0.1,
-			DesiredProcUnits: 0.5,
+			DesiredProcUnits: 1,
 			MaxProcUnits:     2.0,
 			MinVcpus:         1,
 			DesiredVcpus:     2,
@@ -225,11 +225,15 @@ func main() {
 	
 	log.Println("")
 	log.Printf("[HMC] Phase 3: Attaching VLAN %d to LPAR...", *vlanID)
-	_, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+	adapter, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to add network adapter: %v", err)
 	}
 	log.Printf("[HMC] ✅ Network Adapter Attached.")
+	log.Printf("[HMC]    Adapter UUID: %s", adapter.UUID)
+	log.Printf("[HMC]    MAC Address: %s", hmc.FormatMACAddress(adapter.MACAddress))
+	log.Printf("[HMC]    Virtual Slot: %s", adapter.VirtualSlotNumber)
+	log.Printf("[HMC]    Location Code: %s", adapter.LocationCode)
 
 	// =========================================================================
 	// 5. PARALLEL STORAGE PROVISIONING: PHYSICAL SAN || VIRTUAL DISK

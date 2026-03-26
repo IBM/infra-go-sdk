@@ -19,8 +19,8 @@ func main() {
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
 	
 	viosName := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS (Required)")
-	mediaName := flag.String("media-name", fmt.Sprintf("test_iso_%d", time.Now().Unix()), "Name of the Virtual Optical Media inside the repository")
-	fileName := flag.String("file-name", "/home/padmin/test.iso", "Absolute path to the existing ISO file on the VIOS filesystem")
+	mediaName := flag.String("media-name", fmt.Sprintf("ocp_%d", time.Now().Unix()), "Name of the Virtual Optical Media inside the repository")
+	fileName := flag.String("file-name", "/mnt/ocp.iso", "Absolute path to the existing ISO file on the VIOS filesystem")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 

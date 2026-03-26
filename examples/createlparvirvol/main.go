@@ -79,8 +79,8 @@ func main() {
 			Name:             *lparName,
 			OsType:           *osType ,
 			MinMem:           2048,
-			DesiredMem:       4096,
-			MaxMem:           8192,
+			DesiredMem:       32768,
+			MaxMem:           65536,
 			MinProcUnits:     0.1,
 			DesiredProcUnits: 0.5,
 			MaxProcUnits:     2.0,
@@ -122,12 +122,15 @@ func main() {
 		}
 
 		log.Printf("[Branch 1] Attaching VLAN %d to LPAR...", *vlanID)
-		_, err = restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
 		if err != nil {
 			networkErrCh <- fmt.Errorf("Failed to add network adapter: %v", err)
 			return
 		}
 		log.Printf("[Branch 1] ✅ Network Adapter Attached.")
+		log.Printf("[Branch 1]    Adapter UUID: %s", adapter.UUID)
+		log.Printf("[Branch 1]    MAC Address: %s", hmc.FormatMACAddress(adapter.MACAddress))
+		log.Printf("[Branch 1]    Virtual Slot: %s", adapter.VirtualSlotNumber)
 		networkErrCh <- nil 
 	}()
 
