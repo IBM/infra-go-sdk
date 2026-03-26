@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 
@@ -8,22 +9,25 @@ import (
 )
 
 func main() {
-	hmcIP      := "192.0.2.1"
-	username   := "REDACTED_HMC_USER<=="
-	password   := "REDACTED_HMC_PASS<=="
-	targetName := "LTC09U31-ZZ"
-	verbose    := false
+	// Command-line flags
+	hmcIP := flag.String("hmc", "192.0.2.1", "HMC IP address")
+	username := flag.String("user", "REDACTED_HMC_USER<==", "HMC username")
+	password := flag.String("pass", "REDACTED_HMC_PASS<==", "HMC password")
+	targetName := flag.String("system", "LTC09U31-ZZ", "Managed system name")
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	
+	flag.Parse()
 
-	restClient := hmc.NewHmcRestClient(hmcIP)
-	if err := restClient.Login(username, password, verbose); err != nil {
+	restClient := hmc.NewHmcRestClient(*hmcIP)
+	if err := restClient.Login(*username, *password, *verbose); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
 	defer restClient.Logoff()
 
-	fmt.Printf("Searching for Managed System: %s...\n", targetName)
+	fmt.Printf("Searching for Managed System: %s...\n", *targetName)
 	
 	// Use the upgraded function that returns the UUID and our comprehensive struct
-	uuid, detailedSystem, err := restClient.GetManagedSystemByName(targetName, verbose)
+	uuid, detailedSystem, err := restClient.GetManagedSystemByName(*targetName, *verbose)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}

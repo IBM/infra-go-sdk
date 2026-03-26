@@ -96,6 +96,10 @@ func (c *HmcRestClient) GetManagedSystemByName(systemName string, verbose bool) 
 		return "", nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
+	if verbose {
+		hmcLogger.Printf("GetManagedSystemByName API response body:\n%s", string(body))
+	}
+
 	// 1. Strip the namespaces using your helper
 	doc, err := xmlStripNamespace(body)
 	if err != nil {
