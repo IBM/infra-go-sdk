@@ -1,0 +1,275 @@
+# =============================================================================
+# Single Node OpenShift (SNO) Configuration for IBM Power Systems
+# =============================================================================
+# This configuration deploys a minimal OpenShift cluster with:
+# - 1 Helper/Bastion node (for dnsmasq, HTTP services)
+# - 1 Master node (acts as both control plane and worker)
+# - NO separate worker nodes
+# - NO bootstrap node (SNO uses different installation method)
+#
+# SNO is ideal for:
+# - Edge deployments
+# - Development/testing environments
+# - Resource-constrained environments
+# - Single-system deployments
+# =============================================================================
+
+# =============================================================================
+# HMC CONFIGURATION
+# =============================================================================
+hmc:
+  ip: "192.0.2.1"
+  username: "REDACTED_HMC_USER<=="
+  password: "REDACTED_HMC_PASS<=="
+
+# =============================================================================
+# POWER SYSTEMS CONFIGURATION
+# =============================================================================
+# Single system is sufficient for SNO
+power_systems:
+  - name: "LTC09U31-ZZ"
+    vswitch_name: "ETHERNET0(Default)"
+    vlan_id: 1337
+    max_lpars: 5
+    available_memory_gb: 256
+    available_processors: 16
+
+# =============================================================================
+# STORAGE BACKEND CONFIGURATION
+# =============================================================================
+storage:
+  type: "vios"  # Using VIOS for local storage
+  
+  vios:
+    - system_name: "LTC09U31-ZZ"
+      vios_name: "ltc09u31-vios1"
+      volume_group: "auto_vg01"
+
+# =============================================================================
+# NETWORK CONFIGURATION
+# =============================================================================
+network:
+  domain: "example.com"
+  cluster_name: "sno"
+  base_domain: "example.com"
+  
+  network_cidr: "192.0.2.0/20"
+  gateway: "192.0.2.254"
+  netmask: "255.255.240.0"
+  broadcast: "203.0.113.255"
+  nameserver: "192.0.2.10"  # Helper node
+  
+  dns_forwarders:
+    - "10.0.10.4"
+    - "10.0.10.5"
+  
+  ntp_servers:
+    - "10.0.10.4"
+    - "10.0.10.5"
+  
+  mac_prefix: "52:54:00"
+
+# =============================================================================
+# OPENSHIFT CLUSTER CONFIGURATION
+# =============================================================================
+openshift:
+  version: "4.21"
+  pull_secret_file: "./pull-secret.json"
+  ssh_public_key_file: "~/.ssh/id_rsa.pub"
+  
+  # SNO-specific networking
+  cluster_network_cidr: "10.128.0.0/14"
+  cluster_network_host_prefix: 23
+  service_network: "172.30.0.0/16"
+  machine_network: "192.0.2.0/20"
+  
+  # RHCOS Image URLs for PXE boot (OCP 4.21)
+  # Get these URLs from: https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/
+  rhcos_images:
+    kernel_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-kernel.ppc64le"
+    initramfs_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-initramfs.ppc64le.img"
+    rootfs_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-rootfs.ppc64le.img"
+  
+  # OpenShift Client and Installer Configuration (OCP 4.21)
+  # These variable names match the Ansible playbook exactly
+  # Get URLs from: https://mirror.openshift.com/pub/openshift-v4/multi/clients/ocp/
+  ocp_client_config:
+    ocp_client_arch: "ppc64le"
+    ocp_base_url: "https://mirror.openshift.com/pub/openshift-v4/multi/clients"
+    ocp_client_base: "ocp"
+    ocp_client_tag: "latest-4.21"
+    ocp_client: "https://mirror.openshift.com/pub/openshift-v4/multi/clients/ocp/latest-4.21/ppc64le/openshift-client-linux.tar.gz"
+    ocp_installer: "https://mirror.openshift.com/pub/openshift-v4/multi/clients/ocp/latest-4.21/ppc64le/openshift-install-linux.tar.gz"
+  
+  # Disk device where RHCOS will be installed
+  disk_device: "/dev/sda"
+  
+  # Installation type: agent, assisted, sno, normal
+  install_type: "sno"
+  
+  # Download RHCOS and client for PXE setup
+  # For SNO and normal installations, set to true
+  # For Agent-based and assisted installations, set to false
+  force_ocp_download: true
+  
+  # RHCOS architecture
+  rhcos_arch: "ppc64le"
+  
+  # Kernel options for RHCOS nodes (optional)
+  rhcos_kernel_options: []
+  # Example: ["slub_max_order=0", "loglevel=7"]
+  
+  # Apply sysctl options via tuned operator
+  sysctl_tuned_options: false
+  
+  # Deploy RMC daemonset on ppc64le nodes
+  powervm_rmc: true
+  
+  # Force DNS to use the helper as the DNS server
+  force_dns: true
+
+# =============================================================================
+# ANSIBLE PLAYBOOK CONFIGURATION
+# =============================================================================
+# Configuration for the Ansible playbook used to setup the helper node
+# and perform OpenShift installation tasks
+ansible:
+  # Git repository containing the Ansible playbook
+  # Default: https://github.com/cs-zhang/ocp4-ai-powervm.git
+  # You can specify your own fork or customized version here
+  playbook_repo: "https://github.com/sudeeshjohn/ocp4-ai-powervm.git"
+  
+  # Git branch to checkout
+  # Default: main
+  playbook_branch: "main"
+  
+  # Path to the Ansible variables file (relative to playbook directory)
+  # This file will be generated by the deployer
+  # Default: vars.yaml
+  vars_file: "vars.yaml"
+
+# =============================================================================
+# HELPER NODE (BASTION) CONFIGURATION
+# =============================================================================
+# IMPORTANT: The helper node must be pre-provisioned by the user with:
+# - RHEL 8/9 or CentOS Stream installed
+# - Network connectivity to HMC and cluster network
+# - SSH access configured
+# - Sufficient disk space for RHCOS images and configs (minimum 150GB)
+#
+# The deployer will configure services on this existing node
+helper_node:
+  # Existing helper node details
+  hostname: "helper.sno.example.com"
+  ip: "192.0.2.10"
+  ssh_user: "root"
+  ssh_key_file: "/Users/sudeeshjohn/.ssh/id_rsa"
+  
+  services:
+    dnsmasq:
+      enabled: true
+      dhcp_range_start: "198.51.100.11"
+      dhcp_range_end: "198.51.100.254"
+      dhcp_lease_time: "12h"
+      tftp_root: "/var/lib/tftpboot"
+    
+    http:
+      enabled: true
+      port: 8080
+      document_root: "/var/www/html"
+    
+    haproxy:
+      enabled: false  # Not needed for SNO
+    
+    nfs:
+      enabled: false  # Optional for SNO
+  
+  network_interface: "eth0"
+
+# =============================================================================
+# SNO NODE CONFIGURATION
+# =============================================================================
+# Single Node OpenShift - one node acts as control plane + worker
+sno_node:
+  name: "sno-master"
+  hostname: "sno-master.sno.example.com"
+  ip: "198.51.100.15"
+  system_name: "LTC09U31-ZZ"
+  
+  # Enhanced resources since this node does everything
+  lpar:
+    os_type: "AIX/Linux"
+    processor:
+      type: "shared"
+      units: 4.0          # More CPU for combined role
+      virtual_procs: 16
+      min_units: 2.0
+      max_units: 8.0
+      min_procs: 8
+      max_procs: 32
+    memory:
+      desired_mb: 65536   # 64GB for combined control plane + workloads
+      min_mb: 32768       # Minimum 32GB
+      max_mb: 131072      # Maximum 128GB
+    storage:
+      boot_disk_gb: 120
+      etcd_disk_gb: 100   # etcd storage
+      container_storage_gb: 300  # Container storage for workloads
+
+# =============================================================================
+# DEPLOYMENT OPTIONS
+# =============================================================================
+deployment:
+  # SNO-specific deployment phases (simplified 5-phase structure)
+  phases:
+    - validate_config       # Validates configuration and HMC connectivity
+    - check_resources       # Verifies managed system resources and VIOS
+    - create_lpars          # Creates helper node and SNO master LPARs
+    - setup_helper_node     # Runs setup-bastion.sh script on helper node
+    - run_playbook          # Executes Ansible playbook (includes automatic netboot)
+  
+  timeouts:
+    lpar_creation: 10
+    storage_attachment: 5
+    power_on: 5
+    helper_setup: 30
+    bootstrap_complete: 0      # Not used in SNO
+    installation_complete: 90  # SNO takes longer (60-90 min)
+  
+  retry:
+    max_attempts: 3
+    delay_seconds: 30
+  
+  cleanup_on_failure: false
+  verbose: true
+
+# =============================================================================
+# ADVANCED OPTIONS
+# =============================================================================
+advanced:
+  parallel_lpar_creation: false  # Only 2 nodes, no need for parallel
+  max_parallel_operations: 2
+  
+  validate_resources: true
+  check_network_connectivity: true
+  verify_storage_capacity: true
+  
+  auto_distribute_lpars: false
+  distribution_strategy: "manual"
+  
+  save_kubeconfig: true
+  kubeconfig_path: "./kubeconfig-sno"
+  
+  enable_monitoring: true
+  monitoring_interval_seconds: 60  # Check every minute for SNO
+  
+  state_file: "./deployment-state-sno.json"
+  save_state_on_each_phase: true
+  
+  # SNO-specific options
+  sno_mode: true                    # Enable SNO-specific logic
+  skip_bootstrap: true              # Skip bootstrap node creation
+  skip_workers: true                # Skip worker node creation
+  master_schedulable: true          # Allow workloads on master
+
+# Made with Bob

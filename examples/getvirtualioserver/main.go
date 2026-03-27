@@ -70,7 +70,7 @@ func main() {
 
 	// 5. Pretty-print the results to the console
 	fmt.Printf("\n======================================================\n")
-	fmt.Printf(" DETAILED VIOS INFO: %s (Partition ID: %s)\n", viosDetails.PartitionName, viosDetails.PartitionID)
+	fmt.Printf(" DETAILED VIOS INFO: %s (Partition ID: %d)\n", viosDetails.PartitionName, viosDetails.PartitionID)
 	fmt.Printf("======================================================\n")
 
 	output, err := json.MarshalIndent(viosDetails, "", "  ")

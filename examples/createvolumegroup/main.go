@@ -76,7 +76,7 @@ func main() {
 			// Grab the exact number of disks requested
 			for i := 0; i < *diskCount; i++ {
 				selectedDisks = append(selectedDisks, freeDisks[i].VolumeName)
-				fmt.Printf("      - Selecting: %s (Capacity: %s MB, UID: %s)\n", 
+				fmt.Printf("      - Selecting: %s (Capacity: %d MB, UID: %s)\n",
 					freeDisks[i].VolumeName, freeDisks[i].VolumeCapacity, freeDisks[i].UniqueDeviceID)
 			}
 			break // We found what we needed, no need to check the other VIOSes

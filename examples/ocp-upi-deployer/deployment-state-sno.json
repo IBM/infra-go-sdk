@@ -1,0 +1,34 @@
+{
+  "current_phase": "completed",
+  "completed_phases": [
+    "validate_config",
+    "check_resources",
+    "create_lpars",
+    "setup_helper_node",
+    "run_playbook"
+  ],
+  "created_lpars": {
+    "sno-master": {
+      "name": "sno-master",
+      "uuid": "241562D1-2BF4-4201-89BD-781EAD8B2374",
+      "system_name": "LTC09U31-ZZ",
+      "ip": "198.51.100.15",
+      "mac_address": "DA:20:D3:FC:04:02",
+      "status": "created",
+      "volumes": [
+        "snomas_b2304"
+      ]
+    }
+  },
+  "created_volumes": {
+    "snomas_b2304": {
+      "name": "snomas_b2304",
+      "volume_id": "snomas_b2304",
+      "size_gb": 120,
+      "attached_to": "sno-master",
+      "status": "mapped"
+    }
+  },
+  "timestamp": "2026-03-27T06:57:35+05:30",
+  "status": "completed"
+}

@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		// Log the error and assume no volumes are available
 		if verbose {
-			log.Printf("Error getting free physical volumes for VIOS %s: %v", pvList, err)
+			log.Printf("Error getting free physical volumes for VIOS %v: %v", pvList, err)
 		}
 		pvList = []hmc.PhysicalVolume{} // Treat as no volumes found
 	}
