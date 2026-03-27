@@ -123,33 +123,42 @@ func (c *HmcRestClient) ConfigDevice(viosID string, devName string, verbose bool
 
 	// Log the job response
 	if verbose {
-		hmcLogger.Printf("ConfigDevice job response: Status=%s, PercentComplete=%d%%",
-			jobResp.Status, jobResp.PercentComplete)
+		hmcLogger.Printf("ConfigDevice job response: Status=%s", jobResp.Status)
 	}
 
 	// Check job status
 	if jobResp.Status != "COMPLETED_OK" {
-		if jobResp.ErrorMessage != "" {
-			return fmt.Errorf("job failed: status %s, message: %s", jobResp.Status, jobResp.ErrorMessage)
-		}
 		return fmt.Errorf("job failed: status %s", jobResp.Status)
 	}
 
 	// Check for StdError in results
-	if stdError, ok := jobResp.Results["StdError"]; ok && stdError != "" {
+	var stdError string
+	for _, param := range jobResp.Results.Parameters {
+		if param.ParameterName == "StdError" {
+			stdError = param.ParameterValue
+			break
+		}
+	}
+	if stdError != "" {
 		return fmt.Errorf("config device error: %s", stdError)
 	}
 
 	return nil
 }
 
-// GetVirtualIOServersQuick retrieves the list of Virtual I/O Servers for a given managed system UUID
-func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, verbose bool) ([]VIOS, error) {
+// GetVirtualIOServersQuick retrieves the exhaustive quick list of Virtual I/O Servers for a given managed system UUID.
+func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, verbose bool) ([]VIOSQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer/quick/All", c.hmcIP, systemUUID)
+	
+	if verbose {
+		hmcLogger.Printf("Fetching quick VIOS list for system UUID: %s", systemUUID)
+	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
+	
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/json")
 
@@ -168,6 +177,11 @@ func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, verbose bool
 		if verbose {
 			hmcLogger.Printf("GetVirtualIOServersQuick failed with status: %s", resp.Status)
 		}
+		// Sometimes the HMC returns 204 No Content if there are literally zero VIOSes on the system.
+		// Handling that cleanly prevents an unmarshal error on an empty body.
+		if resp.StatusCode == http.StatusNoContent {
+			return []VIOSQuick{}, nil
+		}
 		return nil, fmt.Errorf("request failed with status: %s", resp.Status)
 	}
 
@@ -177,12 +191,16 @@ func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, verbose bool
 	}
 
 	if verbose {
-		hmcLogger.Printf("GetVirtualIOServersQuick response body:\n%s", string(body))
+		hmcLogger.Printf("GetVirtualIOServersQuick response body length: %d bytes", len(body))
 	}
 
-	var viosList []VIOS
+	var viosList []VIOSQuick
 	if err := json.Unmarshal(body, &viosList); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON response: %v", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Successfully parsed %d VIOS entries from quick feed.", len(viosList))
 	}
 
 	return viosList, nil
@@ -305,9 +323,15 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, verbose bool) ([]Physi
 		hmcLogger.Printf("Free Physical Volume job response: Status=%s", jobResp.Status)
 	}
 
-	// Extract the result XML from the job response Results map
-	pvXML, ok := jobResp.Results["result"]
-	if !ok {
+	// Extract the result XML from the job response Results parameters
+	var pvXML string
+	for _, param := range jobResp.Results.Parameters {
+		if param.ParameterName == "result" {
+			pvXML = param.ParameterValue
+			break
+		}
+	}
+	if pvXML == "" {
 		if verbose {
 			hmcLogger.Printf("result parameter not found in job response")
 		}
@@ -672,11 +696,13 @@ func getElementText(root *etree.Element, path string) string {
 // VIOS METHODS
 // =====================================================================
 
-/// GetVirtualIOServers retrieves detailed, comprehensive information for all Virtual I/O Servers of a managed system.
+// GetVirtualIOServers retrieves detailed, comprehensive information for all Virtual I/O Servers 
+// of a managed system using exhaustive Go struct unmarshaling.
 func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]VirtualIOServerDetails, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
+	
 	if verbose {
-		hmcLogger.Printf("Fetching comprehensive VIOS details for system UUID %s, URL: %s", systemUUID, url)
+		hmcLogger.Printf("Fetching exhaustive VIOS details for system UUID %s...", systemUUID)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -702,172 +728,42 @@ func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("GetVirtualIOServers HTTP response status: %s", resp.Status)
-	}
-	if verbose {
-		hmcLogger.Printf("GetVirtualIOServers HTTP response status: %s", string(body))
-	}
-
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 	}
 
-	// Strip XML namespaces to make path searching easier with etree
+	// 1. Strip XML namespaces to prevent Unmarshal tag conflicts
 	doc, err := xmlStripNamespace(body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
+	// 2. Convert the clean etree Document back to a byte array
+	strippedXML, err := doc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to write stripped XML to bytes: %v", err)
+	}
+
+	// 3. Define an inline wrapper to catch the Atom Feed hierarchy
+	var feed struct {
+		Entries []struct {
+			VIOS VirtualIOServerDetails `xml:"content>VirtualIOServer"`
+		} `xml:"entry"`
+	}
+
+	// 4. Elegantly unmarshal the entire payload into our exhaustive structs
+	if err := xml.Unmarshal(strippedXML, &feed); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal exhaustive VIOS data: %v", err)
+	}
+
+	// Extract from the feed wrapper into a clean slice
 	var viosList []VirtualIOServerDetails
-
-	// Find all VirtualIOServer elements in the stripped XML
-	entries := doc.FindElements("//VirtualIOServer")
-	if verbose {
-		hmcLogger.Printf("Found %d potential VirtualIOServer XML elements", len(entries))
-	}
-
-	for _, entry := range entries {
-		// Ensure it is a primary VIOS element by checking for PartitionID
-		partitionID := getElementText(entry, "PartitionID")
-		if partitionID == "" {
-			continue
-		}
-
-		partitionName := getElementText(entry, "PartitionName")
-		if verbose {
-			hmcLogger.Printf("\n--- Processing VIOS: %s (Partition ID: %s) ---", partitionName, partitionID)
-		}
-
-		vios := VirtualIOServerDetails{
-			UUID:                        getElementText(entry, "PartitionUUID"),
-			PartitionID:                 partitionID,
-			PartitionName:               partitionName,
-			PartitionState:              getElementText(entry, "PartitionState"),
-			PartitionType:               getElementText(entry, "PartitionType"),
-			SystemName:                  getElementText(entry, "SystemName"),
-			OperatingSystemVersion:      getElementText(entry, "OperatingSystemVersion"),
-			ResourceMonitoringIPAddress: getElementText(entry, "ResourceMonitoringIPAddress"),
-			LogicalSerialNumber:         getElementText(entry, "LogicalSerialNumber"),
-			IsBootable:                  getElementText(entry, "IsBootable"),
-			Uptime:                      getElementText(entry, "Uptime"),
-		}
-
-		// 1. Parse Memory Configuration
-		memConfig := entry.FindElement("PartitionMemoryConfiguration")
-		if memConfig != nil {
-			if verbose {
-				hmcLogger.Printf("  [%s] Parsing Memory Configuration", partitionName)
-			}
-			vios.Memory = VIOSMemoryConfig{
-				DesiredMemory: getElementText(memConfig, "DesiredMemory"),
-				MaximumMemory: getElementText(memConfig, "MaximumMemory"),
-				MinimumMemory: getElementText(memConfig, "MinimumMemory"),
-			}
-		}
-
-		// 2. Parse Processor Configuration
-		procConfig := entry.FindElement("PartitionProcessorConfiguration")
-		if procConfig != nil {
-			if verbose {
-				hmcLogger.Printf("  [%s] Parsing Processor Configuration", partitionName)
-			}
-			vios.Processor = VIOSProcessorConfig{
-				HasDedicatedProcessors: getElementText(procConfig, "HasDedicatedProcessors"),
-				SharingMode:            getElementText(procConfig, "SharingMode"),
-			}
-
-			if dedProc := procConfig.FindElement("DedicatedProcessorConfiguration"); dedProc != nil {
-				vios.Processor.DesiredProcessors = getElementText(dedProc, "DesiredProcessors")
-				vios.Processor.MaximumProcessors = getElementText(dedProc, "MaximumProcessors")
-				vios.Processor.MinimumProcessors = getElementText(dedProc, "MinimumProcessors")
-			}
-		}
-
-		// 3. Parse Storage Configuration (PVs, VFC Mappings, and Physical FC Ports)
-		pvs := entry.FindElements("PhysicalVolumes/PhysicalVolume")
-		if verbose {
-			hmcLogger.Printf("  [%s] Found %d Physical Volumes", partitionName, len(pvs))
-		}
-		for _, pv := range pvs {
-			vios.Storage.PhysicalVolumes = append(vios.Storage.PhysicalVolumes, VIOSPhysicalVolume{
-				VolumeName:     getElementText(pv, "VolumeName"),
-				VolumeCapacity: getElementText(pv, "VolumeCapacity"),
-				VolumeState:    getElementText(pv, "VolumeState"),
-				UniqueDeviceID: getElementText(pv, "UniqueDeviceID"),
-				LocationCode:   getElementText(pv, "LocationCode"),
-			})
-		}
-		
-		vfcs := entry.FindElements("VirtualFibreChannelMappings/VirtualFibreChannelMapping")
-		if verbose {
-			hmcLogger.Printf("  [%s] Found %d Virtual Fibre Channel Mappings", partitionName, len(vfcs))
-		}
-		for _, vfc := range vfcs {
-			vios.Storage.VFCMappings = append(vios.Storage.VFCMappings, VIOSVFCMapping{
-				ServerAdapterSlot: getElementText(vfc, "ServerAdapter/VirtualSlotNumber"),
-				ClientPartitionID: getElementText(vfc, "ServerAdapter/ConnectingPartitionID"),
-				ClientAdapterSlot: getElementText(vfc, "ServerAdapter/ConnectingVirtualSlotNumber"),
-				MapPort:           getElementText(vfc, "ServerAdapter/MapPort"),
-				PortWWPN:          getElementText(vfc, "Port/WWPN"),
-				PortWWNN:          getElementText(vfc, "Port/WWNN"),
-			})
-		}
-
-		// Use a deep search to find all PhysicalFibreChannelPort nodes regardless of exact PCI slot nesting
-		fcPorts := entry.FindElements(".//PhysicalFibreChannelPort")
-		if verbose {
-			hmcLogger.Printf("  [%s] Found %d Physical Fibre Channel Ports", partitionName, len(fcPorts))
-		}
-		for _, fcPort := range fcPorts {
-			portName := getElementText(fcPort, "PortName")
-			wwpn := getElementText(fcPort, "WWPN")
-			
-			if verbose {
-				hmcLogger.Printf("    -> Extracted Port: %-5s | WWPN: %s", portName, wwpn)
-			}
-			
-			vios.Storage.FibreChannelPorts = append(vios.Storage.FibreChannelPorts, VIOSFibreChannelPort{
-				PortName:     portName,
-				LocationCode: getElementText(fcPort, "LocationCode"),
-				WWPN:         wwpn,
-				WWNN:         getElementText(fcPort, "WWNN"),
-			})
-		}
-
-		// 4. Parse Network Configuration (Shared Ethernet Adapters and Trunks)
-		seas := entry.FindElements("SharedEthernetAdapters/SharedEthernetAdapter")
-		if verbose {
-			hmcLogger.Printf("  [%s] Found %d Shared Ethernet Adapters", partitionName, len(seas))
-		}
-		for _, sea := range seas {
-			vios.Network.SharedEthernetAdapters = append(vios.Network.SharedEthernetAdapters, VIOSSharedEthernetAdapter{
-				DeviceName:         getElementText(sea, "DeviceName"),
-				HighAvailability:   getElementText(sea, "HighAvailabilityMode"),
-				PortVLANID:         getElementText(sea, "PortVLANID"),
-				BackingDevice:      getElementText(sea, "BackingDeviceChoice/EthernetBackingDevice/DeviceName"),
-				ConfigurationState: getElementText(sea, "ConfigurationState"),
-			})
-		}
-		
-		trunks := entry.FindElements("TrunkAdapters/TrunkAdapter")
-		if verbose {
-			hmcLogger.Printf("  [%s] Found %d Trunk Adapters", partitionName, len(trunks))
-		}
-		for _, trunk := range trunks {
-			vios.Network.TrunkAdapters = append(vios.Network.TrunkAdapters, VIOSTrunkAdapter{
-				DeviceName:        getElementText(trunk, "DeviceName"),
-				MACAddress:        getElementText(trunk, "MACAddress"),
-				PortVLANID:        getElementText(trunk, "PortVLANID"),
-				VirtualSlotNumber: getElementText(trunk, "VirtualSlotNumber"),
-			})
-		}
-
-		viosList = append(viosList, vios)
+	for _, entry := range feed.Entries {
+		viosList = append(viosList, entry.VIOS)
 	}
 
 	if verbose {
-		hmcLogger.Printf("Successfully parsed %d valid Virtual I/O Servers with complete details", len(viosList))
+		hmcLogger.Printf("✅ Successfully parsed %d Virtual I/O Servers comprehensively.", len(viosList))
 	}
 
 	return viosList, nil
@@ -912,97 +808,27 @@ func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, verbose bool) (*Virt
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
-	// When querying a single item, the root or an entry contains the VirtualIOServer node
-	entry := doc.FindElement("//VirtualIOServer")
-	if entry == nil {
-		return nil, fmt.Errorf("could not find VirtualIOServer in response")
+	// Convert the clean etree Document back to a byte array
+	strippedXML, err := doc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to write stripped XML to bytes: %v", err)
 	}
 
-	vios := &VirtualIOServerDetails{
-		UUID:                        getElementText(entry, "PartitionUUID"),
-		PartitionID:                 getElementText(entry, "PartitionID"),
-		PartitionName:               getElementText(entry, "PartitionName"),
-		PartitionState:              getElementText(entry, "PartitionState"),
-		PartitionType:               getElementText(entry, "PartitionType"),
-		SystemName:                  getElementText(entry, "SystemName"),
-		OperatingSystemVersion:      getElementText(entry, "OperatingSystemVersion"),
-		ResourceMonitoringIPAddress: getElementText(entry, "ResourceMonitoringIPAddress"),
-		LogicalSerialNumber:         getElementText(entry, "LogicalSerialNumber"),
-		IsBootable:                  getElementText(entry, "IsBootable"),
-		Uptime:                      getElementText(entry, "Uptime"),
+	// Define wrapper to catch the Atom entry hierarchy
+	var entry struct {
+		VIOS VirtualIOServerDetails `xml:"content>VirtualIOServer"`
 	}
 
-	// 1. Parse Memory Configuration
-	if memConfig := entry.FindElement("PartitionMemoryConfiguration"); memConfig != nil {
-		vios.Memory = VIOSMemoryConfig{
-			DesiredMemory: getElementText(memConfig, "DesiredMemory"),
-			MaximumMemory: getElementText(memConfig, "MaximumMemory"),
-			MinimumMemory: getElementText(memConfig, "MinimumMemory"),
-		}
+	// Unmarshal the entire payload into our exhaustive struct
+	if err := xml.Unmarshal(strippedXML, &entry); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal VIOS data: %v", err)
 	}
 
-	// 2. Parse Processor Configuration
-	if procConfig := entry.FindElement("PartitionProcessorConfiguration"); procConfig != nil {
-		vios.Processor = VIOSProcessorConfig{
-			HasDedicatedProcessors: getElementText(procConfig, "HasDedicatedProcessors"),
-			SharingMode:            getElementText(procConfig, "SharingMode"),
-		}
-		if dedProc := procConfig.FindElement("DedicatedProcessorConfiguration"); dedProc != nil {
-			vios.Processor.DesiredProcessors = getElementText(dedProc, "DesiredProcessors")
-			vios.Processor.MaximumProcessors = getElementText(dedProc, "MaximumProcessors")
-			vios.Processor.MinimumProcessors = getElementText(dedProc, "MinimumProcessors")
-		}
+	if verbose {
+		hmcLogger.Printf("✅ Successfully parsed Virtual I/O Server: %s", entry.VIOS.PartitionName)
 	}
 
-	// 3. Parse Storage Configuration
-	for _, pv := range entry.FindElements("PhysicalVolumes/PhysicalVolume") {
-		vios.Storage.PhysicalVolumes = append(vios.Storage.PhysicalVolumes, VIOSPhysicalVolume{
-			VolumeName:     getElementText(pv, "VolumeName"),
-			VolumeCapacity: getElementText(pv, "VolumeCapacity"),
-			VolumeState:    getElementText(pv, "VolumeState"),
-			UniqueDeviceID: getElementText(pv, "UniqueDeviceID"),
-			LocationCode:   getElementText(pv, "LocationCode"),
-		})
-	}
-	for _, vfc := range entry.FindElements("VirtualFibreChannelMappings/VirtualFibreChannelMapping") {
-		vios.Storage.VFCMappings = append(vios.Storage.VFCMappings, VIOSVFCMapping{
-			ServerAdapterSlot: getElementText(vfc, "ServerAdapter/VirtualSlotNumber"),
-			ClientPartitionID: getElementText(vfc, "ServerAdapter/ConnectingPartitionID"),
-			ClientAdapterSlot: getElementText(vfc, "ServerAdapter/ConnectingVirtualSlotNumber"),
-			MapPort:           getElementText(vfc, "ServerAdapter/MapPort"),
-			PortWWPN:          getElementText(vfc, "Port/WWPN"),
-			PortWWNN:          getElementText(vfc, "Port/WWNN"),
-		})
-	}
-	for _, fcPort := range entry.FindElements(".//PhysicalFibreChannelPort") {
-		vios.Storage.FibreChannelPorts = append(vios.Storage.FibreChannelPorts, VIOSFibreChannelPort{
-			PortName:     getElementText(fcPort, "PortName"),
-			LocationCode: getElementText(fcPort, "LocationCode"),
-			WWPN:         getElementText(fcPort, "WWPN"),
-			WWNN:         getElementText(fcPort, "WWNN"),
-		})
-	}
-
-	// 4. Parse Network Configuration
-	for _, sea := range entry.FindElements("SharedEthernetAdapters/SharedEthernetAdapter") {
-		vios.Network.SharedEthernetAdapters = append(vios.Network.SharedEthernetAdapters, VIOSSharedEthernetAdapter{
-			DeviceName:         getElementText(sea, "DeviceName"),
-			HighAvailability:   getElementText(sea, "HighAvailabilityMode"),
-			PortVLANID:         getElementText(sea, "PortVLANID"),
-			BackingDevice:      getElementText(sea, "BackingDeviceChoice/EthernetBackingDevice/DeviceName"),
-			ConfigurationState: getElementText(sea, "ConfigurationState"),
-		})
-	}
-	for _, trunk := range entry.FindElements("TrunkAdapters/TrunkAdapter") {
-		vios.Network.TrunkAdapters = append(vios.Network.TrunkAdapters, VIOSTrunkAdapter{
-			DeviceName:        getElementText(trunk, "DeviceName"),
-			MACAddress:        getElementText(trunk, "MACAddress"),
-			PortVLANID:        getElementText(trunk, "PortVLANID"),
-			VirtualSlotNumber: getElementText(trunk, "VirtualSlotNumber"),
-		})
-	}
-
-	return vios, nil
+	return &entry.VIOS, nil
 }
 
 // GetVirtualSCSIServerAdapters retrieves a list of all Virtual SCSI Server Adapters (vhost) configured on a specific VIOS.
@@ -1061,26 +887,38 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapters(viosUUID string, verbose bo
 			continue
 		}
 
-		adapter := VirtualSCSIServerAdapter{
-			UUID:                                getElementText(adapterElem, "Metadata/Atom/AtomID"),
-			AdapterType:                         getElementText(adapterElem, "AdapterType"),
-			DynamicReconfigurationConnectorName: getElementText(adapterElem, "DynamicReconfigurationConnectorName"),
-			LocationCode:                        getElementText(adapterElem, "LocationCode"),
-			LocalPartitionID:                    getElementText(adapterElem, "LocalPartitionID"),
-			RequiredAdapter:                     getElementText(adapterElem, "RequiredAdapter"),
-			VariedOn:                            getElementText(adapterElem, "VariedOn"),
-			VirtualSlotNumber:                   getElementText(adapterElem, "VirtualSlotNumber"),
-			RemoteLogicalPartitionID:            getElementText(adapterElem, "RemoteLogicalPartitionID"),
-			RemoteSlotNumber:                    getElementText(adapterElem, "RemoteSlotNumber"),
+		// Use XML unmarshaling to automatically populate the struct
+		var adapter VirtualSCSIServerAdapter
+		
+		// Create a new document with the VirtualSCSIServerAdapter element as root
+		adapterDoc := etree.NewDocument()
+		adapterDoc.SetRoot(adapterElem.Copy())
+		
+		adapterBytes, err := adapterDoc.WriteToBytes()
+		if err != nil {
+			if verbose {
+				hmcLogger.Printf("Warning: failed to serialize VirtualSCSIServerAdapter element: %v", err)
+			}
+			continue
+		}
+
+		if err := xml.Unmarshal(adapterBytes, &adapter); err != nil {
+			if verbose {
+				hmcLogger.Printf("Warning: failed to unmarshal VirtualSCSIServerAdapter: %v", err)
+			}
+			continue
 		}
 
 		// Extract the direct URI for this specific adapter from the Atom <link rel="SELF">
 		for _, link := range entry.FindElements("./link") {
 			if link.SelectAttrValue("rel", "") == "SELF" {
-				adapter.AdapterURI = link.SelectAttrValue("href", "")
+				adapter.Link = link.SelectAttrValue("href", "")
 				break
 			}
 		}
+
+		// Populate deprecated ID field for backward compatibility
+		adapter.ID = adapter.UUID
 
 		adapters = append(adapters, adapter)
 	}
@@ -1141,21 +979,29 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapter(viosUUID, adapterUUID string
 		return nil, fmt.Errorf("VirtualSCSIServerAdapter node not found in response")
 	}
 
-	adapter := &VirtualSCSIServerAdapter{
-		UUID:                                getElementText(adapterElem, "Metadata/Atom/AtomID"),
-		AdapterType:                         getElementText(adapterElem, "AdapterType"),
-		DynamicReconfigurationConnectorName: getElementText(adapterElem, "DynamicReconfigurationConnectorName"),
-		LocationCode:                        getElementText(adapterElem, "LocationCode"),
-		LocalPartitionID:                    getElementText(adapterElem, "LocalPartitionID"),
-		RequiredAdapter:                     getElementText(adapterElem, "RequiredAdapter"),
-		VariedOn:                            getElementText(adapterElem, "VariedOn"),
-		VirtualSlotNumber:                   getElementText(adapterElem, "VirtualSlotNumber"),
-		RemoteLogicalPartitionID:            getElementText(adapterElem, "RemoteLogicalPartitionID"),
-		RemoteSlotNumber:                    getElementText(adapterElem, "RemoteSlotNumber"),
-		AdapterURI:                          url, // We already know the direct URL
+	// Use XML unmarshaling to automatically populate the struct
+	var adapter VirtualSCSIServerAdapter
+	
+	// Create a new document with the VirtualSCSIServerAdapter element as root
+	adapterDoc := etree.NewDocument()
+	adapterDoc.SetRoot(adapterElem.Copy())
+	
+	adapterBytes, err := adapterDoc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize VirtualSCSIServerAdapter element: %v", err)
 	}
 
-	return adapter, nil
+	if err := xml.Unmarshal(adapterBytes, &adapter); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal VirtualSCSIServerAdapter: %v", err)
+	}
+
+	// Set the Link field (we already know the direct URL)
+	adapter.Link = url
+	
+	// Populate deprecated ID field for backward compatibility
+	adapter.ID = adapter.UUID
+
+	return &adapter, nil
 }
 
 // DeleteVirtualSCSIServerAdapter removes a specific Virtual SCSI Server Adapter (vhost) from a VIOS.
@@ -1201,7 +1047,7 @@ func (c *HmcRestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID str
 }
 
 // GetViosSCSIMappings retrieves and fully parses all VSCSI mappings for a specific VIOS.
-func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, verbose bool) ([]ViosSCSIMappingDetails, error) {
+func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, verbose bool) ([]VirtualSCSIMapping, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
 
 	if verbose {
@@ -1239,108 +1085,31 @@ func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, verbose bool) ([]Vi
 		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
 	}
 
-	var mappingsList []ViosSCSIMappingDetails
+	var mappingsList []VirtualSCSIMapping
 
-	mappings := doc.FindElements("//VirtualSCSIMapping")
-	for _, mapping := range mappings {
-		detail := ViosSCSIMappingDetails{}
-
-		// 1. Associated LPAR
-		if assocLpar := mapping.FindElement("AssociatedLogicalPartition"); assocLpar != nil {
-			detail.AssociatedLparURI = assocLpar.SelectAttrValue("href", "")
+	mappingElems := doc.FindElements("//VirtualSCSIMapping")
+	for _, mappingElem := range mappingElems {
+		// Create a new document with mappingElem as root for serialization
+		mappingDoc := etree.NewDocument()
+		mappingDoc.SetRoot(mappingElem.Copy())
+		
+		// Serialize to bytes
+		mappingBytes, err := mappingDoc.WriteToBytes()
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize VirtualSCSIMapping element: %v", err)
 		}
-
-		// 2. Client Adapter
-		if client := mapping.FindElement("ClientAdapter"); client != nil {
-			detail.ClientAdapter = VSCSIClientAdapter{
-				AdapterType:                         getElementText(client, "AdapterType"),
-				DynamicReconfigurationConnectorName: getElementText(client, "DynamicReconfigurationConnectorName"),
-				LocationCode:                        getElementText(client, "LocationCode"),
-				LocalPartitionID:                    getElementText(client, "LocalPartitionID"),
-				RequiredAdapter:                     getElementText(client, "RequiredAdapter"),
-				VariedOn:                            getElementText(client, "VariedOn"),
-				VirtualSlotNumber:                   getElementText(client, "VirtualSlotNumber"),
-				RemoteLogicalPartitionID:            getElementText(client, "RemoteLogicalPartitionID"),
-				RemoteSlotNumber:                    getElementText(client, "RemoteSlotNumber"),
-				ServerLocationCode:                  getElementText(client, "ServerLocationCode"),
-			}
+		
+		// Unmarshal into VirtualSCSIMapping struct
+		var mapping VirtualSCSIMapping
+		if err := xml.Unmarshal(mappingBytes, &mapping); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal VirtualSCSIMapping: %v", err)
 		}
-
-		// 3. Server Adapter
-		if server := mapping.FindElement("ServerAdapter"); server != nil {
-			detail.ServerAdapter = VSCSIServerAdapter{
-				AdapterType:                         getElementText(server, "AdapterType"),
-				DynamicReconfigurationConnectorName: getElementText(server, "DynamicReconfigurationConnectorName"),
-				LocationCode:                        getElementText(server, "LocationCode"),
-				LocalPartitionID:                    getElementText(server, "LocalPartitionID"),
-				RequiredAdapter:                     getElementText(server, "RequiredAdapter"),
-				VariedOn:                            getElementText(server, "VariedOn"),
-				VirtualSlotNumber:                   getElementText(server, "VirtualSlotNumber"),
-				AdapterName:                         getElementText(server, "AdapterName"),
-				BackingDeviceName:                   getElementText(server, "BackingDeviceName"),
-				RemoteLogicalPartitionID:            getElementText(server, "RemoteLogicalPartitionID"),
-				RemoteSlotNumber:                    getElementText(server, "RemoteSlotNumber"),
-				ServerLocationCode:                  getElementText(server, "ServerLocationCode"),
-				UniqueDeviceID:                      getElementText(server, "UniqueDeviceID"),
-			}
-		}
-
-		// 4. Storage Details
-		if storage := mapping.FindElement("Storage"); storage != nil {
-			if pv := storage.FindElement("PhysicalVolume"); pv != nil {
-				detail.Storage.StorageType = "PhysicalVolume"
-				detail.Storage.Description = getElementText(pv, "Description")
-				detail.Storage.LocationCode = getElementText(pv, "LocationCode")
-				detail.Storage.PersistentReserveKeyValue = getElementText(pv, "PersistentReserveKeyValue")
-				detail.Storage.ReservePolicy = getElementText(pv, "ReservePolicy")
-				detail.Storage.ReservePolicyAlgorithm = getElementText(pv, "ReservePolicyAlgorithm")
-				detail.Storage.UniqueDeviceID = getElementText(pv, "UniqueDeviceID")
-				detail.Storage.AvailableForUsage = getElementText(pv, "AvailableForUsage")
-				detail.Storage.VolumeCapacity = getElementText(pv, "VolumeCapacity")
-				detail.Storage.VolumeName = getElementText(pv, "VolumeName")
-				detail.Storage.VolumeState = getElementText(pv, "VolumeState")
-				detail.Storage.VolumeUniqueID = getElementText(pv, "VolumeUniqueID")
-				detail.Storage.IsFibreChannelBacked = getElementText(pv, "IsFibreChannelBacked")
-				detail.Storage.IsISCSIBacked = getElementText(pv, "IsISCSIBacked")
-				detail.Storage.StorageLabel = getElementText(pv, "StorageLabel")
-				detail.Storage.DescriptorPage83 = getElementText(pv, "DescriptorPage83")
-			} else if vd := storage.FindElement("VirtualDisk"); vd != nil {
-				detail.Storage.StorageType = "VirtualDisk"
-				detail.Storage.VolumeName = getElementText(vd, "DiskName")
-			} else if opt := storage.FindElement("VirtualOpticalMedia"); opt != nil {
-				detail.Storage.StorageType = "VirtualOpticalMedia"
-				detail.Storage.MediaName = getElementText(opt, "MediaName")
-				detail.Storage.MediaUDID = getElementText(opt, "MediaUDID")
-				detail.Storage.MountType = getElementText(opt, "MountType")
-				detail.Storage.Size = getElementText(opt, "Size")
-			}
-		}
-
-		// 5. Target Device
-		if target := mapping.FindElement("TargetDevice"); target != nil {
-			if vOpt := target.FindElement("VirtualOpticalTargetDevice"); vOpt != nil {
-				detail.TargetDevice.DeviceType = "VirtualOpticalTargetDevice"
-				detail.TargetDevice.LogicalUnitAddress = getElementText(vOpt, "LogicalUnitAddress")
-				detail.TargetDevice.TargetName = getElementText(vOpt, "TargetName")
-				detail.TargetDevice.UniqueDeviceID = getElementText(vOpt, "UniqueDeviceID")
-			} else if lvVtd := target.FindElement("LogicalVolumeVirtualTargetDevice"); lvVtd != nil {
-				detail.TargetDevice.DeviceType = "LogicalVolumeVirtualTargetDevice"
-				detail.TargetDevice.LogicalUnitAddress = getElementText(lvVtd, "LogicalUnitAddress")
-				detail.TargetDevice.TargetName = getElementText(lvVtd, "TargetName")
-				detail.TargetDevice.UniqueDeviceID = getElementText(lvVtd, "UniqueDeviceID")
-			} else if pVtd := target.FindElement("PhysicalVolumeVirtualTargetDevice"); pVtd != nil {
-				detail.TargetDevice.DeviceType = "PhysicalVolumeVirtualTargetDevice"
-				detail.TargetDevice.LogicalUnitAddress = getElementText(pVtd, "LogicalUnitAddress")
-				detail.TargetDevice.TargetName = getElementText(pVtd, "TargetName")
-				detail.TargetDevice.UniqueDeviceID = getElementText(pVtd, "UniqueDeviceID")
-			}
-		}
-
-		mappingsList = append(mappingsList, detail)
+		
+		mappingsList = append(mappingsList, mapping)
 	}
 
 	if verbose {
-		hmcLogger.Printf("Successfully fully parsed %d VSCSI Mappings", len(mappingsList))
+		hmcLogger.Printf("Successfully parsed %d VSCSI Mappings", len(mappingsList))
 	}
 
 	return mappingsList, nil
@@ -1398,58 +1167,26 @@ func (c *HmcRestClient) GetVolumeGroups(viosUUID string, verbose bool) ([]Volume
             continue
         }
 
-        vg := VolumeGroup{
-            UUID:                  getElementText(vgElem, "Metadata/Atom/AtomID"),
-            GroupName:             getElementText(vgElem, "GroupName"),
-            AvailableSize:         getElementText(vgElem, "AvailableSize"),
-            FreeSpace:             getElementText(vgElem, "FreeSpace"),
-            GroupCapacity:         getElementText(vgElem, "GroupCapacity"),
-            GroupSerialID:         getElementText(vgElem, "GroupSerialID"),
-            MaximumLogicalVolumes: getElementText(vgElem, "MaximumLogicalVolumes"),
-            UniqueDeviceID:        getElementText(vgElem, "UniqueDeviceID"),
-            HasMediaRepository:    vgElem.FindElement(".//VirtualMediaRepository") != nil,
-            MediaRepositoryName:   getElementText(vgElem, ".//VirtualMediaRepository/RepositoryName"), // NEW
-            MediaRepositorySize:   getElementText(vgElem, ".//VirtualMediaRepository/RepositorySize"), // NEW
+        // Use XML unmarshaling to automatically populate the struct
+        var vg VolumeGroup
+        
+        // Create a new document with the VolumeGroup element as root
+        vgDoc := etree.NewDocument()
+        vgDoc.SetRoot(vgElem.Copy())
+        
+        vgBytes, err := vgDoc.WriteToBytes()
+        if err != nil {
+            if verbose {
+                hmcLogger.Printf("Warning: failed to serialize VolumeGroup element: %v", err)
+            }
+            continue
         }
 
-	// Extract Physical Volumes with enhanced metadata
-	for _, pvElem := range vgElem.FindElements(".//PhysicalVolumes/PhysicalVolume") {
-		vg.PhysicalVolumes = append(vg.PhysicalVolumes, VGPhysicalVolume{
-			VolumeName:             getElementText(pvElem, "VolumeName"),
-			VolumeCapacity:       getElementText(pvElem, "VolumeCapacity"),
-			VolumeState:          getElementText(pvElem, "VolumeState"),
-			UniqueDeviceID:       getElementText(pvElem, "UniqueDeviceID"),
-			VolumeUniqueID:       getElementText(pvElem, "VolumeUniqueID"),
-			LocationCode:         getElementText(pvElem, "LocationCode"),
-			Description:          getElementText(pvElem, "Description"),
-			IsFibreChannelBacked: getElementText(pvElem, "IsFibreChannelBacked"),
-			ReservePolicy:          getElementText(pvElem, "ReservePolicy"),
-			ReservePolicyAlgorithm: getElementText(pvElem, "ReservePolicyAlgorithm"),
-			AvailableForUsage:      getElementText(pvElem, "AvailableForUsage"),
-			IsISCSIBacked:          getElementText(pvElem, "IsISCSIBacked"),
-			StorageLabel:           getElementText(pvElem, "StorageLabel"),
-			DescriptorPage83:       getElementText(pvElem, "DescriptorPage83"),
-		})
-	}
-
-        // Extract Virtual Optical Media
-        for _, optElem := range vgElem.FindElements(".//VirtualOpticalMedia") {
-            vg.OpticalMedia = append(vg.OpticalMedia, VirtualOpticalMedia{
-                MediaName: getElementText(optElem, "MediaName"),
-                MediaUDID: getElementText(optElem, "MediaUDID"),
-                MountType: getElementText(optElem, "MountType"),
-                Size:      getElementText(optElem, "Size"),
-            })
-        }
-
-        // NEW: Extract Virtual Disks (Logical Volumes)
-        for _, vdElem := range vgElem.FindElements(".//VirtualDisks/VirtualDisk") {
-            vg.VirtualDisks = append(vg.VirtualDisks, VirtualDisk{
-                DiskName:       getElementText(vdElem, "DiskName"),
-                DiskCapacity:   getElementText(vdElem, "DiskCapacity"),
-                DiskLabel:      getElementText(vdElem, "DiskLabel"),
-                UniqueDeviceID: getElementText(vdElem, "UniqueDeviceID"),
-            })
+        if err := xml.Unmarshal(vgBytes, &vg); err != nil {
+            if verbose {
+                hmcLogger.Printf("Warning: failed to unmarshal VolumeGroup: %v", err)
+            }
+            continue
         }
 
         volumeGroups = append(volumeGroups, vg)
@@ -1502,61 +1239,30 @@ func (c *HmcRestClient) GetVolumeGroup(viosUUID, vgUUID string, verbose bool) (*
         return nil, fmt.Errorf("VolumeGroup node not found in response")
     }
 
-    vg := &VolumeGroup{
-            UUID:                  getElementText(vgElem, "Metadata/Atom/AtomID"),
-            GroupName:             getElementText(vgElem, "GroupName"),
-            AvailableSize:         getElementText(vgElem, "AvailableSize"),
-            FreeSpace:             getElementText(vgElem, "FreeSpace"),
-            GroupCapacity:         getElementText(vgElem, "GroupCapacity"),
-            GroupSerialID:         getElementText(vgElem, "GroupSerialID"),
-            MaximumLogicalVolumes: getElementText(vgElem, "MaximumLogicalVolumes"),
-            UniqueDeviceID:        getElementText(vgElem, "UniqueDeviceID"),
-            HasMediaRepository:    vgElem.FindElement(".//VirtualMediaRepository") != nil,
-            MediaRepositoryName:   getElementText(vgElem, ".//VirtualMediaRepository/RepositoryName"), // NEW
-            MediaRepositorySize:   getElementText(vgElem, ".//VirtualMediaRepository/RepositorySize"), // NEW
-        }
-
-	// Extract Physical Volumes with enhanced metadata
-	for _, pvElem := range vgElem.FindElements(".//PhysicalVolumes/PhysicalVolume") {
-		vg.PhysicalVolumes = append(vg.PhysicalVolumes, VGPhysicalVolume{
-			VolumeName:             getElementText(pvElem, "VolumeName"),
-			VolumeCapacity:       getElementText(pvElem, "VolumeCapacity"),
-			VolumeState:          getElementText(pvElem, "VolumeState"),
-			UniqueDeviceID:       getElementText(pvElem, "UniqueDeviceID"),
-			VolumeUniqueID:       getElementText(pvElem, "VolumeUniqueID"),
-			LocationCode:         getElementText(pvElem, "LocationCode"),
-			Description:          getElementText(pvElem, "Description"),
-			IsFibreChannelBacked: getElementText(pvElem, "IsFibreChannelBacked"),
-			ReservePolicy:          getElementText(pvElem, "ReservePolicy"),
-			ReservePolicyAlgorithm: getElementText(pvElem, "ReservePolicyAlgorithm"),
-			AvailableForUsage:      getElementText(pvElem, "AvailableForUsage"),
-			IsISCSIBacked:          getElementText(pvElem, "IsISCSIBacked"),
-			StorageLabel:           getElementText(pvElem, "StorageLabel"),
-			DescriptorPage83:       getElementText(pvElem, "DescriptorPage83"),
-		})
-	}
-
-    // Extract Virtual Optical Media
-    for _, optElem := range vgElem.FindElements(".//VirtualOpticalMedia") {
-        vg.OpticalMedia = append(vg.OpticalMedia, VirtualOpticalMedia{
-            MediaName: getElementText(optElem, "MediaName"),
-            MediaUDID: getElementText(optElem, "MediaUDID"),
-            MountType: getElementText(optElem, "MountType"),
-            Size:      getElementText(optElem, "Size"),
-        })
+    // Use XML unmarshaling to automatically populate the struct
+    var vg VolumeGroup
+    
+    // Create a new document with the VolumeGroup element as root
+    vgDoc := etree.NewDocument()
+    vgDoc.SetRoot(vgElem.Copy())
+    
+    vgBytes, err := vgDoc.WriteToBytes()
+    if err != nil {
+        return nil, fmt.Errorf("failed to serialize VolumeGroup element: %v", err)
+    }
+    
+    if err := xml.Unmarshal(vgBytes, &vg); err != nil {
+        return nil, fmt.Errorf("failed to unmarshal VolumeGroup: %v", err)
     }
 
-    // Extract Virtual Disks (Logical Volumes)
-    for _, vdElem := range vgElem.FindElements(".//VirtualDisks/VirtualDisk") {
-        vg.VirtualDisks = append(vg.VirtualDisks, VirtualDisk{
-            DiskName:       getElementText(vdElem, "DiskName"),
-            DiskCapacity:   getElementText(vdElem, "DiskCapacity"),
-            DiskLabel:      getElementText(vdElem, "DiskLabel"),
-            UniqueDeviceID: getElementText(vdElem, "UniqueDeviceID"),
-        })
+    if verbose {
+        hmcLogger.Printf("Successfully parsed Volume Group: %s (UUID: %s)", vg.GroupName, vg.UUID)
+        hmcLogger.Printf("  - Virtual Disks: %d", len(vg.VirtualDisks))
+        hmcLogger.Printf("  - Optical Media: %d", len(vg.OpticalMedia))
+        hmcLogger.Printf("  - Physical Volumes: %d", len(vg.PhysicalVolumes))
     }
 
-    return vg, nil
+    return &vg, nil
 }
 // =====================================================================
 // CREATE VOLUME GROUP
@@ -1919,7 +1625,7 @@ func (c *HmcRestClient) CreateMediaRepository(sysName, viosUUID, viosName, vgNam
 
 	for _, vg := range vgList {
 		// COLLISION CHECK: A VIOS can only have one repository globally.
-		if vg.HasMediaRepository {
+		if vg.MediaRepositoryName != "" {
 			return fmt.Errorf("ABORT: A Virtual Media Repository already exists on this VIOS (hosted in VG '%s')", vg.GroupName)
 		}
 
@@ -1988,7 +1694,7 @@ func (c *HmcRestClient) DeleteMediaRepository(sysName, viosUUID, viosName, repoN
 
 	var targetVG *VolumeGroup
 	for i := range vgList {
-		if vgList[i].HasMediaRepository {
+		if vgList[i].MediaRepositoryName != "" {
 			targetVG = &vgList[i]
 			break
 		}
@@ -2059,7 +1765,7 @@ func (c *HmcRestClient) ChangeMediaRepository(sysName, viosUUID, viosName string
 
 	var hostingVG *VolumeGroup
 	for i := range vgList {
-		if vgList[i].HasMediaRepository {
+		if vgList[i].MediaRepositoryName != "" {
 			hostingVG = &vgList[i]
 			break
 		}

@@ -498,16 +498,15 @@ func (c *HmcRestClient) CliRunner(cmdString string, verbose bool) (string, error
 			return "", fmt.Errorf("CLIRunner job failed: %v", err)
 		}
 
-		// 6. Extract the stdout from the Job Results map
+		// 6. Extract the stdout from the Job Results parameters
 		if jobResp != nil {
 			// Get stdout from results
-			if stdout, ok := jobResp.Results["stdout"]; ok {
-				cmdOutput = stdout
-			}
-			
-			// Log stderr if present and verbose
-			if stderr, ok := jobResp.Results["stderr"]; ok && stderr != "" && verbose {
-				hmcLogger.Printf("CLIRunner stderr output: %s", stderr)
+			for _, param := range jobResp.Results.Parameters {
+				if param.ParameterName == "stdout" {
+					cmdOutput = param.ParameterValue
+				} else if param.ParameterName == "stderr" && param.ParameterValue != "" && verbose {
+					hmcLogger.Printf("CLIRunner stderr output: %s", param.ParameterValue)
+				}
 			}
 		}
 

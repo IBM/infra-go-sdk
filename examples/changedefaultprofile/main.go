@@ -103,7 +103,6 @@ func main() {
 	// =========================================================================
 	fmt.Println("✅ Default profile changed successfully!")
 	fmt.Printf("Job Status: %s\n", jobResp.Status)
-	fmt.Printf("Percent Complete: %d%%\n", jobResp.PercentComplete)
 	
 	if jobResp.TimeStarted != "" {
 		fmt.Printf("Time Started: %s\n", jobResp.TimeStarted)
@@ -112,10 +111,10 @@ func main() {
 		fmt.Printf("Time Completed: %s\n", jobResp.TimeCompleted)
 	}
 
-	if len(jobResp.Results) > 0 {
+	if len(jobResp.Results.Parameters) > 0 {
 		fmt.Println("\nJob Results:")
-		for key, value := range jobResp.Results {
-			fmt.Printf("  %s: %s\n", key, value)
+		for _, param := range jobResp.Results.Parameters {
+			fmt.Printf("  %s: %s\n", param.ParameterName, param.ParameterValue)
 		}
 	}
 

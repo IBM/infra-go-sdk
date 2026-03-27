@@ -129,8 +129,15 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	}
 
 	if jobResp.Status == "COMPLETED_OK" {
-		// Look for PartitionUuid in the Results map
-		if partUUID, ok := jobResp.Results["PartitionUuid"]; ok {
+		// Look for PartitionUuid in the Results parameters
+		var partUUID string
+		for _, param := range jobResp.Results.Parameters {
+			if param.ParameterName == "PartitionUuid" {
+				partUUID = param.ParameterValue
+				break
+			}
+		}
+		if partUUID != "" {
 			if verbose {
 				fmt.Printf("Partition creation completed successfully UUID %s\n", partUUID)
 			}
@@ -698,13 +705,11 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 	}
 
 	// Extract transformed UUID from results if available
-	if transformedUUID, ok := jobResp.Results["TransformedUuid"]; ok {
-		result.TransformedUUID = transformedUUID
-	}
-
-	// Set error message if job failed
-	if jobResp.ErrorMessage != "" {
-		result.ErrorMessage = jobResp.ErrorMessage
+	for _, param := range jobResp.Results.Parameters {
+		if param.ParameterName == "TransformedUuid" {
+			result.TransformedUUID = param.ParameterValue
+			break
+		}
 	}
 
 	if verbose {
@@ -847,22 +852,20 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 	// Parse validation results from job response
 	if jobResp.Status == "COMPLETED_WITH_ERROR" || jobResp.Status == "FAILED" {
 		result.IsValid = false
-		if jobResp.ErrorMessage != "" {
-			result.ErrorMessage = jobResp.ErrorMessage
-			result.Errors = append(result.Errors, jobResp.ErrorMessage)
-		}
-		// Add any other error messages from Results
-		for key, value := range jobResp.Results {
-			if strings.Contains(strings.ToLower(key), "error") {
-				result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", key, value))
+		// Add any error messages from Results parameters
+		for _, param := range jobResp.Results.Parameters {
+			if strings.Contains(strings.ToLower(param.ParameterName), "error") {
+				errorMsg := fmt.Sprintf("%s: %s", param.ParameterName, param.ParameterValue)
+				result.ErrorMessage = errorMsg
+				result.Errors = append(result.Errors, errorMsg)
 			}
 		}
 	}
 
 	// Look for warnings in results
-	for key, value := range jobResp.Results {
-		if strings.Contains(strings.ToLower(key), "warning") {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %s", key, value))
+	for _, param := range jobResp.Results.Parameters {
+		if strings.Contains(strings.ToLower(param.ParameterName), "warning") {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %s", param.ParameterName, param.ParameterValue))
 		}
 	}
 

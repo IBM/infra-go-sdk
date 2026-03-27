@@ -117,7 +117,7 @@ func main() {
 
 		for _, m := range mappings {
 			// Filter to only process mappings belonging to our target LPAR
-			if !strings.HasSuffix(strings.ToLower(m.AssociatedLparURI), targetLparLower) {
+			if !strings.HasSuffix(strings.ToLower(m.AssociatedLogicalPartition.Href), targetLparLower) {
 				continue
 			}
 
@@ -127,16 +127,26 @@ func main() {
 				volName = "Unknown"
 			}
 
-			// Categorize by storage type based on the Storage field
-			storageType := m.Storage.StorageType
+			// Determine storage type based on which field is populated
+			storageType := ""
+			volumeUDID := ""
 			
-			// Fallback: If StorageType is empty, infer from TargetDevice type
-			if storageType == "" {
-				if m.TargetDevice.DeviceType == "LogicalVolumeVirtualTargetDevice" {
+			if m.Storage.PhysicalVolume.VolumeName != "" {
+				storageType = "PhysicalVolume"
+				volumeUDID = m.Storage.PhysicalVolume.VolumeUniqueID
+			} else if m.Storage.VirtualDisk.DiskName != "" {
+				storageType = "VirtualDisk"
+				volumeUDID = m.Storage.VirtualDisk.UniqueDeviceID
+			} else if m.Storage.VirtualOpticalMedia.MediaName != "" {
+				storageType = "VirtualOpticalMedia"
+				volumeUDID = m.Storage.VirtualOpticalMedia.MediaUDID
+			} else {
+				// Fallback: Infer from TargetDevice type
+				if m.TargetDevice.LogicalVolumeVirtualTargetDevice.TargetName != "" {
 					storageType = "VirtualDisk"
-				} else if m.TargetDevice.DeviceType == "PhysicalVolumeVirtualTargetDevice" {
+				} else if m.TargetDevice.PhysicalVolumeVirtualTargetDevice.TargetName != "" {
 					storageType = "PhysicalVolume"
-				} else if m.TargetDevice.DeviceType == "VirtualOpticalTargetDevice" {
+				} else if m.TargetDevice.VirtualOpticalTargetDevice.TargetName != "" {
 					storageType = "VirtualOpticalMedia"
 				}
 			}
@@ -156,7 +166,7 @@ func main() {
 				ViosName:    v.PartitionName,
 				VolName:     volName,
 				AdapterUUID: m.ServerAdapter.UniqueDeviceID,
-				VolumeUDID:  m.Storage.VolumeUniqueID,
+				VolumeUDID:  volumeUDID,
 			})
 		}
 	}
@@ -237,8 +247,12 @@ func main() {
 					
 					// Collect all WWPNs from the VIOS
 					var wwpns []string
-					for _, fc := range viosObj.Storage.FibreChannelPorts {
-						wwpns = append(wwpns, strings.ToUpper(fc.WWPN))
+					// Extract WWPNs from nested structure
+					for _, profileSlot := range viosObj.PartitionIOConfiguration.ProfileIOSlots {
+						fcAdapter := profileSlot.AssociatedIOSlot.RelatedIOAdapter.PhysicalFibreChannelAdapter
+						for _, fc := range fcAdapter.PhysicalFibreChannelPorts {
+							wwpns = append(wwpns, strings.ToUpper(fc.WWPN))
+						}
 					}
 					
 					// Try to find host by any of the WWPNs
