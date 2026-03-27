@@ -60,9 +60,56 @@ type System struct {
 
 // JobResponse represents the XML response for a job operation
 type JobResponse struct {
-	XMLName xml.Name `xml:"JobResponse"`
-	JobID   string   `xml:"JobID"`
-	Status  string   `xml:"Status"`
+	XMLName           xml.Name              `xml:"JobResponse"`
+	RequestURL        JobResponseURL        `xml:"RequestURL"`
+	TargetUuid        string                `xml:"TargetUuid"`
+	JobID             string                `xml:"JobID"`
+	TimeStarted       string                `xml:"TimeStarted"`
+	TimeCompleted     string                `xml:"TimeCompleted"`
+	Status            string                `xml:"Status"`
+	JobRequestInstance JobResponseRequest   `xml:"JobRequestInstance"`
+	Progress          JobResponseProgress   `xml:"Progress"`
+	Results           JobResponseResults    `xml:"Results"`
+}
+
+// JobResponseURL represents the URL to which the JobRequest was submitted
+type JobResponseURL struct {
+	Href  string `xml:"href,attr"`
+	Rel   string `xml:"rel,attr"`
+	Title string `xml:"title,attr"`
+}
+
+// JobResponseRequest represents the job request instance details in a response
+type JobResponseRequest struct {
+	RequestedOperation JobResponseOperation   `xml:"RequestedOperation"`
+	JobParameters      JobResponseParameters  `xml:"JobParameters"`
+}
+
+// JobResponseOperation represents the operation being performed
+type JobResponseOperation struct {
+	OperationName string `xml:"OperationName"`
+	GroupName     string `xml:"GroupName"`
+}
+
+// JobResponseParameters represents the collection of job parameters in a response
+type JobResponseParameters struct {
+	Parameters []JobResponseParameter `xml:"JobParameter"`
+}
+
+// JobResponseParameter represents a single job parameter in a response
+type JobResponseParameter struct {
+	ParameterName  string `xml:"ParameterName"`
+	ParameterValue string `xml:"ParameterValue"`
+}
+
+// JobResponseProgress represents the progress information for a job
+type JobResponseProgress struct {
+	// Progress fields can be added here as needed
+}
+
+// JobResponseResults represents the results of a completed job
+type JobResponseResults struct {
+	Parameters []JobResponseParameter `xml:"JobParameter"`
 }
 
 // Logger with prefix for HMC operations
@@ -117,21 +164,22 @@ type VIOS struct {
 
 // PhysicalVolume represents a physical volume
 type PhysicalVolume struct {
-	Description               string `xml:"Description"`
-	LocationCode              string `xml:"LocationCode"`
-	PersistentReserveKeyValue string `xml:"PersistentReserveKeyValue"`
-	ReservePolicy             string `xml:"ReservePolicy"`
-	ReservePolicyAlgorithm    string `xml:"ReservePolicyAlgorithm"`
-	UniqueDeviceID            string `xml:"UniqueDeviceID"`
-	AvailableForUsage         bool   `xml:"AvailableForUsage"`
-	VolumeCapacity            int64  `xml:"VolumeCapacity"`
-	VolumeName                string `xml:"VolumeName"`
-	VolumeState               string `xml:"VolumeState"`
-	VolumeUniqueID            string `xml:"VolumeUniqueID"`
-	IsFibreChannelBacked      bool   `xml:"IsFibreChannelBacked"`
-	IsISCSIBacked             bool   `xml:"IsISCSIBacked"`
-	StorageLabel              string `xml:"StorageLabel"`
-	DescriptorPage83          string `xml:"DescriptorPage83"`
+	XMLName                   xml.Name `xml:"PhysicalVolume"`
+	Description               string   `xml:"Description"`
+	LocationCode              string   `xml:"LocationCode"`
+	PersistentReserveKeyValue string   `xml:"PersistentReserveKeyValue"`
+	ReservePolicy             string   `xml:"ReservePolicy"`
+	ReservePolicyAlgorithm    string   `xml:"ReservePolicyAlgorithm"`
+	UniqueDeviceID            string   `xml:"UniqueDeviceID"`
+	AvailableForUsage         bool     `xml:"AvailableForUsage"`
+	VolumeCapacity            int64    `xml:"VolumeCapacity"`
+	VolumeName                string   `xml:"VolumeName"`
+	VolumeState               string   `xml:"VolumeState"`
+	VolumeUniqueID            string   `xml:"VolumeUniqueID"`
+	IsFibreChannelBacked      bool     `xml:"IsFibreChannelBacked"`
+	IsISCSIBacked             bool     `xml:"IsISCSIBacked"`
+	StorageLabel              string   `xml:"StorageLabel"`
+	DescriptorPage83          string   `xml:"DescriptorPage83"`
 }
 
 // LogicalPartitionQuick represents the structure of a partition in the quick list
@@ -303,108 +351,497 @@ type StorageMap struct {
 	ClientSlotNumber string // Client adapter slot number
 }
 
+// VIOSQuick represents the exhaustive flattened JSON structure from the HMC /quick/All endpoint.
+type VIOSQuick struct {
+	Description                    *string  `json:"Description"`
+	OperatingSystemVersion         string   `json:"OperatingSystemVersion"`
+	PartitionID                    int      `json:"PartitionID"`
+	APICapable                     string   `json:"APICapable"`
+	IsVirtualServiceAttentionLEDOn string   `json:"IsVirtualServiceAttentionLEDOn"`
+	AllocatedVirtualProcessors     *float64 `json:"AllocatedVirtualProcessors"` // Pointer for null safety
+	PartitionState                 string   `json:"PartitionState"`
+	ResourceMonitoringIPAddress    *string  `json:"ResourceMonitoringIPAddress"` // Pointer for null safety
+	HasPhysicalIO                  string   `json:"HasPhysicalIO"`
+	SystemName                     string   `json:"SystemName"`
+	SharingMode                    string   `json:"SharingMode"`
+	UUID                           string   `json:"UUID"`
+	CurrentProcessors              float64  `json:"CurrentProcessors"`
+	LastActivatedProfile           string   `json:"LastActivatedProfile"`
+	CurrentUncappedWeight          *int     `json:"CurrentUncappedWeight"` // Pointer for null safety
+	PartitionType                  string   `json:"PartitionType"`
+	VirtualIOServerLicenseAccepted *string  `json:"VirtualIOServerLicenseAccepted"` // Pointer for null safety
+	PartitionName                  string   `json:"PartitionName"`
+	RMCState                       string   `json:"RMCState"`
+	OperatingSystemType            string   `json:"OperatingSystemType"`
+	CurrentMemory                  float64  `json:"CurrentMemory"`
+	HasDedicatedProcessors         string   `json:"HasDedicatedProcessors"`
+	AssociatedManagedSystem        string   `json:"AssociatedManagedSystem"`
+	ReferenceCode                  string   `json:"ReferenceCode"`
+	CurrentProcessingUnits         *float64 `json:"CurrentProcessingUnits"` // Pointer for null safety
+}
 // =====================================================================
-// DATA STRUCTURES FOR COMPREHENSIVE VIOS DETAILS
+// EXHAUSTIVE VIRTUAL I/O SERVER (VIOS) XML DATA STRUCTURES
 // =====================================================================
 
-// VirtualIOServerDetails represents detailed information about a Virtual I/O Server.
+// VirtualIOServer represents the complete XML payload of a Virtual I/O Server.
+// RENAMED from VirtualIOServerDetails
 type VirtualIOServerDetails struct {
-	UUID                        string
-	PartitionID                 string
-	PartitionName               string
-	PartitionState              string
-	PartitionType               string
-	SystemName                  string
-	OperatingSystemVersion      string
-	ResourceMonitoringIPAddress string
-	LogicalSerialNumber         string
-	IsBootable                  string
-	Uptime                      string
+	XMLName       xml.Name `xml:"VirtualIOServer"`
+	SchemaVersion string   `xml:"schemaVersion,attr"`
 
-	Memory    VIOSMemoryConfig
-	Processor VIOSProcessorConfig
-	Storage   VIOSStorageConfig
-	Network   VIOSNetworkConfig
+	// --- Metadata ---
+	Metadata struct {
+		AtomID      string `xml:"Atom>AtomID"`
+		AtomCreated string `xml:"Atom>AtomCreated"`
+	} `xml:"Metadata"`
+
+	// --- Basic Info & Identifiers ---
+	PartitionUUID          string `xml:"PartitionUUID"`
+	PartitionID            int    `xml:"PartitionID"`
+	PartitionName          string `xml:"PartitionName"`
+	PartitionType          string `xml:"PartitionType"`
+	SystemName             string `xml:"SystemName"`
+	LogicalSerialNumber    string `xml:"LogicalSerialNumber"`
+	OperatingSystemType    string `xml:"OperatingSystemType"`
+	OperatingSystemVersion string `xml:"OperatingSystemVersion"`
+	ReferenceCode          string `xml:"ReferenceCode"`
+	LastActivatedProfile   string `xml:"LastActivatedProfile"`
+	DefaultProfileName     string `xml:"DefaultProfileName"`
+
+	// --- State & Uptime ---
+	PartitionState                 string `xml:"PartitionState"`
+	ResourceMonitoringControlState string `xml:"ResourceMonitoringControlState"`
+	ResourceMonitoringIPAddress    string `xml:"ResourceMonitoringIPAddress"`
+	Uptime                         struct {
+		Value float64 `xml:",chardata"`
+		Group string  `xml:"group,attr"`
+	} `xml:"Uptime"`
+	ProgressPartitionDataRemaining float64 `xml:"ProgressPartitionDataRemaining"`
+	ProgressPartitionDataTotal     float64 `xml:"ProgressPartitionDataTotal"`
+
+	// --- Flags & Capabilities ---
+	APICapable                            bool   `xml:"APICapable"`
+	AllowPerformanceDataCollection        bool   `xml:"AllowPerformanceDataCollection"`
+	AvailabilityPriority                  int    `xml:"AvailabilityPriority"`
+	BootMode                              string `xml:"BootMode"`
+	CurrentProcessorCompatibilityMode     string `xml:"CurrentProcessorCompatibilityMode"`
+	CurrentProfileSync                    string `xml:"CurrentProfileSync"`
+	CurrentSecureBoot                     int    `xml:"CurrentSecureBoot"`
+	FibreChannelPortLabelCapable          bool   `xml:"FibreChannelPortLabelCapable"`
+	HasPhysicalIO                         bool   `xml:"HasPhysicalIO"`
+	IsBootable                            bool   `xml:"IsBootable"`
+	IsOperationInProgress                 bool   `xml:"IsOperationInProgress"`
+	IsRedundantErrorPathReportingEnabled  bool   `xml:"IsRedundantErrorPathReportingEnabled"`
+	IsServicePartition                    bool   `xml:"IsServicePartition"`
+	IsTimeReferencePartition              bool   `xml:"IsTimeReferencePartition"`
+	IsVNICCapable                         bool   `xml:"IsVNICCapable"`
+	IsVirtualServiceAttentionLEDOn        bool   `xml:"IsVirtualServiceAttentionLEDOn"`
+	IsVirtualTrustedPlatformModuleEnabled bool   `xml:"IsVirtualTrustedPlatformModuleEnabled"`
+	KeyStoreSize                          int    `xml:"KeyStoreSize"`
+	KeylockPosition                       string `xml:"KeylockPosition"`
+	ManagerPassthroughCapable             bool   `xml:"ManagerPassthroughCapable"`
+	MoverServicePartition                 bool   `xml:"MoverServicePartition"`
+	PendingProcessorCompatibilityMode     string `xml:"PendingProcessorCompatibilityMode"`
+	PendingSecureBoot                     int    `xml:"PendingSecureBoot"`
+	PowerOnWithHypervisor                 bool   `xml:"PowerOnWithHypervisor"`
+	PowerVMManagementCapable              bool   `xml:"PowerVMManagementCapable"`
+	TCCSlotID                             int    `xml:"TCCSlotID"`
+	VNICFailOverCapable                   bool   `xml:"VNICFailOverCapable"`
+	VTPMVersion                           string `xml:"VTPMVersion"`
+	VirtualIOServerLicenseAccepted        string `xml:"VirtualIOServerLicenseAccepted"`
+
+	// --- Nested Configurations ---
+	PartitionCapabilities                   PartitionCapabilities                   `xml:"PartitionCapabilities"`
+	PartitionMemoryConfiguration            PartitionMemoryConfiguration            `xml:"PartitionMemoryConfiguration"`
+	PartitionProcessorConfiguration         PartitionProcessorConfiguration         `xml:"PartitionProcessorConfiguration"`
+	PartitionIOConfiguration                PartitionIOConfiguration                `xml:"PartitionIOConfiguration"`
+	AssociatedPersistentMemoryConfiguration AssociatedPersistentMemoryConfiguration `xml:"AssociatedPersistentMemoryConfiguration"`
+	HardwareAcceleratorQoS                  HardwareAcceleratorQoS                  `xml:"HardwareAcceleratorQoS"`
+	VirtualIOServerCapabilities             VirtualIOServerCapabilities             `xml:"VirtualIOServerCapabilities"`
+
+	// --- Links ---
+	AssociatedManagedSystem         LinkXML   `xml:"AssociatedManagedSystem"`
+	ClientNetworkAdapters           []LinkXML `xml:"ClientNetworkAdapters>link"`
+	HostEthernetAdapterLogicalPorts []LinkXML `xml:"HostEthernetAdapterLogicalPorts>link"`
+	LinkAggregations                []LinkXML `xml:"LinkAggregations>link"`
+	SRIOVEthernetLogicalPorts       []LinkXML `xml:"SRIOVEthernetLogicalPorts>link"`
+	SRIOVRoCELogicalPorts           []LinkXML `xml:"SRIOVRoCELogicalPorts>link"`
+	StoragePools                    []LinkXML `xml:"StoragePools>link"`
+	VirtualNICBackingDevices        []LinkXML `xml:"VirtualNICBackingDevices>link"`
+
+	// --- Exhaustive Storage & Networking Collections ---
+	PhysicalVolumes                  []PhysicalVolume             `xml:"PhysicalVolumes>PhysicalVolume"`
+	MediaRepositories                []VirtualMediaRepository     `xml:"MediaRepositories>VirtualMediaRepository"`
+	SharedEthernetAdapters           []SharedEthernetAdapter      `xml:"SharedEthernetAdapters>SharedEthernetAdapter"`
+	TrunkAdapters                    []TrunkAdapter               `xml:"TrunkAdapters>TrunkAdapter"`
+	VirtualFibreChannelMappings      []VirtualFibreChannelMapping `xml:"VirtualFibreChannelMappings>VirtualFibreChannelMapping"`
+	VirtualSCSIMappings              []VirtualSCSIMapping         `xml:"VirtualSCSIMappings>VirtualSCSIMapping"`
+	FreeEthenetBackingDevicesForSEA  []EthernetBackingDevice      `xml:"FreeEthenetBackingDevicesForSEA>IOAdapterChoice>EthernetBackingDevice"`
+	FreeIOAdaptersForLinkAggregation []IOAdapter                  `xml:"FreeIOAdaptersForLinkAggregation>IOAdapterChoice>IOAdapter"`
 }
 
-type VIOSMemoryConfig struct {
-	DesiredMemory string
-	MaximumMemory string
-	MinimumMemory string
+// PartitionCapabilities RENAMED from LparCapabilities
+type PartitionCapabilities struct {
+	DynamicLogicalPartitionIOCapable                        bool `xml:"DynamicLogicalPartitionIOCapable"`
+	DynamicLogicalPartitionMemoryCapable                    bool `xml:"DynamicLogicalPartitionMemoryCapable"`
+	DynamicLogicalPartitionProcessorCapable                 bool `xml:"DynamicLogicalPartitionProcessorCapable"`
+	DynamicLogicalPartitionVIOSCapable                      bool `xml:"DynamicLogicalPartitionVIOSCapable"`
+	InternalAndExternalIntrusionDetectionCapable            bool `xml:"InternalAndExternalIntrusionDetectionCapable"`
+	ResourceMonitoringControlOperatingSystemShutdownCapable bool `xml:"ResourceMonitoringControlOperatingSystemShutdownCapable"`
 }
 
-type VIOSProcessorConfig struct {
-	HasDedicatedProcessors string
-	SharingMode            string
-	DesiredProcessors      string
-	MaximumProcessors      string
-	MinimumProcessors      string
+// PartitionMemoryConfiguration RENAMED from LparMemoryConfiguration
+type PartitionMemoryConfiguration struct {
+	ActiveMemoryExpansionEnabled          bool    `xml:"ActiveMemoryExpansionEnabled"`
+	ActiveMemorySharingEnabled            bool    `xml:"ActiveMemorySharingEnabled"`
+	CurrentExpansionFactor                float64 `xml:"CurrentExpansionFactor"`
+	CurrentHardwarePageTableRatio         int     `xml:"CurrentHardwarePageTableRatio"`
+	CurrentHugePageCount                  int     `xml:"CurrentHugePageCount"`
+	CurrentMaximumHugePageCount           int     `xml:"CurrentMaximumHugePageCount"`
+	CurrentMaximumMemory                  float64 `xml:"CurrentMaximumMemory"`
+	CurrentMemory                         float64 `xml:"CurrentMemory"`
+	CurrentMinimumHugePageCount           int     `xml:"CurrentMinimumHugePageCount"`
+	CurrentMinimumMemory                  float64 `xml:"CurrentMinimumMemory"`
+	DesiredMemory                         float64 `xml:"DesiredMemory"`
+	ExpansionFactor                       float64 `xml:"ExpansionFactor"`
+	HardwarePageTableRatio                int     `xml:"HardwarePageTableRatio"`
+	MaximumMemory                         float64 `xml:"MaximumMemory"`
+	MemoryEncryptionHardwareAccessEnabled bool    `xml:"MemoryEncryptionHardwareAccessEnabled"`
+	MemoryExpansionEnabled                bool    `xml:"MemoryExpansionEnabled"`
+	MemoryExpansionHardwareAccessEnabled  bool    `xml:"MemoryExpansionHardwareAccessEnabled"`
+	MinimumMemory                         float64 `xml:"MinimumMemory"`
+	PhysicalPageTableRatio                int     `xml:"PhysicalPageTableRatio"`
+	RedundantErrorPathReportingEnabled    bool    `xml:"RedundantErrorPathReportingEnabled"`
+	RuntimeHugePageCount                  int     `xml:"RuntimeHugePageCount"`
+	RuntimeMemory                         float64 `xml:"RuntimeMemory"`
+	RuntimeMinimumMemory                  float64 `xml:"RuntimeMinimumMemory"`
+	SharedMemoryEnabled                   bool    `xml:"SharedMemoryEnabled"`
 }
 
-type VIOSStorageConfig struct {
-	PhysicalVolumes   []VIOSPhysicalVolume
-	VFCMappings       []VIOSVFCMapping
-	FibreChannelPorts []VIOSFibreChannelPort
+// PartitionProcessorConfiguration RENAMED from LparProcessorConfiguration
+type PartitionProcessorConfiguration struct {
+	HasDedicatedProcessors                 bool                                   `xml:"HasDedicatedProcessors"`
+	SharingMode                            string                                 `xml:"SharingMode"`
+	CurrentHasDedicatedProcessors          bool                                   `xml:"CurrentHasDedicatedProcessors"`
+	CurrentSharingMode                     string                                 `xml:"CurrentSharingMode"`
+	RuntimeHasDedicatedProcessors          bool                                   `xml:"RuntimeHasDedicatedProcessors"`
+	DedicatedProcessorConfiguration        DedicatedProcessorConfiguration        `xml:"DedicatedProcessorConfiguration"`
+	CurrentDedicatedProcessorConfiguration CurrentDedicatedProcessorConfiguration `xml:"CurrentDedicatedProcessorConfiguration"`
 }
 
-type VIOSPhysicalVolume struct {
-	VolumeName     string
-	VolumeCapacity string
-	VolumeState    string
-	UniqueDeviceID string
-	LocationCode   string
+type DedicatedProcessorConfiguration struct {
+	DesiredProcessors float64 `xml:"DesiredProcessors"`
+	MaximumProcessors float64 `xml:"MaximumProcessors"`
+	MinimumProcessors float64 `xml:"MinimumProcessors"`
 }
 
-type VIOSFibreChannelPort struct {
-	PortName     string
-	LocationCode string
-	WWPN         string
-	WWNN         string
+type CurrentDedicatedProcessorConfiguration struct {
+	CurrentMaximumProcessors int     `xml:"CurrentMaximumProcessors"`
+	CurrentMinimumProcessors int     `xml:"CurrentMinimumProcessors"`
+	CurrentProcessors        float64 `xml:"CurrentProcessors"`
+	RunProcessors            int     `xml:"RunProcessors"`
 }
 
-type VIOSVFCMapping struct {
-	ServerAdapterSlot string
-	ClientPartitionID string
-	ClientAdapterSlot string
-	MapPort           string
-	PortWWPN          string
-	PortWWNN          string
+// PartitionIOConfiguration RENAMED from LparIOConfiguration
+type PartitionIOConfiguration struct {
+	CurrentMaximumVirtualIOSlots int             `xml:"CurrentMaximumVirtualIOSlots"`
+	MaximumVirtualIOSlots        int             `xml:"MaximumVirtualIOSlots"`
+	ProfileIOSlots               []ProfileIOSlot `xml:"ProfileIOSlots>ProfileIOSlot"`
 }
 
-type VIOSNetworkConfig struct {
-	SharedEthernetAdapters []VIOSSharedEthernetAdapter
-	TrunkAdapters          []VIOSTrunkAdapter
+type ProfileIOSlot struct {
+	AssociatedIOSlot AssociatedIOSlot `xml:"AssociatedIOSlot"`
 }
 
-type VIOSSharedEthernetAdapter struct {
-	DeviceName         string
-	HighAvailability   string
-	PortVLANID         string
-	BackingDevice      string
-	ConfigurationState string
+type AssociatedIOSlot struct {
+	BusGroupingRequired                      bool             `xml:"BusGroupingRequired"`
+	Description                              string           `xml:"Description"`
+	FeatureCodes                             []string         `xml:"FeatureCodes"`
+	IOBusID                                  int              `xml:"IOBusID"`
+	IOUnitPhysicalLocation                   string           `xml:"IOUnitPhysicalLocation"`
+	PCAdapterID                              string           `xml:"PCAdapterID"`
+	PCIClass                                 string           `xml:"PCIClass"`
+	PCIDeviceID                              string           `xml:"PCIDeviceID"`
+	PCIManufacturerID                        string           `xml:"PCIManufacturerID"`
+	PCIRevisionID                            string           `xml:"PCIRevisionID"`
+	PCISubsystemDeviceID                     string           `xml:"PCISubsystemDeviceID"`
+	PCISubsystemVendorID                     string           `xml:"PCISubsystemVendorID"`
+	PCIVendorID                              string           `xml:"PCIVendorID"`
+	PartitionID                              int              `xml:"PartitionID"`
+	PartitionName                            string           `xml:"PartitionName"`
+	PartitionType                            string           `xml:"PartitionType"`
+	SRIOVCapableDevice                       bool             `xml:"SRIOVCapableDevice"`
+	SRIOVCapableSlot                         bool             `xml:"SRIOVCapableSlot"`
+	SRIOVLogicalPortsLimit                   int              `xml:"SRIOVLogicalPortsLimit"`
+	SlotDynamicReconfigurationConnectorIndex string           `xml:"SlotDynamicReconfigurationConnectorIndex"`
+	SlotDynamicReconfigurationConnectorName  string           `xml:"SlotDynamicReconfigurationConnectorName"`
+	SlotPhysicalLocationCode                 string           `xml:"SlotPhysicalLocationCode"`
+	RelatedIBMiIOSlot                        IBMiIOSlot       `xml:"RelatedIBMiIOSlot"`
+	RelatedIOAdapter                         RelatedIOAdapter `xml:"RelatedIOAdapter"`
 }
 
-type VIOSTrunkAdapter struct {
-	DeviceName        string
-	MACAddress        string
-	PortVLANID        string
-	VirtualSlotNumber string
+// RelatedIOAdapter handles the complex physical adapters, including Fibre Channel
+type RelatedIOAdapter struct {
+	IOAdapter                   IOAdapter                   `xml:"IOAdapter"`
+	PhysicalFibreChannelAdapter PhysicalFibreChannelAdapter `xml:"PhysicalFibreChannelAdapter"`
 }
 
+// PhysicalFibreChannelAdapter captures the deeply nested Fibre Channel properties
+type PhysicalFibreChannelAdapter struct {
+	AdapterID                           string                     `xml:"AdapterID"`
+	Description                         string                     `xml:"Description"`
+	DeviceName                          string                     `xml:"DeviceName"`
+	DynamicReconfigurationConnectorName string                     `xml:"DynamicReconfigurationConnectorName"`
+	PhysicalLocation                    string                     `xml:"PhysicalLocation"`
+	PhysicalFibreChannelPorts           []PhysicalFibreChannelPort `xml:"PhysicalFibreChannelPorts>PhysicalFibreChannelPort"`
+}
+
+type PhysicalFibreChannelPort struct {
+	AvailablePorts  string           `xml:"AvailablePorts"`
+	LocationCode    string           `xml:"LocationCode"`
+	PortName        string           `xml:"PortName"`
+	TotalPorts      string           `xml:"TotalPorts"`
+	UniqueDeviceID  string           `xml:"UniqueDeviceID"`
+	WWNN            string           `xml:"WWNN"`
+	WWPN            string           `xml:"WWPN"`
+	PhysicalVolumes []PhysicalVolume `xml:"PhysicalVolumes>PhysicalVolume"`
+}
+
+// IOAdapter RENAMED from IOAdapterXML
+type IOAdapter struct {
+	AdapterID                           string `xml:"AdapterID"`
+	Description                         string `xml:"Description"`
+	DeviceName                          string `xml:"DeviceName"`
+	DeviceType                          string `xml:"DeviceType"`
+	DynamicPartitionAssignmentCapable   bool   `xml:"DynamicPartitionAssignmentCapable"`
+	DynamicReconfigurationConnectorName string `xml:"DynamicReconfigurationConnectorName"`
+	LogicalPartitionAssignmentCapable   bool   `xml:"LogicalPartitionAssignmentCapable"`
+	PhysicalLocation                    string `xml:"PhysicalLocation"`
+	UniqueDeviceID                      string `xml:"UniqueDeviceID"`
+}
+
+// AssociatedPersistentMemoryConfiguration RENAMED from LparPersistentMemoryConfiguration
+type AssociatedPersistentMemoryConfiguration struct {
+	CurrentDramPersistentMemoryVolumes int `xml:"CurrentDramPersistentMemoryVolumes"`
+	CurrentPersistentMemoryVolumes     int `xml:"CurrentPersistentMemoryVolumes"`
+	MaximumDramPersistentMemoryVolumes int `xml:"MaximumDramPersistentMemoryVolumes"`
+	MaximumPersistentMemoryVolumes     int `xml:"MaximumPersistentMemoryVolumes"`
+}
+
+type HardwareAcceleratorQoS struct {
+	Metadata struct {
+		Atom string `xml:"Atom"`
+	} `xml:"Metadata"`
+}
+
+type VirtualIOServerCapabilities struct {
+	GPFSCapable         bool `xml:"GPFSCapable"`
+	IsTierCapable       bool `xml:"IsTierCapable"`
+	IsTierMirrorCapable bool `xml:"IsTierMirrorCapable"`
+}
+
+type VirtualMediaRepository struct {
+	RepositoryName      string                `xml:"RepositoryName"`
+	RepositorySize      float64               `xml:"RepositorySize"`
+	VirtualOpticalMedia []VirtualOpticalMedia `xml:"OpticalMedia>VirtualOpticalMedia"`
+}
+
+// VirtualOpticalMedia applies to both Media Repositories and Virtual SCSI Mappings
+type VirtualOpticalMedia struct {
+	MediaName string `xml:"MediaName"`
+	MediaUDID string `xml:"MediaUDID"`
+	MountType string `xml:"MountType"`
+	Size      string `xml:"Size"`
+}
+
+type SharedEthernetAdapter struct {
+	ConfigurationState   string `xml:"ConfigurationState"`
+	DeviceName           string `xml:"DeviceName"`
+	HighAvailabilityMode string `xml:"HighAvailabilityMode"`
+	JumboFramesEnabled   bool   `xml:"JumboFramesEnabled"`
+	LargeSend            bool   `xml:"LargeSend"`
+	PortVLANID           int    `xml:"PortVLANID"`
+	QualityOfServiceMode string `xml:"QualityOfServiceMode"`
+	QueueSize            int    `xml:"QueueSize"`
+	ThreadModeEnabled    bool   `xml:"ThreadModeEnabled"`
+	UniqueDeviceID       string `xml:"UniqueDeviceID"`
+	IPInterface          struct {
+		InterfaceName string `xml:"InterfaceName"`
+		State         string `xml:"State"`
+	} `xml:"IPInterface"`
+	BackingDeviceChoice struct {
+		EthernetBackingDevice EthernetBackingDevice `xml:"EthernetBackingDevice"`
+	} `xml:"BackingDeviceChoice"`
+	TrunkAdapters []TrunkAdapter `xml:"TrunkAdapters>TrunkAdapter"`
+}
+
+type EthernetBackingDevice struct {
+	AdapterID        string `xml:"AdapterID"`
+	Description      string `xml:"Description"`
+	DeviceName       string `xml:"DeviceName"`
+	DeviceType       string `xml:"DeviceType"`
+	PhysicalLocation string `xml:"PhysicalLocation"`
+	UniqueDeviceID   string `xml:"UniqueDeviceID"`
+	IPInterface      struct {
+		InterfaceName string `xml:"InterfaceName"`
+		IPAddress     string `xml:"IPAddress"`
+		SubnetMask    string `xml:"SubnetMask"`
+		State         string `xml:"State"`
+	} `xml:"IPInterface"`
+}
+
+type TrunkAdapter struct {
+	AllowedOperatingSystemMACAddresses  string  `xml:"AllowedOperatingSystemMACAddresses"`
+	AssociatedVirtualSwitch             LinkXML `xml:"AssociatedVirtualSwitch>link"`
+	DeviceName                          string  `xml:"DeviceName"`
+	DynamicReconfigurationConnectorName string  `xml:"DynamicReconfigurationConnectorName"`
+	HCNID                               string  `xml:"HCNID"`
+	LocalPartitionID                    int     `xml:"LocalPartitionID"`
+	LocationCode                        string  `xml:"LocationCode"`
+	MACAddress                          string  `xml:"MACAddress"`
+	PortVLANID                          int     `xml:"PortVLANID"`
+	QualityOfServicePriorityEnabled     string  `xml:"QualityOfServicePriorityEnabled"` // Often represented as string "true"/"false"
+	RequiredAdapter                     string  `xml:"RequiredAdapter"`
+	TaggedVLANIDs                       string  `xml:"TaggedVLANIDs"`
+	TaggedVLANSupported                 string  `xml:"TaggedVLANSupported"`
+	TrunkPriority                       int     `xml:"TrunkPriority"`
+	VariedOn                            string  `xml:"VariedOn"`
+	VirtualSlotNumber                   int     `xml:"VirtualSlotNumber"`
+	VirtualSwitchID                     string  `xml:"VirtualSwitchID"`
+	VirtualSwitchName                   string  `xml:"VirtualSwitchName"`
+}
+
+// --- VIRTUAL FIBRE CHANNEL MAPPINGS ---
+
+type VirtualFibreChannelMapping struct {
+	AssociatedLogicalPartition LinkXML       `xml:"AssociatedLogicalPartition"`
+	ClientAdapter              ClientAdapter `xml:"ClientAdapter"`
+	ServerAdapter              ServerAdapter `xml:"ServerAdapter"`
+	Port                       Port          `xml:"Port"`
+}
+
+type ClientAdapter struct {
+	AdapterType                         string `xml:"AdapterType"`
+	ConnectingPartitionID               int    `xml:"ConnectingPartitionID"`
+	ConnectingVirtualSlotNumber         int    `xml:"ConnectingVirtualSlotNumber"`
+	DynamicReconfigurationConnectorName string `xml:"DynamicReconfigurationConnectorName"`
+	LocalPartitionID                    int    `xml:"LocalPartitionID"`
+	LocationCode                        string `xml:"LocationCode"`
+	RemoteLogicalPartitionID            int    `xml:"RemoteLogicalPartitionID"`
+	RemoteSlotNumber                    int    `xml:"RemoteSlotNumber"`
+	RequiredAdapter                     string `xml:"RequiredAdapter"`
+	ServerLocationCode                  string `xml:"ServerLocationCode"`
+	VariedOn                            string `xml:"VariedOn"`
+	VirtualSlotNumber                   int    `xml:"VirtualSlotNumber"`
+	WWPNs                               string `xml:"WWPNs"`
+}
+
+type ServerAdapter struct {
+	AdapterName                         string `xml:"AdapterName"`
+	AdapterType                         string `xml:"AdapterType"`
+	BackingDeviceName                   string `xml:"BackingDeviceName"`
+	ConnectingPartitionID               int    `xml:"ConnectingPartitionID"`
+	ConnectingVirtualSlotNumber         int    `xml:"ConnectingVirtualSlotNumber"`
+	DynamicReconfigurationConnectorName string `xml:"DynamicReconfigurationConnectorName"`
+	LocalPartitionID                    int    `xml:"LocalPartitionID"`
+	LocationCode                        string `xml:"LocationCode"`
+	MapPort                             string `xml:"MapPort"`
+	RemoteLogicalPartitionID            int    `xml:"RemoteLogicalPartitionID"`
+	RemoteSlotNumber                    int    `xml:"RemoteSlotNumber"`
+	RequiredAdapter                     string `xml:"RequiredAdapter"`
+	ServerLocationCode                  string `xml:"ServerLocationCode"`
+	UniqueDeviceID                      string `xml:"UniqueDeviceID"`
+	VariedOn                            string `xml:"VariedOn"`
+	VirtualSlotNumber                   int    `xml:"VirtualSlotNumber"`
+	PhysicalPort                        Port   `xml:"PhysicalPort"` // Found inside ServerAdapter for VFC
+}
+
+type Port struct {
+	AvailablePorts string `xml:"AvailablePorts"`
+	LocationCode   string `xml:"LocationCode"`
+	PortName       string `xml:"PortName"`
+	TotalPorts     string `xml:"TotalPorts"`
+	UniqueDeviceID string `xml:"UniqueDeviceID"`
+	WWNN           string `xml:"WWNN"`
+	WWPN           string `xml:"WWPN"`
+}
+
+// --- VIRTUAL SCSI MAPPINGS ---
+
+type VirtualSCSIMapping struct {
+	AssociatedLogicalPartition LinkXML       `xml:"AssociatedLogicalPartition"`
+	ClientAdapter              ClientAdapter `xml:"ClientAdapter"` // Reusing ClientAdapter Struct
+	ServerAdapter              ServerAdapter `xml:"ServerAdapter"` // Reusing ServerAdapter Struct
+	Storage                    Storage       `xml:"Storage"`
+	TargetDevice               TargetDevice  `xml:"TargetDevice"`
+}
+
+type Storage struct {
+	PhysicalVolume      PhysicalVolume      `xml:"PhysicalVolume"`
+	VirtualOpticalMedia VirtualOpticalMedia `xml:"VirtualOpticalMedia"`
+	VirtualDisk         VirtualDisk         `xml:"VirtualDisk"`
+}
+
+type TargetDevice struct {
+	PhysicalVolumeVirtualTargetDevice PhysicalVolumeVirtualTargetDevice `xml:"PhysicalVolumeVirtualTargetDevice"`
+	VirtualOpticalTargetDevice        VirtualOpticalTargetDevice        `xml:"VirtualOpticalTargetDevice"`
+	LogicalVolumeVirtualTargetDevice  LogicalVolumeVirtualTargetDevice  `xml:"LogicalVolumeVirtualTargetDevice"`
+}
+
+type LogicalVolumeVirtualTargetDevice struct {
+	LogicalUnitAddress string `xml:"LogicalUnitAddress"`
+	TargetName         string `xml:"TargetName"`
+	UniqueDeviceID     string `xml:"UniqueDeviceID"`
+}
+
+type PhysicalVolumeVirtualTargetDevice struct {
+	LogicalUnitAddress string `xml:"LogicalUnitAddress"`
+	TargetName         string `xml:"TargetName"`
+	UniqueDeviceID     string `xml:"UniqueDeviceID"`
+}
+
+type VirtualOpticalTargetDevice struct {
+	LogicalUnitAddress string `xml:"LogicalUnitAddress"`
+	TargetName         string `xml:"TargetName"`
+	UniqueDeviceID     string `xml:"UniqueDeviceID"`
+}
+
+
+
+// VirtualSCSIServerAdapterEntry represents a single entry in the feed
+type VirtualSCSIServerAdapterEntry struct {
+	XMLName xml.Name `xml:"entry"`
+	ID      string   `xml:"id"`
+	Link    struct {
+		Rel  string `xml:"rel,attr"`
+		Href string `xml:"href,attr"`
+	} `xml:"link"`
+	Content struct {
+		Adapter VirtualSCSIServerAdapter `xml:"VirtualSCSIServerAdapter"`
+	} `xml:"content"`
+}
 
 // VirtualSCSIServerAdapter represents a Virtual SCSI Server Adapter (vhost) on a VIOS.
 type VirtualSCSIServerAdapter struct {
-	UUID                                string
-	AdapterURI                          string // The direct URL to this specific adapter (useful for DELETE operations)
-	AdapterType                         string
-	DynamicReconfigurationConnectorName string
-	LocationCode                        string
-	LocalPartitionID                    string
-	RequiredAdapter                     string
-	VariedOn                            string
-	VirtualSlotNumber                   string
-	RemoteLogicalPartitionID            string
-	RemoteSlotNumber                    string
+	XMLName xml.Name `xml:"VirtualSCSIServerAdapter"`
+
+	// Metadata - UUID populated directly from XML
+	UUID string `xml:"Metadata>Atom>AtomID"`
+
+	// Adapter Properties
+	AdapterType                         string `xml:"AdapterType"`
+	DynamicReconfigurationConnectorName string `xml:"DynamicReconfigurationConnectorName"`
+	LocationCode                        string `xml:"LocationCode"`
+	LocalPartitionID                    string `xml:"LocalPartitionID"`
+	RequiredAdapter                     string `xml:"RequiredAdapter"`
+	VariedOn                            string `xml:"VariedOn"`
+	VirtualSlotNumber                   string `xml:"VirtualSlotNumber"`
+	RemoteLogicalPartitionID            string `xml:"RemoteLogicalPartitionID"`
+	RemoteSlotNumber                    string `xml:"RemoteSlotNumber"`
+	
+	// Entry-level fields (populated from parent entry when using VirtualSCSIServerAdapterEntry)
+	ID   string `xml:"-"` // From entry/id (deprecated, use UUID instead)
+	Link string `xml:"-"` // From entry/link/@href
 }
 
 // =====================================================================
@@ -413,134 +850,37 @@ type VirtualSCSIServerAdapter struct {
 
 // VolumeGroup represents a Volume Group configured on a Virtual I/O Server.
 type VolumeGroup struct {
-	UUID                  string
-	GroupName             string
-	AvailableSize         string
-	FreeSpace             string
-	GroupCapacity         string
-	GroupSerialID         string
-	MaximumLogicalVolumes string
-	UniqueDeviceID        string
-	PhysicalVolumes       []VGPhysicalVolume
-	OpticalMedia          []VirtualOpticalMedia
-	VirtualDisks          []VirtualDisk
-	HasMediaRepository    bool
-	MediaRepositoryName   string // NEW: Name of the repository (e.g., "VMLibrary")
-	MediaRepositorySize   string // NEW: Size of the repository in GB
+	XMLName xml.Name `xml:"VolumeGroup"`
+	
+	// Metadata - UUID populated directly from XML
+	UUID string `xml:"Metadata>Atom>AtomID"`
+	
+	// Volume Group Properties
+	AvailableSize         string `xml:"AvailableSize"`
+	FreeSpace             string `xml:"FreeSpace"`
+	GroupCapacity         string `xml:"GroupCapacity"`
+	GroupName             string `xml:"GroupName"`
+	GroupSerialID         string `xml:"GroupSerialID"`
+	MaximumLogicalVolumes string `xml:"MaximumLogicalVolumes"`
+	UniqueDeviceID        string `xml:"UniqueDeviceID"`
+	
+	// Collections
+	PhysicalVolumes []PhysicalVolume      `xml:"PhysicalVolumes>PhysicalVolume"`
+	VirtualDisks    []VirtualDisk         `xml:"VirtualDisks>VirtualDisk"`
+	OpticalMedia    []VirtualOpticalMedia `xml:"MediaRepositories>VirtualMediaRepository>OpticalMedia>VirtualOpticalMedia"`
+	
+	// Media Repository fields
+	MediaRepositoryName string `xml:"MediaRepositories>VirtualMediaRepository>RepositoryName"`
+	MediaRepositorySize string `xml:"MediaRepositories>VirtualMediaRepository>RepositorySize"`
 }
 
 // VirtualDisk represents a Logical Volume created inside the Volume Group.
 type VirtualDisk struct {
-	DiskName       string
-	DiskCapacity   string // Note: The HMC API usually returns this in GB (e.g., "10")
-	DiskLabel      string
-	UniqueDeviceID string
-}
-
-// VGPhysicalVolume represents a physical disk associated with a Volume Group.
-type VGPhysicalVolume struct {
-	VolumeName             string
-	VolumeCapacity         string
-	VolumeState            string
-	UniqueDeviceID         string
-	VolumeUniqueID         string
-	LocationCode           string
-	Description            string
-	IsFibreChannelBacked   string
-	ReservePolicy          string // NEW
-	ReservePolicyAlgorithm string // NEW
-	AvailableForUsage      string // NEW
-	IsISCSIBacked          string // NEW
-	StorageLabel           string // NEW
-	DescriptorPage83       string // NEW
-}
-
-// VirtualOpticalMedia represents an ISO/media file stored in the Volume Group's media repository.
-type VirtualOpticalMedia struct {
-	MediaName string
-	MediaUDID string
-	MountType string
-	Size      string
-}
-
-// =====================================================================
-// VIOS SCSI MAPPING DATA STRUCTURES (FULL)
-// =====================================================================
-
-// ViosSCSIMappingDetails represents a complete end-to-end VSCSI mapping.
-type ViosSCSIMappingDetails struct {
-	AssociatedLparURI string
-	ClientAdapter     VSCSIClientAdapter
-	ServerAdapter     VSCSIServerAdapter
-	Storage           VSCSIStorage
-	TargetDevice      VSCSITargetDevice
-}
-
-// VSCSIClientAdapter holds all properties of the client-side adapter (LPAR side).
-type VSCSIClientAdapter struct {
-	AdapterType                         string
-	DynamicReconfigurationConnectorName string
-	LocationCode                        string
-	LocalPartitionID                    string
-	RequiredAdapter                     string
-	VariedOn                            string
-	VirtualSlotNumber                   string
-	RemoteLogicalPartitionID            string
-	RemoteSlotNumber                    string
-	ServerLocationCode                  string
-}
-
-// VSCSIServerAdapter holds all properties of the server-side adapter (VIOS vhost).
-type VSCSIServerAdapter struct {
-	AdapterType                         string
-	DynamicReconfigurationConnectorName string
-	LocationCode                        string
-	LocalPartitionID                    string
-	RequiredAdapter                     string
-	VariedOn                            string
-	VirtualSlotNumber                   string
-	AdapterName                         string // e.g., "vhost3"
-	BackingDeviceName                   string // e.g., "hdisk3" or "vopt_..."
-	RemoteLogicalPartitionID            string
-	RemoteSlotNumber                    string
-	ServerLocationCode                  string
-	UniqueDeviceID                      string
-}
-
-// VSCSIStorage holds properties for either Physical Volumes or Virtual Optical Media.
-type VSCSIStorage struct {
-	StorageType               string // "PhysicalVolume" or "VirtualOpticalMedia"
-	
-	// Virtual Optical Media Fields
-	MediaName                 string
-	MediaUDID                 string
-	MountType                 string
-	Size                      string
-	
-	// Physical Volume Fields
-	Description               string
-	LocationCode              string
-	PersistentReserveKeyValue string
-	ReservePolicy             string
-	ReservePolicyAlgorithm    string
-	UniqueDeviceID            string
-	AvailableForUsage         string
-	VolumeCapacity            string
-	VolumeName                string
-	VolumeState               string
-	VolumeUniqueID            string
-	IsFibreChannelBacked      string
-	IsISCSIBacked             string
-	StorageLabel              string
-	DescriptorPage83          string
-}
-
-// VSCSITargetDevice holds properties for the virtual target device (vtd).
-type VSCSITargetDevice struct {
-	DeviceType         string // "VirtualOpticalTargetDevice" or "PhysicalVolumeVirtualTargetDevice"
-	LogicalUnitAddress string
-	TargetName         string // e.g., "vtscsi0" or "vtopt1"
-	UniqueDeviceID     string
+	XMLName        xml.Name `xml:"VirtualDisk"`
+	DiskName       string   `xml:"DiskName"`
+	DiskCapacity   string   `xml:"DiskCapacity"`
+	DiskLabel      string   `xml:"DiskLabel"`
+	UniqueDeviceID string   `xml:"UniqueDeviceID"`
 }
 
 
@@ -1362,16 +1702,6 @@ type LparBootListInformation struct {
 // JOB RESPONSE STRUCTURES
 // =====================================================================
 
-// JobResponseDetail represents a detailed job response from HMC
-type JobResponseDetail struct {
-	JobID           string
-	Status          string
-	PercentComplete int
-	Results         map[string]string
-	ErrorMessage    string
-	TimeStarted     string
-	TimeCompleted   string
-}
 
 // =====================================================================
 // PARTITION TEMPLATE OPERATION RESULTS

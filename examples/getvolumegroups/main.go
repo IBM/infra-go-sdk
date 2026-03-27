@@ -78,7 +78,7 @@ func main() {
 			fmt.Printf("      - Serial ID:        %s\n", vg.GroupSerialID)
 
 			// Print Media Repository Info if it exists in this VG
-			if vg.HasMediaRepository {
+			if vg.MediaRepositoryName != "" {
 				fmt.Printf("      - Repository:       ✅ YES (%s | Size: %s GB)\n", vg.MediaRepositoryName, vg.MediaRepositorySize)
 			} else {
 				fmt.Printf("      - Repository:       ❌ NO\n")

@@ -16,7 +16,7 @@ func main() {
 	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
 	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_91", "Target LPAR Name")
+	lparName := flag.String("lpar-name", "sno-master", "Target LPAR Name")
 	
 	// PowerOff specific flags
 	shutdownOpt := flag.String("shutdown-option", "Immediate", "Delayed, Immediate, OperatingSystem, OSImmediate, Dump, DumpRetry")

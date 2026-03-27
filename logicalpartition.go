@@ -195,7 +195,9 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
-
+    if verbose {
+		fmt.Printf("createJobRequestPayload: %s\n", payload)
+	}
 	// Configure and execute the PUT request
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
@@ -222,6 +224,9 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+	if verbose {
+		fmt.Printf("Job Response: %s\n", string(respBody))
 	}
 
 	// Extract the JobID from the XML response

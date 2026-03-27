@@ -13,7 +13,7 @@ func main() {
 	hmcIP        := "192.0.2.1"
 	username     := "REDACTED_HMC_USER<=="
 	password     := "REDACTED_HMC_PASS<=="
-	targetSystem := "LTC09U31-ZZ" // The name of the managed system we want to query
+	targetSystem := "LTC11U01" // The name of the managed system we want to query
 	verbose      := false
 
 	// 1. Initialize and Login
@@ -63,7 +63,7 @@ func main() {
 	// 4. Print the details separately for each VIOS
 	for i, vios := range viosList {
 		fmt.Printf("\n======================================================\n")
-		fmt.Printf(" VIOS %d: %s (Partition ID: %s)\n", i+1, vios.PartitionName, vios.PartitionID)
+		fmt.Printf(" VIOS %d: %s (Partition ID: %d)\n", i+1, vios.PartitionName, vios.PartitionID)
 		fmt.Printf("======================================================\n")
 
 		// Marshal just this specific VIOS struct into formatted JSON
@@ -78,17 +78,26 @@ func main() {
 	// 4. Print ONLY the Fibre Channel Ports and WWPN for each VIOS
 	for i, vios := range viosList {
 		fmt.Printf("\n======================================================\n")
-		fmt.Printf(" VIOS %d: %s (Partition ID: %s)\n", i+1, vios.PartitionName, vios.PartitionID)
+		fmt.Printf(" VIOS %d: %s (Partition ID: %d)\n", i+1, vios.PartitionName, vios.PartitionID)
 		fmt.Printf("======================================================\n")
-
+	
+		// Collect all FC ports from the nested structure
+		var fcPorts []hmc.PhysicalFibreChannelPort
+		for _, profileSlot := range vios.PartitionIOConfiguration.ProfileIOSlots {
+			adapter := profileSlot.AssociatedIOSlot.RelatedIOAdapter.PhysicalFibreChannelAdapter
+			if len(adapter.PhysicalFibreChannelPorts) > 0 {
+				fcPorts = append(fcPorts, adapter.PhysicalFibreChannelPorts...)
+			}
+		}
+		
 		// Check if there are any FC ports available
-		if len(vios.Storage.FibreChannelPorts) == 0 {
+		if len(fcPorts) == 0 {
 			fmt.Println("  No Fibre Channel Ports found on this VIOS.")
 			continue
 		}
-
+	
 		fmt.Println("  Fibre Channel Ports (WWPNs):")
-		for _, fcPort := range vios.Storage.FibreChannelPorts {
+		for _, fcPort := range fcPorts {
 			// Printing Port Name alongside WWPN so you know which port the WWPN belongs to
 			fmt.Printf("  - Port: %-5s | WWPN: %s\n", fcPort.PortName, fcPort.WWPN)
 		}

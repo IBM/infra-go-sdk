@@ -379,15 +379,19 @@ func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bo
 			defer wg.Done()
 			v := viosList[idx]
 			var wwpns []string
-			for _, port := range v.Storage.FibreChannelPorts {
-				if port.WWPN != "" {
-					wwpns = append(wwpns, strings.ToUpper(port.WWPN))
+			// Extract WWPNs from nested structure
+			for _, profileSlot := range v.PartitionIOConfiguration.ProfileIOSlots {
+				fcAdapter := profileSlot.AssociatedIOSlot.RelatedIOAdapter.PhysicalFibreChannelAdapter
+				for _, port := range fcAdapter.PhysicalFibreChannelPorts {
+					if port.WWPN != "" {
+						wwpns = append(wwpns, strings.ToUpper(port.WWPN))
+					}
 				}
 			}
 			if len(wwpns) > 0 {
 				mu.Lock()
 				viosWwpnMap[v.PartitionName] = wwpns
-				viosUuidMap[v.PartitionName] = v.UUID
+				viosUuidMap[v.PartitionName] = v.PartitionUUID
 				mu.Unlock()
 			}
 		}(i)

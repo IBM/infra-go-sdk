@@ -14,7 +14,7 @@ type viosMappingResult struct {
 	ViosUUID     string
 	ViosState    string
 	MappingCount int
-	Mappings     []hmc.ViosSCSIMappingDetails
+	Mappings     []hmc.VirtualSCSIMapping
 	Error        error
 }
 
@@ -93,14 +93,14 @@ func main() {
 	var allResults []viosMappingResult
 
 	for _, vios := range viosList {
-		fmt.Printf("\n📋 Fetching SCSI mappings for VIOS '%s' (State: %s)...\n", 
+		fmt.Printf("\n📋 Fetching SCSI mappings for VIOS '%s' (State: %s)...\n",
 			vios.PartitionName, vios.PartitionState)
 
-		mappings, err := restClient.GetViosSCSIMappings(vios.UUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMappings(vios.PartitionUUID, *verbose)
 		
 		result := viosMappingResult{
 			ViosName:  vios.PartitionName,
-			ViosUUID:  vios.UUID,
+			ViosUUID:  vios.PartitionUUID,
 			ViosState: vios.PartitionState,
 			Mappings:  mappings,
 			Error:     err,
@@ -160,7 +160,7 @@ func displayAllResults(results []viosMappingResult) {
 
 		for i, mapping := range result.Mappings {
 			// Extract LPAR UUID from URI for display
-			lparUUID := extractUUIDFromURI(mapping.AssociatedLparURI)
+			lparUUID := extractUUIDFromURI(mapping.AssociatedLogicalPartition.Href)
 
 			fmt.Printf("\n───────────────────────────────────────────────────────────────────\n")
 			fmt.Printf("Mapping #%d\n", i+1)
@@ -169,73 +169,107 @@ func displayAllResults(results []viosMappingResult) {
 			// LPAR Information
 			fmt.Printf("\n🖥️  LPAR Information:\n")
 			fmt.Printf("   LPAR UUID:      %s\n", lparUUID)
-			fmt.Printf("   URI:            %s\n", mapping.AssociatedLparURI)
+			fmt.Printf("   URI:            %s\n", mapping.AssociatedLogicalPartition.Href)
 
 			// Client Adapter (LPAR side)
 			fmt.Printf("\n📡 Client Adapter (LPAR side):\n")
 			fmt.Printf("   Adapter Type:   %s\n", mapping.ClientAdapter.AdapterType)
-			fmt.Printf("   Slot Number:    %s\n", mapping.ClientAdapter.VirtualSlotNumber)
+			fmt.Printf("   Slot Number:    %d\n", mapping.ClientAdapter.VirtualSlotNumber)
 			fmt.Printf("   Location Code:  %s\n", mapping.ClientAdapter.LocationCode)
 			fmt.Printf("   DRC Name:       %s\n", mapping.ClientAdapter.DynamicReconfigurationConnectorName)
-			fmt.Printf("   Remote Slot:    %s\n", mapping.ClientAdapter.RemoteSlotNumber)
+			fmt.Printf("   Remote Slot:    %d\n", mapping.ClientAdapter.RemoteSlotNumber)
 
 			// Server Adapter (VIOS side)
 			fmt.Printf("\n🔌 Server Adapter (VIOS side):\n")
 			fmt.Printf("   Adapter Name:   %s\n", mapping.ServerAdapter.AdapterName)
 			fmt.Printf("   Adapter Type:   %s\n", mapping.ServerAdapter.AdapterType)
-			fmt.Printf("   Slot Number:    %s\n", mapping.ServerAdapter.VirtualSlotNumber)
+			fmt.Printf("   Slot Number:    %d\n", mapping.ServerAdapter.VirtualSlotNumber)
 			fmt.Printf("   Location Code:  %s\n", mapping.ServerAdapter.LocationCode)
 			fmt.Printf("   Backing Device: %s\n", mapping.ServerAdapter.BackingDeviceName)
 			fmt.Printf("   DRC Name:       %s\n", mapping.ServerAdapter.DynamicReconfigurationConnectorName)
 
-			// Storage Information
+			// Storage Information - Determine storage type
 			fmt.Printf("\n💾 Storage Information:\n")
-			fmt.Printf("   Storage Type:   %s\n", mapping.Storage.StorageType)
+			
+			// Determine storage type based on which field is populated
+			storageType := ""
+			if mapping.Storage.PhysicalVolume.VolumeName != "" {
+				storageType = "PhysicalVolume"
+			} else if mapping.Storage.VirtualOpticalMedia.MediaName != "" {
+				storageType = "VirtualOpticalMedia"
+			} else if mapping.Storage.VirtualDisk.DiskName != "" {
+				storageType = "VirtualDisk"
+			}
+			fmt.Printf("   Storage Type:   %s\n", storageType)
 
-			switch mapping.Storage.StorageType {
+			switch storageType {
 			case "PhysicalVolume":
 				physicalCount++
-				fmt.Printf("   Volume Name:    %s\n", mapping.Storage.VolumeName)
-				fmt.Printf("   Capacity:       %s\n", mapping.Storage.VolumeCapacity)
-				fmt.Printf("   Volume State:   %s\n", mapping.Storage.VolumeState)
-				fmt.Printf("   Volume UDID:    %s\n", mapping.Storage.VolumeUniqueID)
-				fmt.Printf("   Description:    %s\n", mapping.Storage.Description)
-				fmt.Printf("   Location Code:  %s\n", mapping.Storage.LocationCode)
-				fmt.Printf("   FC Backed:      %s\n", mapping.Storage.IsFibreChannelBacked)
-				fmt.Printf("   iSCSI Backed:   %s\n", mapping.Storage.IsISCSIBacked)
-				fmt.Printf("   Reserve Policy: %s\n", mapping.Storage.ReservePolicy)
-				if mapping.Storage.StorageLabel != "" {
-					fmt.Printf("   Storage Label:  %s\n", mapping.Storage.StorageLabel)
+				pv := mapping.Storage.PhysicalVolume
+				fmt.Printf("   Volume Name:    %s\n", pv.VolumeName)
+				fmt.Printf("   Capacity:       %s\n", pv.VolumeCapacity)
+				fmt.Printf("   Volume State:   %s\n", pv.VolumeState)
+				fmt.Printf("   Volume UDID:    %s\n", pv.VolumeUniqueID)
+				fmt.Printf("   Description:    %s\n", pv.Description)
+				fmt.Printf("   Location Code:  %s\n", pv.LocationCode)
+				fmt.Printf("   FC Backed:      %s\n", pv.IsFibreChannelBacked)
+				fmt.Printf("   iSCSI Backed:   %s\n", pv.IsISCSIBacked)
+				fmt.Printf("   Reserve Policy: %s\n", pv.ReservePolicy)
+				if pv.StorageLabel != "" {
+					fmt.Printf("   Storage Label:  %s\n", pv.StorageLabel)
 				}
 
 			case "VirtualOpticalMedia":
 				opticalCount++
-				fmt.Printf("   Media Name:     %s\n", mapping.Storage.MediaName)
-				fmt.Printf("   Media UDID:     %s\n", mapping.Storage.MediaUDID)
-				fmt.Printf("   Mount Type:     %s\n", mapping.Storage.MountType)
-				fmt.Printf("   Size:           %s\n", mapping.Storage.Size)
+				opt := mapping.Storage.VirtualOpticalMedia
+				fmt.Printf("   Media Name:     %s\n", opt.MediaName)
+				fmt.Printf("   Media UDID:     %s\n", opt.MediaUDID)
+				fmt.Printf("   Mount Type:     %s\n", opt.MountType)
+				fmt.Printf("   Size:           %s\n", opt.Size)
 
-			default:
-				// Could be VirtualDisk (logical volume)
+			case "VirtualDisk":
 				virtualDiskCount++
-				if mapping.Storage.VolumeName != "" {
-					fmt.Printf("   Disk Name:      %s\n", mapping.Storage.VolumeName)
+				vd := mapping.Storage.VirtualDisk
+				if vd.DiskName != "" {
+					fmt.Printf("   Disk Name:      %s\n", vd.DiskName)
 				}
-				if mapping.Storage.VolumeCapacity != "" {
-					fmt.Printf("   Capacity:       %s\n", mapping.Storage.VolumeCapacity)
+				if vd.DiskCapacity != "" {
+					fmt.Printf("   Capacity:       %s\n", vd.DiskCapacity)
 				}
-				if mapping.Storage.VolumeUniqueID != "" {
-					fmt.Printf("   Volume UDID:    %s\n", mapping.Storage.VolumeUniqueID)
+				if vd.UniqueDeviceID != "" {
+					fmt.Printf("   Volume UDID:    %s\n", vd.UniqueDeviceID)
 				}
 			}
 
-			// Target Device
+			// Target Device - Determine device type
 			fmt.Printf("\n🎯 Target Device:\n")
-			fmt.Printf("   Device Type:    %s\n", mapping.TargetDevice.DeviceType)
-			fmt.Printf("   Target Name:    %s\n", mapping.TargetDevice.TargetName)
-			fmt.Printf("   LUN Address:    %s\n", mapping.TargetDevice.LogicalUnitAddress)
-			if mapping.TargetDevice.UniqueDeviceID != "" {
-				fmt.Printf("   Unique ID:      %s\n", mapping.TargetDevice.UniqueDeviceID)
+			deviceType := ""
+			targetName := ""
+			lunAddress := ""
+			uniqueID := ""
+			
+			if mapping.TargetDevice.PhysicalVolumeVirtualTargetDevice.TargetName != "" {
+				deviceType = "PhysicalVolumeVirtualTargetDevice"
+				targetName = mapping.TargetDevice.PhysicalVolumeVirtualTargetDevice.TargetName
+				lunAddress = mapping.TargetDevice.PhysicalVolumeVirtualTargetDevice.LogicalUnitAddress
+				uniqueID = mapping.TargetDevice.PhysicalVolumeVirtualTargetDevice.UniqueDeviceID
+			} else if mapping.TargetDevice.LogicalVolumeVirtualTargetDevice.TargetName != "" {
+				deviceType = "LogicalVolumeVirtualTargetDevice"
+				targetName = mapping.TargetDevice.LogicalVolumeVirtualTargetDevice.TargetName
+				lunAddress = mapping.TargetDevice.LogicalVolumeVirtualTargetDevice.LogicalUnitAddress
+				uniqueID = mapping.TargetDevice.LogicalVolumeVirtualTargetDevice.UniqueDeviceID
+			} else if mapping.TargetDevice.VirtualOpticalTargetDevice.TargetName != "" {
+				deviceType = "VirtualOpticalTargetDevice"
+				targetName = mapping.TargetDevice.VirtualOpticalTargetDevice.TargetName
+				lunAddress = mapping.TargetDevice.VirtualOpticalTargetDevice.LogicalUnitAddress
+				uniqueID = mapping.TargetDevice.VirtualOpticalTargetDevice.UniqueDeviceID
+			}
+			
+			fmt.Printf("   Device Type:    %s\n", deviceType)
+			fmt.Printf("   Target Name:    %s\n", targetName)
+			fmt.Printf("   LUN Address:    %s\n", lunAddress)
+			if uniqueID != "" {
+				fmt.Printf("   Unique ID:      %s\n", uniqueID)
 			}
 		}
 

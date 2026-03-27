@@ -86,7 +86,7 @@ func main() {
 	
 	for _, mapping := range mappings {
 		// Check if this mapping belongs to our target LPAR
-		if strings.HasSuffix(strings.ToLower(mapping.AssociatedLparURI), targetLparLower) {
+		if strings.HasSuffix(strings.ToLower(mapping.AssociatedLogicalPartition.Href), targetLparLower) {
 			// For virtual disks, use the BackingDeviceName from ServerAdapter
 			diskName := mapping.ServerAdapter.BackingDeviceName
 			if diskName != "" {

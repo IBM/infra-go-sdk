@@ -86,9 +86,9 @@ func main() {
 	
 	for _, mapping := range mappings {
 		// Check if this mapping belongs to our target LPAR
-		if strings.HasSuffix(strings.ToLower(mapping.AssociatedLparURI), targetLparLower) {
+		if strings.HasSuffix(strings.ToLower(mapping.AssociatedLogicalPartition.Href), targetLparLower) {
 			// For virtual optical media, check the MediaName field
-			mediaName := mapping.Storage.MediaName
+			mediaName := mapping.Storage.VirtualOpticalMedia.MediaName
 			if mediaName != "" {
 				mappedMedia[mediaName] = true
 			}

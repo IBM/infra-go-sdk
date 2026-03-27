@@ -79,9 +79,21 @@ func main() {
 	}
 
 	fmt.Println(string(output))
-			fmt.Println("  Fibre Channel Ports (WWPNs):")
-		for _, fcPort := range viosDetails.Storage.FibreChannelPorts {
-			// Printing Port Name alongside WWPN so you know which port the WWPN belongs to
-			fmt.Printf("  - Port: %-5s | WWPN: %s\n", fcPort.PortName, fcPort.WWPN)
+	
+	// 6. Display Fibre Channel Ports (WWPNs) if available
+	fmt.Println("\n  Fibre Channel Ports (WWPNs):")
+	fcPortFound := false
+	for _, profileSlot := range viosDetails.PartitionIOConfiguration.ProfileIOSlots {
+		fcAdapter := profileSlot.AssociatedIOSlot.RelatedIOAdapter.PhysicalFibreChannelAdapter
+		if len(fcAdapter.PhysicalFibreChannelPorts) > 0 {
+			for _, fcPort := range fcAdapter.PhysicalFibreChannelPorts {
+				// Printing Port Name alongside WWPN so you know which port the WWPN belongs to
+				fmt.Printf("    - Port: %-5s | WWPN: %s\n", fcPort.PortName, fcPort.WWPN)
+				fcPortFound = true
+			}
 		}
+	}
+	if !fcPortFound {
+		fmt.Println("    No Fibre Channel ports found")
+	}
 }
