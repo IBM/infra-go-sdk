@@ -101,7 +101,7 @@ func main() {
 				fmt.Println("         (None found)")
 			} else {
 				for j, pv := range vg.PhysicalVolumes {
-					fmt.Printf("         %d.%d %-10s | %-10s MB | State: %-8s | UID: %s\n",
+					fmt.Printf("         %d.%d %-10s | %-10d MB | State: %-8s | UID: %s\n",
 						i+1, j+1, pv.VolumeName, pv.VolumeCapacity, pv.VolumeState, pv.UniqueDeviceID)
 				}
 			}
