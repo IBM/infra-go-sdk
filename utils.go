@@ -1061,3 +1061,52 @@ func (c *HmcRestClient) CloseVirtualTerminal(sysName, lparName string, verbose b
 	
 	return nil
 }
+// GetActiveVIOSServers filters and returns only the active VIOS servers from a list of VIOS UUIDs.
+// It fetches detailed information for each VIOS and checks if ResourceMonitoringControlState is "active".
+// Returns a map where:
+//   - KEY: VIOS UUID
+//   - VALUE: VirtualIOServerDetails (complete VIOS details)
+// 
+// Note: In PowerVM environments, multiple VIOS servers can be active simultaneously for redundancy.
+// This function returns ALL active VIOS servers, allowing the caller to choose which one to use.
+func (c *HmcRestClient) GetActiveVIOSServers(systemUUID string, viosUUIDs []string, verbose bool) (map[string]*VirtualIOServerDetails, error) {
+	activeVIOSServers := make(map[string]*VirtualIOServerDetails)
+	
+	if verbose {
+		hmcLogger.Printf("Checking %d VIOS server(s) for active state...", len(viosUUIDs))
+	}
+	
+	for _, viosUUID := range viosUUIDs {
+		// Get detailed VIOS information
+		viosDetails, err := c.GetVirtualIOServer(viosUUID, verbose)
+		if err != nil {
+			if verbose {
+				hmcLogger.Printf("Warning: Failed to get details for VIOS %s: %v", viosUUID, err)
+			}
+			continue
+		}
+		
+		// Check if VIOS is in active state
+		if viosDetails.ResourceMonitoringControlState == "active" {
+			activeVIOSServers[viosUUID] = viosDetails
+			if verbose {
+				hmcLogger.Printf("✓ VIOS %s (%s) is active", viosDetails.PartitionName, viosUUID)
+			}
+		} else {
+			if verbose {
+				hmcLogger.Printf("✗ VIOS %s (%s) is not active (state: %s)", 
+					viosDetails.PartitionName, viosUUID, viosDetails.ResourceMonitoringControlState)
+			}
+		}
+	}
+	
+	if len(activeVIOSServers) == 0 {
+		return nil, fmt.Errorf("no active VIOS servers found among %d VIOS(s)", len(viosUUIDs))
+	}
+	
+	if verbose {
+		hmcLogger.Printf("Found %d active VIOS server(s) out of %d total", len(activeVIOSServers), len(viosUUIDs))
+	}
+	
+	return activeVIOSServers, nil
+}
