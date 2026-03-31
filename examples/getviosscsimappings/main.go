@@ -207,13 +207,15 @@ func displayAllResults(results []viosMappingResult) {
 				physicalCount++
 				pv := mapping.Storage.PhysicalVolume
 				fmt.Printf("   Volume Name:    %s\n", pv.VolumeName)
-				fmt.Printf("   Capacity:       %d\n", pv.VolumeCapacity)
+				fmt.Printf("   Capacity:       %v\n", pv.VolumeCapacity)
 				fmt.Printf("   Volume State:   %s\n", pv.VolumeState)
 				fmt.Printf("   Volume UDID:    %s\n", pv.VolumeUniqueID)
 				fmt.Printf("   Description:    %s\n", pv.Description)
 				fmt.Printf("   Location Code:  %s\n", pv.LocationCode)
-				fmt.Printf("   FC Backed:      %t\n", pv.IsFibreChannelBacked)
-				fmt.Printf("   iSCSI Backed:   %t\n", pv.IsISCSIBacked)
+				// Convert boolean to user-friendly Yes/No format
+				boolStr := map[bool]string{true: "Yes", false: "No"}
+				fmt.Printf("   FC Backed:      %s\n", boolStr[pv.IsFibreChannelBacked])
+				fmt.Printf("   iSCSI Backed:   %s\n", boolStr[pv.IsISCSIBacked])
 				fmt.Printf("   Reserve Policy: %s\n", pv.ReservePolicy)
 				if pv.StorageLabel != "" {
 					fmt.Printf("   Storage Label:  %s\n", pv.StorageLabel)
