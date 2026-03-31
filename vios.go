@@ -2062,89 +2062,133 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 }
 
 // AddVirtualOpticalMedia natively imports an ISO file into the VIOS Media Repository using the AddOpticalMedia job.
+// AddVirtualOpticalMedia adds one or more Virtual Optical Media (ISO files) to a VIOS Media Repository.
+// mediaFiles is a map where keys are media names and values are file paths.
+// Returns a map of results for each media (nil for success, error for failure).
 // Note: This requires HMC V10.3.1061.0 or later.
-func (c *HmcRestClient) AddVirtualOpticalMedia(viosUUID, mediaName, fileName string, verbose bool) error {
+func (c *HmcRestClient) AddVirtualOpticalMedia(viosUUID string, mediaFiles map[string]string, verbose bool) (map[string]error, error) {
+	if len(mediaFiles) == 0 {
+		return nil, fmt.Errorf("at least one media file is required")
+	}
+
+	results := make(map[string]error)
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/AddOpticalMedia", c.hmcIP, viosUUID)
 	
 	if verbose {
-		hmcLogger.Printf("Natively adding Virtual Optical Media '%s' from file '%s' to VIOS %s...", mediaName, fileName, viosUUID)
+		hmcLogger.Printf("Adding %d Virtual Optical Media to VIOS %s...", len(mediaFiles), viosUUID)
 	}
 
-	// 1. Define operation details for the JobRequest
-	operation := map[string]string{
-		"OperationName": "AddOpticalMedia",
-		"GroupName":     "VirtualIOServer",
-		"ProgressType":  "DISCRETE",
+	// Process each media file sequentially
+	for mediaName, fileName := range mediaFiles {
+		if verbose {
+			hmcLogger.Printf("Processing media '%s' from file '%s'...", mediaName, fileName)
+		}
+
+		// 1. Define operation details for the JobRequest
+		operation := map[string]string{
+			"OperationName": "AddOpticalMedia",
+			"GroupName":     "VirtualIOServer",
+			"ProgressType":  "DISCRETE",
+		}
+
+		// 2. Build job parameters
+		params := map[string]string{
+			"MediaName": mediaName,
+			"FileName":  fileName,
+		}
+
+		// 3. Generate the XML payload
+		payload, err := createJobRequestPayload(operation, params, "V1_0", verbose, true)
+		if err != nil {
+			results[mediaName] = fmt.Errorf("failed to create job request payload: %v", err)
+			continue
+		}
+
+		// 4. Create and configure the PUT request
+		req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+		if err != nil {
+			results[mediaName] = fmt.Errorf("failed to create request: %v", err)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+		req.Header.Set("X-API-Session", c.session)
+		req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+		req = req.WithContext(ctx)
+
+		// 5. Send the request
+		resp, err := c.client.Do(req)
+		if err != nil {
+			cancel()
+			results[mediaName] = fmt.Errorf("HTTP request failed: %v", err)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		cancel()
+		
+		if err != nil {
+			results[mediaName] = fmt.Errorf("failed to read response body: %v", err)
+			continue
+		}
+
+		if verbose {
+			hmcLogger.Printf("AddOpticalMedia Response Status for '%s': %s", mediaName, resp.Status)
+		}
+
+		if resp.StatusCode >= 400 {
+			results[mediaName] = fmt.Errorf("AddOpticalMedia job failed with status %s: %s", resp.Status, string(body))
+			continue
+		}
+
+		// 6. Strip namespaces to find the JobID
+		doc, err := xmlStripNamespace(body)
+		if err != nil {
+			results[mediaName] = fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+			continue
+		}
+
+		jobIDElem := doc.FindElement("//JobID")
+		if jobIDElem == nil {
+			results[mediaName] = fmt.Errorf("JobID not found in response: %s", string(body))
+			continue
+		}
+		jobID := jobIDElem.Text()
+		
+		if verbose {
+			hmcLogger.Printf("Extracted JobID: %s for media '%s'. Waiting for ISO import to complete...", jobID, mediaName)
+		}
+
+		// 7. Wait for the background job to finish
+		_, err = c.FetchJobStatus(jobID, false, 10, verbose)
+		if err != nil {
+			results[mediaName] = fmt.Errorf("failed during AddOpticalMedia job execution: %v", err)
+			continue
+		}
+
+		// Success
+		results[mediaName] = nil
+		if verbose {
+			hmcLogger.Printf("✅ Successfully added media '%s'", mediaName)
+		}
 	}
 
-	// 2. Build job parameters matching the HMC schema you provided
-	params := map[string]string{
-		"MediaName": mediaName,
-		"FileName":  fileName,
+	// Check if all operations failed
+	allFailed := true
+	for _, err := range results {
+		if err == nil {
+			allFailed = false
+			break
+		}
 	}
 
-	// 3. Generate the XML payload using your existing helper
-	payload, err := createJobRequestPayload(operation, params, "V1_0", verbose, true)
-	if err != nil {
-		return fmt.Errorf("failed to create job request payload: %v", err)
+	if allFailed {
+		return results, fmt.Errorf("all media additions failed")
 	}
 
-	// 4. Create and configure the PUT request
-	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	// 5. Send the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	if verbose {
-		hmcLogger.Printf("AddOpticalMedia Response Status: %s", resp.Status)
-	}
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("AddOpticalMedia job failed with status %s: %s", resp.Status, string(body))
-	}
-
-	// 6. Strip namespaces to find the JobID
-	doc, err := xmlStripNamespace(body)
-	if err != nil {
-		return fmt.Errorf("failed to strip namespaces from XML response: %v", err)
-	}
-
-	jobIDElem := doc.FindElement("//JobID")
-	if jobIDElem == nil {
-		return fmt.Errorf("JobID not found in response: %s", string(body))
-	}
-	jobID := jobIDElem.Text()
-	
-	if verbose {
-		hmcLogger.Printf("Extracted JobID: %s. Waiting for ISO import to complete...", jobID)
-	}
-
-	// 7. Wait for the background job to finish
-	_, err = c.FetchJobStatus(jobID, false, 10, verbose)
-	if err != nil {
-		return fmt.Errorf("failed during AddOpticalMedia job execution: %v", err)
-	}
-
-	return nil
+	return results, nil
 }
 // CreateVirtualOpticalMap creates one or more Virtual Optical Devices (CD-ROM) on the target LPAR and loads the specified ISO media.
 // Supports batch operations - pass multiple media names to create multiple mappings in a single transaction.

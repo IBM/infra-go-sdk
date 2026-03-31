@@ -20,7 +20,7 @@ func main() {
 	
 	// NFS Mount Parameters
 	nfsServer := flag.String("nfs-server", "192.0.2.20", "NFS server IP or hostname")
-	exportPath := flag.String("export-path", "/var/www/html/ocp", "NFS export path on server")
+	exportPath := flag.String("export-path", "/var/www/html/f43", "NFS export path on server")
 	mountPoint := flag.String("mount-point", "/mnt", "Local mount point on VIOS (under /tmp)")
 	nfsVersion := flag.String("nfs-version", "3", "NFS version (3 or 4)")
 	

@@ -55,7 +55,7 @@ func main() {
 	}
 	
 	fmt.Printf("Firmware:       %s\n", detailedSystem.SystemFirmware)
-	fmt.Printf("Max Partitions: %d\n", detailedSystem.MaximumPartitions)
+	fmt.Printf("Max Partitions: %.0f\n", detailedSystem.MaximumPartitions)
 
 	// Bonus: Look how easy it is to grab deep configuration data now!
 	fmt.Println("\n--- Quick Specs ---")

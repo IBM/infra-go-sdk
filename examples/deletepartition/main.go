@@ -28,7 +28,7 @@ func main() {
 	hmcUser := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
 	hmcPass := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
 	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_100", "LPAR Name to delete")
+	lparName := flag.String("lpar-name", "sno-master", "LPAR Name to delete")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
 	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
@@ -205,6 +205,16 @@ func main() {
 					log.Printf("⚠️ Warning: Failed to delete virtual disk mappings: %v", err)
 				} else {
 					fmt.Printf("   ✅ Virtual disks unmapped: %s\n", result)
+					
+					// After successful unmapping, delete the virtual disks themselves
+					fmt.Printf("   VIOS %s: Deleting virtual disks from storage pool...\n", viosName)
+					for _, diskName := range storage.virtualDisks {
+						if err := restClient.DeleteVirtualDisk(*sysName, viosName, diskName, *verbose); err != nil {
+							log.Printf("⚠️ Warning: Failed to delete virtual disk '%s': %v", diskName, err)
+						} else {
+							fmt.Printf("   🗑️  Virtual disk '%s' deleted successfully\n", diskName)
+						}
+					}
 				}
 			}
 			
