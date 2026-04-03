@@ -193,7 +193,7 @@ helper_node:
 sno_node:
   name: "sno-master"
   hostname: "sno-master.sno.example.com"
-  ip: "198.51.100.15"
+  ip: "198.51.100.16"
   system_name: "LTC09U31-ZZ"
   
   # Enhanced resources since this node does everything

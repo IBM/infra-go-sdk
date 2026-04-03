@@ -18,6 +18,14 @@ type viosMappingResult struct {
 	Error        error
 }
 
+// formatBool converts a boolean value to a user-friendly "Yes"/"No" string
+func formatBool(b bool) string {
+	if b {
+		return "Yes"
+	}
+	return "No"
+}
+
 func main() {
 	// Command line flags
 	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
@@ -212,10 +220,9 @@ func displayAllResults(results []viosMappingResult) {
 				fmt.Printf("   Volume UDID:    %s\n", pv.VolumeUniqueID)
 				fmt.Printf("   Description:    %s\n", pv.Description)
 				fmt.Printf("   Location Code:  %s\n", pv.LocationCode)
-				// Convert boolean to user-friendly Yes/No format
-				boolStr := map[bool]string{true: "Yes", false: "No"}
-				fmt.Printf("   FC Backed:      %s\n", boolStr[pv.IsFibreChannelBacked])
-				fmt.Printf("   iSCSI Backed:   %s\n", boolStr[pv.IsISCSIBacked])
+				// Display backing storage types
+				fmt.Printf("   FC Backed:      %s\n", formatBool(pv.IsFibreChannelBacked))
+				fmt.Printf("   iSCSI Backed:   %s\n", formatBool(pv.IsISCSIBacked))
 				fmt.Printf("   Reserve Policy: %s\n", pv.ReservePolicy)
 				if pv.StorageLabel != "" {
 					fmt.Printf("   Storage Label:  %s\n", pv.StorageLabel)

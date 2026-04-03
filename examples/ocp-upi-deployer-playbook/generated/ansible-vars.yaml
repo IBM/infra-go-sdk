@@ -64,8 +64,8 @@ dhcp:
 # SNO Mode - Single master node
 masters:
   - name: "sno-master"
-    ipaddr: "198.51.100.15"
-    macaddr: "DA:20:D3:FC:04:02"
+    ipaddr: "198.51.100.16"
+    macaddr: "DA:20:D2:A7:EC:02"
     pvmcec: "LTC09U31-ZZ"
     pvmlpar: "sno-master"
     disk: /dev/sda
