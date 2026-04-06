@@ -1,5 +1,7 @@
 github.com/beevik/etree v1.6.0 h1:u8Kwy8pp9D9XeITj2Z0XtA5qqZEmtJtuXZRQi+j03eE=
 github.com/beevik/etree v1.6.0/go.mod h1:bh4zJxiIr62SOf9pRzN7UUYaEDa9HEKafK25+sLc0Gc=
+github.com/sudeeshjohn/svc-go-sdk v0.0.0-20260406162240-357865cbde00 h1:JoIs3zJWomweMyCISeEjDbvEJrfwp+I5fBIqJt8pDb8=
+github.com/sudeeshjohn/svc-go-sdk v0.0.0-20260406162240-357865cbde00/go.mod h1:ySmj9lmIGs/s/QX6cFwvjQiZmhweUjBHXpfpCc8bG/c=
 golang.org/x/crypto v0.31.0 h1:ihbySMvVjLAeSH1IbfcRTkD/iNscyz8rGzjF/E5hV6U=
 golang.org/x/crypto v0.31.0/go.mod h1:kDsLvtWBEx7MV9tJOj9bnXsPbxwJQ6csT/x4KIN4Ssk=
 golang.org/x/sys v0.28.0 h1:Fksou7UEQUWlKvIdsqzJmUmCX3cZuD2+P3XyyzwMhlA=
