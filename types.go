@@ -939,6 +939,39 @@ type ClientNetworkAdapter struct {
 	VirtualNetworkURIs                  []LinkXML `xml:"VirtualNetworks>link"`
 }
 
+// NetworkBootDeviceCollection represents the collection of network boot devices returned by HMC
+type NetworkBootDeviceCollection struct {
+	XMLName       xml.Name            `xml:"NetworkBootDevice_Collection"`
+	SchemaVersion string              `xml:"schemaVersion,attr"`
+	Metadata      struct {
+		Atom string `xml:"Atom"`
+	} `xml:"Metadata"`
+	Devices []NetworkBootDeviceXML `xml:"NetworkBootDevice"`
+}
+
+// NetworkBootDeviceXML represents a network boot device as returned by HMC REST API
+type NetworkBootDeviceXML struct {
+	XMLName          xml.Name `xml:"NetworkBootDevice"`
+	SchemaVersion    string   `xml:"schemaVersion,attr"`
+	Metadata         struct {
+		Atom string `xml:"Atom"`
+	} `xml:"Metadata"`
+	BootDevice       string `xml:"BootDevice"`       // Device name (e.g., "ent")
+	IsPhysicalDevice string `xml:"IsPhysicalDevice"` // "true" or "false" as string
+	LocationCode     string `xml:"LocationCode"`     // Physical location code with port suffix
+	MACAddressValue  string `xml:"MACAddressValue"`  // MAC address
+}
+
+// NetworkBootDevice represents a network boot device from an LPAR profile.
+type NetworkBootDevice struct {
+	DeviceName   string `json:"device_name"`     // Name of the network device (e.g., "ent")
+	DeviceType   string `json:"device_type"`     // Type: "physical" or "virtual"
+	LocationCode string `json:"location_code"`   // Physical location code of the adapter
+	MACAddress   string `json:"mac_address"`     // MAC address of the adapter
+	AdapterID    string `json:"adapter_id"`      // Adapter identifier (if available)
+	BootPriority int    `json:"boot_priority"`   // Boot priority order (if available)
+}
+
 // =====================================================================
 // LOGICAL PARTITION PROFILE DATA STRUCTURES
 // =====================================================================

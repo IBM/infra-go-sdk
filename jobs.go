@@ -90,9 +90,6 @@ func (c *HmcRestClient) FetchJobResponse(jobID string, verbose bool) (*JobRespon
 // FetchJobStatus fetches the job status and response, waiting for completion or error.
 // Returns a structured JobResponseDetail instead of raw XML.
 //
-// This function polls the HMC job status endpoint and handles all documented job statuses
-// according to IBM PowerVM HMC REST API specification.
-//
 // Supported Job Statuses:
 //   - COMPLETED_OK: Job completed successfully (returns JobResponseDetail, nil)
 //   - COMPLETED_WITH_WARNINGS: Job completed with warnings (returns JobResponseDetail, nil)

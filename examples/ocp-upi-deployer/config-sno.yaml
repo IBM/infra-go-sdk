@@ -1,0 +1,211 @@
+# =============================================================================
+# Unified Configuration for OpenShift UPI Deployer on IBM Power Systems
+# =============================================================================
+# This file contains the complete configuration required to deploy one or 
+# multiple OpenShift clusters from a single helper (bastion) node.
+# =============================================================================
+
+# =============================================================================
+# HELPER NODE CONFIGURATION
+# =============================================================================
+# The helper node acts as the bastion and local infrastructure server.
+# Prerequisites: RHEL 8/9 or CentOS Stream, SSH access, and network routing 
+# to both the HMC and the target OpenShift cluster networks.
+helper_node:
+  hostname: "helper.example.com"    # FQDN of the helper node
+  ip: "192.0.2.10"               # Primary IP address of the helper node
+  ssh_user: "root"                  # User for SSH execution (requires sudo/root)
+  ssh_key_file: "~/.ssh/id_rsa"     # Path to the private SSH key for authentication
+  network_interface: "eth0"         # The physical interface where VIPs will be bound
+  
+  # Packages that the deployer will automatically install on the helper node.
+  required_packages:
+    - dnsmasq             # Handles DNS, DHCP, and TFTP for PXE booting
+    - haproxy             # Port-based load balancer for cluster services
+    - httpd               # Web server to host ignition files and RHCOS images
+    - firewalld           # Firewall management
+  
+# =============================================================================
+# HMC CONFIGURATION
+# =============================================================================
+# Hardware Management Console details used to communicate with Power Systems.
+hmc:
+  ip: "192.0.2.1"                # IP or FQDN of the HMC
+  username: "REDACTED_HMC_USER<=="               # HMC username with LPAR creation privileges
+  password: "REDACTED_HMC_PASS<=="                # HMC password
+
+# =============================================================================
+# CLUSTER DEFINITIONS
+# =============================================================================
+# You can define multiple clusters in this list. The deployer isolates them 
+# by assigning each its own VIP, HTTP directory, and DNS/HAProxy configurations.
+clusters:
+  - name: "sno-new-11"                # Cluster name (used for DNS, deployment isolation, and node hostname)
+    type: "sno"                     # "sno" (Single Node) or "multi-node"
+    ocp_version: "4.21"             # Target OpenShift version
+    vip: "192.0.2.103"            # The single VIP for this cluster's API & Ingress
+    
+    # -------------------------------------------------------------------------
+    # EMBEDDED CLUSTER CONFIGURATION
+    # -------------------------------------------------------------------------
+    cluster_config:
+      
+      # Physical Power Systems where LPARs will be created.
+      # Note: CPU and Memory availability are dynamically queried and validated 
+      # from the HMC during the 'check_resources' phase. No hardcoding needed!
+      power_systems:
+        - name: "LTC09U31-ZZ"               # HMC Managed System name
+          vswitch_name: "ETHERNET0(Default)" # Virtual switch for network adapters
+          vlan_id: 1337                      # VLAN ID for the network adapters
+
+      # Storage configuration for the OpenShift nodes.
+      storage:
+        type: "vios"                        # "vios" (Virtual I/O Server) or "svc"
+        vios:
+          - system_name: "LTC09U31-ZZ"      # Managed system where VIOS resides
+            vios_name: "ltc09u23-vios1"     # Target VIOS partition name
+            volume_group: "vol_grp"       # Volume group where disks will be carved
+
+      # Core networking definitions for the OpenShift cluster.
+      # NOTE: The cluster name is derived from the deployment 'name' field above (sno-refa).
+      # The cluster will be accessible at:
+      #   - API: https://api.{name}.{base_domain}:6443 (e.g., https://api.sno-refa.example.com:6443)
+      #   - Apps: https://*.apps.{name}.{base_domain} (e.g., https://console.apps.sno-refa.example.com)
+      network:
+        domain: "example.com"               # Base organization domain
+        base_domain: "example.com"          # Route base domain for the cluster
+        network_cidr: "192.0.2.0/20"      # Subnet for the OpenShift nodes
+        gateway: "192.0.2.254"              # Gateway for the OpenShift subnet
+        netmask: "255.255.240.0"            # Subnet mask
+        broadcast: "203.0.113.255"          # Broadcast address
+        nameserver: "192.0.2.10"         # DNS Server (usually the helper node IP)
+        dns_forwarders:                     # Upstream DNS for external resolution
+          - "10.0.10.4"
+          - "10.0.10.5"
+        ntp_servers:                        # Time sync servers
+          - "10.0.10.4"
+          - "10.0.10.5"
+        mac_prefix: "52:54:00"              # Prefix for generated virtual MAC addresses
+
+      # OpenShift installation parameters and artifact URLs.
+      openshift:
+        version: "4.21"
+        pull_secret_file: "./pull-secret.json"     # Local path to Red Hat pull secret
+        ssh_public_key_file: "~/.ssh/id_rsa.pub"   # Local path to SSH pub key for node access
+        
+        # SDN Configuration (OVNKubernetes default)
+        cluster_network_cidr: "10.128.0.0/14"
+        cluster_network_host_prefix: 23
+        service_network: "172.30.0.0/16"
+        machine_network: "192.0.2.0/20"          # Must match network_cidr above
+        
+        # URLs to download RHCOS images for PXE boot
+        rhcos_images:
+          #kernel_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-kernel.ppc64le"
+          #initramfs_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-initramfs.ppc64le.img"
+          #rootfs_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-rootfs.ppc64le.img"
+          kernel_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-kernel.ppc64le"
+          initramfs_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-initramfs.ppc64le.img"
+          rootfs_url: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/dependencies/rhcos/4.21/4.21.0/rhcos-live-rootfs.ppc64le.img"
+  
+        
+        # URLs to download OpenShift install binaries
+        ocp_client_config:
+          ocp_client_arch: "ppc64le"
+          ocp_base_url: "https://mirror.openshift.com/pub/openshift-v4/multi/clients"
+          ocp_client_base: "ocp"
+          ocp_client_tag: "latest-4.21"
+          #ocp_client: "https://mirror.openshift.com/pub/openshift-v4/multi/clients/ocp/latest-4.21/ppc64le/openshift-client-linux.tar.gz"
+          #ocp_installer: "https://mirror.openshift.com/pub/openshift-v4/multi/clients/ocp/latest-4.21/ppc64le/openshift-install-linux.tar.gz"
+          ocp_client: "https://mirror.openshift.com/pub/openshift-v4/ppc64le/clients/ocp/4.21.8/openshift-client-linux.tar.gz"
+          ocp_installer: "https://mirror.openshift.com/pub/openshift-v4/multi/clients/ocp/candidate-4.21/ppc64le/openshift-install-linux.tar.gz"
+        
+        disk_device: "/dev/sda"             # Target disk inside LPAR for OS installation
+        install_type: "sno"                 # Must match cluster 'type' above
+        force_ocp_download: true            # Force fresh download of images/tools
+        rhcos_arch: "ppc64le"               # OS Architecture
+        rhcos_kernel_options: []            # Optional kernel args (e.g., "loglevel=7")
+        sysctl_tuned_options: false         # Apply sysctl via tuned operator
+        powervm_rmc: true                   # Install RSCT/RMC daemonset for PowerVM
+        force_dns: true                     # Force DNS traffic through helper node
+
+      # Node definitions. Since this is an SNO cluster, we only define 'sno_node'.
+      # For a multi-node cluster, you would define 'bootstrap', 'masters', and 'workers'.
+      #
+      # IMPORTANT: 'hostname' should be a resolvable FQDN that will be configured in DNS.
+      #            Format: {short-name}.{cluster-name}.{base-domain}
+      #            Example: sno-refa-master.sno-refa.example.com
+      #            If not specified, defaults to just the cluster name (not recommended for production).
+      #
+      # The 'name' field is used for HAProxy backend naming and defaults to "{short-hostname}-master".
+      sno_node:
+        # name: "sno-refa-master"                           # (Optional) HAProxy backend name - defaults to "{hostname}-master"
+        # hostname: "sno-refa-master.sno-refa.example.com"  # (Optional) Resolvable FQDN - defaults to cluster name
+        ip: "198.51.100.12"                                  # Desired static IP for the node
+        system_name: "LTC09U31-ZZ"          # Managed system to deploy on
+        lpar:
+          os_type: "AIX/Linux"
+          processor:
+            type: "shared"                  # "shared" or "dedicated"
+            units: 4.0                      # Entitled processing units
+            virtual_procs: 16               # Virtual processors (vCPUs)
+            min_units: 2.0
+            max_units: 8.0
+            min_procs: 8
+            max_procs: 32
+          memory:
+            desired_mb: 65536              # RAM allocation (64GB)
+            min_mb: 65536
+            max_mb: 65536
+          storage:
+            boot_disk_gb: 120               # OS Disk size
+            etcd_disk_gb: 100               # Etcd Disk size
+            container_storage_gb: 300       # Application workload storage size
+
+      # Execution phases of the deployment orchestrator.
+      # You can comment out phases here to skip them during execution.
+      deployment:
+        phases:
+          - validate                # Validate configurations locally
+          - check_resources         # Query HMC to ensure physical hardware capacity exists
+          - setup_helper_services   # Install packages and bind VIP on helper node
+          - setup_http              # Create /var/www/html isolated directories
+          - download_images         # Pull RHCOS and OpenShift binaries
+          - create_lpars            # Spin up VMs via HMC and carve storage
+          - setup_dns               # Configure DNS records for cluster nodes and services
+          - setup_dhcp              # Configure DHCP with MAC-to-IP bindings
+          - setup_pxe               # Configure PXE/TFTP boot for network installation
+          - setup_haproxy           # Configure port-based routing
+          - generate_ignition       # Run openshift-install to create .ign files
+          - power_on                # Issue network boot command via HMC
+          - wait_bootstrap          # Wait for bootstrap to complete (20-30 min)
+          - wait_installation       # Wait for installation to complete (30-45 min)
+        
+        # Operation timeout limits (in seconds)
+        timeouts:
+          lpar_creation: 10         
+          power_on: 5
+          helper_setup: 30
+          bootstrap_complete: 1800  # 30 mins
+          installation_complete: 3600 # 60 mins
+        
+        retry:
+          max_attempts: 3
+          delay_seconds: 30
+        
+        cleanup_on_failure: false   # If true, auto-deletes LPARs/State if a phase fails
+        verbose: true               # Print detailed execution steps to console
+
+      # Advanced deployment toggles and configuration
+      advanced:
+        parallel_lpar_creation: false     # Create LPARs concurrently (best for multi-node)
+        max_parallel_operations: 1        # Semaphore limit for concurrent HMC requests
+        validate_resources: true          # Enables the 'check_resources' phase
+        check_network_connectivity: true
+        verify_storage_capacity: true
+        preserve_ignition_files: true     # Keep .ign files after deployment
+        preserve_install_artifacts: true
+        enable_detailed_logging: true
+        log_file: "./deployment-sno.log"
+        save_state_on_each_phase: true    # Enable Terraform-style state tracking
+        state_file: "deployment-state-sno-test.json" # State file name

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/beevik/etree"
+	"golang.org/x/crypto/ssh"
 )
 
 // FormatMACAddress formats a MAC address string by inserting colons every 2 characters
@@ -1061,6 +1062,89 @@ func (c *HmcRestClient) CloseVirtualTerminal(sysName, lparName string, verbose b
 	
 	return nil
 }
+
+// CliRunnerViaSsh executes HMC CLI commands directly via SSH instead of using the REST API.
+// This bypasses REST API limitations and allows running any HMC CLI command.
+//
+// Parameters:
+//   - hmcIP: HMC IP address or hostname
+//   - username: HMC username (typically "REDACTED_HMC_USER<==")
+//   - password: HMC password
+//   - command: The CLI command to execute (e.g., "rmvterm -m system -p lpar")
+//   - verbose: Enable verbose logging
+//
+// Returns:
+//   - output: Command output as string
+//   - error: Error if command fails
+//
+// Example:
+//   output, err := CliRunnerViaSsh("192.0.2.2", "REDACTED_HMC_USER<==", "password", "lshmc -V", true)
+func CliRunnerViaSsh(hmcIP, username, password, command string, verbose bool) (string, error) {
+	if verbose {
+		hmcLogger.Printf("Executing HMC CLI command via SSH: %s", command)
+	}
+
+	// Configure SSH client
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // Note: In production, verify host key
+		Timeout:         30 * time.Second,
+	}
+
+	// Connect to HMC via SSH
+	addr := fmt.Sprintf("%s:22", hmcIP)
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to HMC via SSH: %w", err)
+	}
+	defer client.Close()
+
+	// Create session
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	// Execute command
+	output, err := session.CombinedOutput(command)
+	if err != nil {
+		return string(output), fmt.Errorf("command failed: %w (output: %s)", err, string(output))
+	}
+
+	if verbose {
+		hmcLogger.Printf("Command output: %s", string(output))
+	}
+
+	return string(output), nil
+}
+
+// CloseVirtualTerminalViaSsh closes a virtual terminal using direct SSH connection to HMC.
+// This is an alternative to CloseVirtualTerminal that bypasses REST API limitations.
+func (c *HmcRestClient) CloseVirtualTerminalViaSsh(hmcIP, username, password, sysName, lparName string, verbose bool) error {
+	if verbose {
+		hmcLogger.Printf("Closing virtual terminal via SSH for LPAR '%s' on system '%s'...", lparName, sysName)
+	}
+
+	// Build rmvterm command
+	command := fmt.Sprintf("rmvterm -m %s -p %s", sysName, lparName)
+
+	// Execute via SSH
+	output, err := CliRunnerViaSsh(hmcIP, username, password, command, verbose)
+	if err != nil {
+		return fmt.Errorf("failed to close terminal via SSH: %w", err)
+	}
+
+	if verbose {
+		hmcLogger.Printf("✅ Virtual terminal closed successfully via SSH. Output: %s", output)
+	}
+
+	return nil
+}
+
 // GetActiveVIOSServers filters and returns only the active VIOS servers from a list of VIOS UUIDs.
 // It fetches detailed information for each VIOS and checks if ResourceMonitoringControlState is "active".
 // Returns a map where:

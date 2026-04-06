@@ -2436,7 +2436,6 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 	return "SUCCESS", nil
 }
 // DeleteVirtualDiskMaps removes multiple virtual disk mappings from a VIOS to an LPAR in a single operation.
-// This function follows the GET-Modify-POST pattern to delete virtual disk (logical volume) mappings.
 //
 // Parameters:
 //   - sysUUID: The UUID of the managed system
@@ -2587,7 +2586,6 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 }
 
 // DeleteVirtualOpticalMaps removes multiple virtual optical media mappings from a VIOS to an LPAR in a single operation.
-// This function follows the GET-Modify-POST pattern to delete virtual optical (ISO/CD-ROM) mappings.
 //
 // Parameters:
 //   - sysUUID: The UUID of the managed system

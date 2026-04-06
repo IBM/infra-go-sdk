@@ -100,7 +100,6 @@ func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, verbos
 }
 
 // GetLogicalPartitionProfile retrieves a single logical partition profile by its UUID.
-// This is more efficient than GetLogicalPartitionProfiles when you only need one specific profile.
 func (c *HmcRestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUID string, verbose bool) (*LogicalPartitionProfile, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/%s", c.hmcIP, partitionUUID, profileUUID)
 	if verbose {

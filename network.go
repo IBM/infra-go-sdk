@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"strings"
@@ -238,6 +239,165 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, ve
 	}
 
 	return adapters, nil
+}
+
+// GetNetworkBootDevices retrieves network boot devices from an LPAR's profile using the HMC REST API job.
+//
+// WARNING: This operation will power off the LPAR if it is currently running.
+// The HMC GetNetworkBootDevices job requires the LPAR to be in a powered-off state
+// to retrieve accurate network boot device information from the profile.
+//
+// Parameters:
+//   - lparUUID: UUID of the logical partition
+//   - profileUUID: UUID of the partition profile to query
+//   - verbose: Enable detailed logging
+//
+// Returns:
+//   - []NetworkBootDevice: List of network boot devices configured in the profile
+//   - error: Error if the operation fails
+//
+// Reference: HMC REST API - GetNetworkBootDevices job operation
+func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verbose bool) ([]NetworkBootDevice, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/GetNetworkBootDevices", c.hmcIP, lparUUID)
+
+	if verbose {
+		hmcLogger.Printf("Getting network boot devices for LPAR %s, profile %s", lparUUID, profileUUID)
+	}
+
+	// Define operation details for the JobRequest
+	reqdOperation := map[string]string{
+		"OperationName": "GetNetworkBootDevices",
+		"GroupName":     "LogicalPartition",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// Build job parameters
+	jobParams := map[string]string{
+		"LogicalPartitionProfileUUID": profileUUID,
+	}
+
+	// Create XML payload using the existing job request helper
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_1_0", verbose, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job request payload: %v", err)
+	}
+
+	// Create and execute HTTP request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
+	req.Header.Set("Accept", "*/*")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse response to extract JobID
+	doc, err := xmlStripNamespace(respBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response")
+	}
+	jobID := jobIDElem.Text()
+
+	if verbose {
+		hmcLogger.Printf("GetNetworkBootDevices job submitted, JobID: %s", jobID)
+	}
+
+	// Wait for job completion
+	jobResp, err := c.FetchJobStatus(jobID, false, 5, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("GetNetworkBootDevices job failed: %v", err)
+	}
+
+	// Parse job results to extract network boot devices
+	var bootDevices []NetworkBootDevice
+
+	for _, param := range jobResp.Results.Parameters {
+		if param.ParameterName == "result" {
+			xmlContent := param.ParameterValue
+
+			// 1. Clean the CDATA wrapper and unescape any HTML entities
+			xmlContent = strings.TrimSpace(xmlContent)
+			xmlContent = strings.TrimPrefix(xmlContent, "<![CDATA[")
+			xmlContent = strings.TrimSuffix(xmlContent, "]]>")
+			xmlContent = html.UnescapeString(strings.TrimSpace(xmlContent))
+
+			if verbose {
+				hmcLogger.Printf("Parsing cleaned XML content (%d bytes)", len(xmlContent))
+			}
+
+			// 2. Strip Namespaces to make Unmarshaling easy
+			cleanDoc, err := xmlStripNamespace([]byte(xmlContent))
+			if err != nil {
+				if verbose {
+					hmcLogger.Printf("Failed to strip namespaces from result XML: %v", err)
+				}
+				continue
+			}
+			strippedXML, _ := cleanDoc.WriteToBytes()
+
+			// 3. Use an inline struct to map IBM's XML directly using standard encoding/xml
+			var collection struct {
+				Devices []struct {
+					BootDevice       string `xml:"BootDevice"`
+					IsPhysicalDevice bool   `xml:"IsPhysicalDevice"`
+					LocationCode     string `xml:"LocationCode"`
+					MACAddressValue  string `xml:"MACAddressValue"`
+				} `xml:"NetworkBootDevice"`
+			}
+
+			if err := xml.Unmarshal(strippedXML, &collection); err != nil {
+				if verbose {
+					hmcLogger.Printf("Failed to unmarshal NetworkBootDevices XML: %v", err)
+				}
+				continue
+			}
+
+			// 4. Map the unmarshaled data to your SDK's return struct
+			for _, d := range collection.Devices {
+				deviceType := "virtual"
+				if d.IsPhysicalDevice {
+					deviceType = "physical"
+				}
+
+				bootDevices = append(bootDevices, NetworkBootDevice{
+					DeviceName:   d.BootDevice,
+					DeviceType:   deviceType,
+					LocationCode: d.LocationCode,
+					MACAddress:   d.MACAddressValue,
+				})
+			}
+		}
+	}
+
+	if verbose {
+		hmcLogger.Printf("Retrieved %d network boot device(s)", len(bootDevices))
+	}
+
+	return bootDevices, nil
 }
 
 // CreateClientNetworkAdapter adds a new Virtual Ethernet Adapter to an LPAR and connects it to a Virtual Switch.
