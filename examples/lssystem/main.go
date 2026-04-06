@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"example.com/svc-demo/utils"
+	"github.com/sudeeshjohn/svc-go-sdk/examples/utils"
+	// Adjust if your package path differs
 )
 
 func main() {
