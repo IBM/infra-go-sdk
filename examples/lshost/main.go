@@ -1,45 +1,53 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 	"strings"
 
-	"github.com/sudeeshjohn/svc-go-sdk" // Adjust if your package path differs
+	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	// Initialize Client
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Println("✅ Authenticated")
 
-	// 1. List all hosts (General check)
+	// List all hosts
+	client.Logger.Info("Fetching all hosts...")
 	hosts, err := client.Lshost()
 	if err != nil {
-		log.Fatalf("Lshost error: %v", err)
+		client.Logger.Error("Lshost error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Printf("Total hosts found: %d\n", len(hosts))
+	client.Logger.Info("Total hosts found", "count", len(hosts))
 
-// 2. Specific Check for the host
-    targetHost := "ltc09u31-vios1"
-    fmt.Printf("Searching for host: %s...\n", targetHost)
+	// Search specific host
+	targetHost := "ltc09u31-vios1"
+	client.Logger.Info("Searching for specific host...", "target", targetHost)
 
-    host, err := client.LshostByTarget(targetHost)
-    if err != nil {
-        if strings.Contains(err.Error(), "CMMVC5754E") {
-            fmt.Printf("❌ Host '%s' not found (CMMVC5754E)\n", targetHost)
-        } else {
-            log.Fatalf("Error: %v", err)
-        }
-    } else {
-        // 'host' is now a direct pointer to the object
-        fmt.Printf("✅ Found Host: %s (ID: %s)\n", host.Name, host.ID)
-        fmt.Printf("   Status: %s, Protocol: %s, Portset: %s\n", host.Status, host.Protocol, host.PortsetName)
-    }
-
-	fmt.Println("Done.")
+	host, err := client.LshostByTarget(targetHost)
+	if err != nil {
+		if strings.Contains(err.Error(), "CMMVC5754E") {
+			client.Logger.Warn("Host not found", "target", targetHost)
+		} else {
+			client.Logger.Error("LshostByTarget error", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		client.Logger.Info("✅ Found Host", "name", host.Name, "id", host.ID)
+		client.Logger.Debug("Host Details", "status", host.Status, "protocol", host.Protocol, "portset", host.PortsetName)
+	}
 }

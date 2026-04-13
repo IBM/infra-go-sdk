@@ -1,36 +1,48 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 	"strings"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
 
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Println("✅ Authenticated")
 
-	systemInfo, err := client.Lssystem()
-	if err != nil {
-		log.Fatalf("lssystem error: %v", err)
+	hostParams := svc.Host{
+		Name:     "host1",
+		Fcwwpn:   []string{"21000024FF3C4D2E", "210100E08B251EE6", "210100F08C262EE7"},
+		Type:     "generic",
+		Protocol: "scsi",
 	}
-	fmt.Printf("System: %+v\n", systemInfo)
 
-	err = client.Mkhost(svc.Host{Name: "host1", Fcwwpn: []string{"21000024FF3C4D2E", "210100E08B251EE6", "210100F08C262EE7"}, Type: "generic", Protocol: "scsi"})
+	client.Logger.Info("Attempting to create host...", "host_name", hostParams.Name)
+
+	err := client.Mkhost(hostParams)
 	if err != nil {
 		if strings.Contains(err.Error(), "CMMVC6035E") || strings.Contains(err.Error(), "object already exists") {
-			fmt.Println("Host already exists, skipping creation.")
+			client.Logger.Info("✅ Host already exists, skipping creation", "host_name", hostParams.Name)
 		} else {
-			log.Fatalf("Mkhost error: %v", err)
+			client.Logger.Error("Mkhost error", "error", err)
+			os.Exit(1)
 		}
 	} else {
-		fmt.Println("Successfully created host.")
+		client.Logger.Info("✅ Successfully created host", "host_name", hostParams.Name)
 	}
 }

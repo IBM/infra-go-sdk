@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"log"
 	"os"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
@@ -13,8 +12,17 @@ func GetSVCClient() *svc.Client {
 	password := os.Getenv("SVC_PASSWORD")
 
 	if ip == "" || username == "" || password == "" {
-		log.Fatal("missing required environment variables: SVC_IP, SVC_USERNAME, SVC_PASSWORD")
+		logger := svc.NewDefaultLogger()
+		logger.Error("missing required environment variables: SVC_IP, SVC_USERNAME, SVC_PASSWORD")
+		os.Exit(1)
 	}
 
-	return svc.NewClient(ip, username, password).WithTLSInsecure()
+	client := svc.NewClient(ip, username, password).WithTLSInsecure()
+	
+	// Automatically turn on debug if requested via env var
+	if os.Getenv("SVC_DEBUG") == "true" {
+		client = client.WithDebug()
+	}
+
+	return client
 }

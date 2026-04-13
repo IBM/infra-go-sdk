@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Host represents a host object from the lshost API response
+// Hosts represents a host object from the lshost API response
 type Hosts struct {
 	ID                string `json:"id"`
 	Name              string `json:"name"`
@@ -32,15 +32,12 @@ type Hosts struct {
 func (c *Client) Lshost() ([]Hosts, error) {
 	data, err := c.post("lshost", nil)
 	if err != nil {
-		var errResp ErrorResponse
-		if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
-			return nil, fmt.Errorf("error %s: %s", errResp.Code, errResp.Description)
-		}
-		return nil, fmt.Errorf("failed to list hosts: %v", err)
+		return nil, fmt.Errorf("failed to list hosts: %w", decodeIBMError(err))
 	}
 
 	var hosts []Hosts
 	if err := json.Unmarshal(data, &hosts); err != nil {
+		// Log the unmarshal failure with structured logging
 		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
@@ -50,21 +47,20 @@ func (c *Client) Lshost() ([]Hosts, error) {
 // LshostByTarget retrieves details for a specific host.
 // Note: The API returns a single object for specific resource requests.
 func (c *Client) LshostByTarget(target string) (*Hosts, error) {
-    endpoint := fmt.Sprintf("lshost/%s", target)
-    data, err := c.post(endpoint, nil)
-    if err != nil {
-        var errResp ErrorResponse
-        if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
-            return nil, fmt.Errorf("error %s: %s", errResp.Code, errResp.Description)
-        }
-        return nil, fmt.Errorf("failed to get host details for %s: %v", target, err)
-    }
+	endpoint := fmt.Sprintf("lshost/%s", target)
+	data, err := c.post(endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get host details for %s: %w", target, decodeIBMError(err))
+	}
 
-    // Changed from []Host to a single Host pointer
-    var host Hosts
-    if err := json.Unmarshal(data, &host); err != nil {
-        return nil, fmt.Errorf("failed to parse response: %v", err)
-    }
+	var hosts []Hosts
+	if err := json.Unmarshal(data, &hosts); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
 
-    return &host, nil
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("host %s not found", target)
+	}
+
+	return &hosts[0], nil
 }

@@ -1,29 +1,37 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
-	}
-	fmt.Println("✅ Authenticated")
-
-	// Create a FlashCopyConsistGroupID instance
-	group := svc.FlashCopyConsistGroupID{
-		ID: "test_fcgrp",
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
 
-	// Prepare the FlashCopy consistency group
+	group := svc.FlashCopyConsistGroupID{ID: "test_fcgrp"}
+
+	client.Logger.Info("Preparing FlashCopy consistency group...", "id", group.ID)
+
 	if err := client.Prestartfcconsistgrp(group); err != nil {
-		log.Fatalf("Prestartfcconsistgrp error: %v", err)
-	} else {
-		fmt.Printf("Successfully prepared FlashCopy consistency group with ID: %s\n", group.ID)
+		client.Logger.Error("Prestartfcconsistgrp error", "error", err)
+		os.Exit(1)
 	}
+
+	client.Logger.Info("✅ Successfully prepared FlashCopy consistency group", "id", group.ID)
 }

@@ -1,29 +1,37 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
-	}
-	fmt.Println("✅ Authenticated")
-
-	// Create a FlashCopyMappingID instance
-	mapping := svc.FlashCopyMappingID{
-		ID: "test_fcmap",
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
 
-	// Prepare the FlashCopy mapping
+	mapping := svc.FlashCopyMappingID{ID: "test_fcmap"}
+
+	client.Logger.Info("Preparing FlashCopy mapping...", "id", mapping.ID)
+
 	if err := client.Prestartfcmap(mapping); err != nil {
-		log.Fatalf("Prestartfcmap error: %v", err)
-	} else {
-		fmt.Printf("Successfully prepared FlashCopy mapping with ID: %s\n", mapping.ID)
+		client.Logger.Error("Prestartfcmap error", "error", err)
+		os.Exit(1)
 	}
+
+	client.Logger.Info("✅ Successfully prepared FlashCopy mapping", "id", mapping.ID)
 }

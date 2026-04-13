@@ -75,15 +75,12 @@ type Vdisk struct {
 func (c *Client) LsVdisk() ([]Vdisk, error) {
 	data, err := c.post("lsvdisk", nil)
 	if err != nil {
-		var errResp ErrorResponse
-		if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
-			return nil, fmt.Errorf("error %s: %s", errResp.Code, errResp.Description)
-		}
-		return nil, fmt.Errorf("failed to list vdisks: %v", err)
+		return nil, fmt.Errorf("failed to list vdisks: %w", decodeIBMError(err))
 	}
 
 	var vdisks []Vdisk
 	if err := json.Unmarshal(data, &vdisks); err != nil {
+		// Log the unmarshal failure with structured logging
 		return nil, fmt.Errorf("failed to parse lsvdisk response: %v", err)
 	}
 
@@ -95,17 +92,13 @@ func (c *Client) LsVdiskByName(target string) (*Vdisk, error) {
 	endpoint := fmt.Sprintf("lsvdisk/%s", target)
 	data, err := c.post(endpoint, nil)
 	if err != nil {
-		var errResp ErrorResponse
-		if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
-			// This successfully captures the CMMVC5754E error if the volume doesn't exist
-			return nil, fmt.Errorf("error %s: %s", errResp.Code, errResp.Description)
-		}
-		return nil, fmt.Errorf("failed to get vdisk details for %s: %v", target, err)
+		return nil, fmt.Errorf("failed to get vdisk details for %s: %w", target, decodeIBMError(err))
 	}
 
 	// The API returns an array even for a single target, so we unmarshal into a slice
 	var vdisks []Vdisk
 	if err := json.Unmarshal(data, &vdisks); err != nil {
+		// Log the unmarshal failure and include the target name for context
 		return nil, fmt.Errorf("failed to parse lsvdisk/%s response: %v", target, err)
 	}
 

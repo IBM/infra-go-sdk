@@ -1,21 +1,30 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Println("✅ Authenticated")
 
-	// Create a Volume instance
+	grainSize := 256
 	volume := svc.Volume{
 		Name:       "test_volume2",
 		MdiskGrp:   "0",
@@ -24,13 +33,15 @@ func main() {
 		RSize:      "2%",
 		Warning:    "80%",
 		AutoExpand: true,
-		GrainSize:  256,
+		GrainSize:  &grainSize,
 	}
 
-	// Create the volume using Mkvdisk
+	client.Logger.Info("Creating new volume...", "volume_name", volume.Name)
+
 	if err := client.Mkvdisk(volume); err != nil {
-		log.Fatalf("Mkvdisk error: %v", err)
-	} else {
-		fmt.Printf("Successfully created disk with name: %s\n", volume.Name)
+		client.Logger.Error("Mkvdisk error", "error", err)
+		os.Exit(1)
 	}
+
+	client.Logger.Info("✅ Successfully created disk", "volume_name", volume.Name)
 }

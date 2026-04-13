@@ -33,11 +33,7 @@ func (c *Client) Lsfcconsistgrp(name string) ([]FlashCopyConsistGroupInfo, error
 
 	data, err := c.post(endpoint, nil)
 	if err != nil {
-		var errResp ErrorResponse
-		if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
-			return nil, fmt.Errorf("error %s: %s", errResp.Code, errResp.Description)
-		}
-		return nil, fmt.Errorf("failed to list FlashCopy consistency groups: %v", err)
+		return nil, fmt.Errorf("failed to list FlashCopy consistency groups: %w", decodeIBMError(err))
 	}
 
 	var result []FlashCopyConsistGroupInfo
@@ -49,6 +45,7 @@ func (c *Client) Lsfcconsistgrp(name string) ([]FlashCopyConsistGroupInfo, error
 			result = []FlashCopyConsistGroupInfo{group}
 		} else {
 			// Fall back to array response (group with mappings)
+			c.Logger.Debug("Falling back to array parsing for consistency group mappings")
 			var rawResponse []map[string]interface{}
 			if err := json.Unmarshal(data, &rawResponse); err != nil {
 				return nil, fmt.Errorf("failed to parse response: %v", err)

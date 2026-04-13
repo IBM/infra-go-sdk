@@ -2,10 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"log"
+	"os"
 	"strings"
 
+	"github.com/charmbracelet/log"
 	svc "github.com/sudeeshjohn/svc-go-sdk"
 )
 
@@ -17,37 +17,46 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
-	if *verbose {
-		log.Printf("Connecting to SVC at %s as user %s", *svcIP, *svcUser)
-	}
-
+	// Initialize the client
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 
-	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+	// Default example output should be visible even without -verbose.
+	if *verbose {
+		client = client.WithDebug()
+		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
+	} else {
+		client = client.WithLogger(svc.NewLogger(log.InfoLevel, os.Stderr))
 	}
-	fmt.Println("✅ Authenticated")
+
+	if err := client.Authenticate(); err != nil {
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1) // Replaces log.Fatalf
+	}
+	client.Logger.Info("✅ Authenticated")
 
 	// List all fabric logins
-	if *verbose {
-		log.Println("Fetching fabric logins (this may take a few minutes)...")
-	}
+	client.Logger.Debug("Fetching fabric logins (this may take a few minutes)...")
 
 	logins, err := client.Lsfabric()
 	if err != nil {
-		log.Fatalf("Lsfabric error: %v", err)
+		client.Logger.Error("Lsfabric error", "error", err)
+		os.Exit(1)
 	}
 
 	if len(logins) == 0 {
-		fmt.Println("No fabric logins found")
+		client.Logger.Info("No fabric logins found")
 	} else {
-		fmt.Printf("Found %d fabric login(s)\n", len(logins))
-		if *verbose {
-			fmt.Println("\nAll Fabric Logins:")
-			for i, login := range logins {
-				fmt.Printf("%d. Remote WWPN: %s, Host Name: %s, Local WWPN: %s, Status: %s\n",
-					i+1, login.RemoteWWPN, login.HostName, login.LocalWWPN, login.State)
-			}
+		client.Logger.Info("Fabric logins retrieved", "count", len(logins))
+		
+		// We use Debug here so it only prints the massive list if the user asked for verbose output
+		for i, login := range logins {
+			client.Logger.Debug("Fabric Login", 
+				"index", i+1, 
+				"remote_wwpn", login.RemoteWWPN, 
+				"host_name", login.HostName, 
+				"local_wwpn", login.LocalWWPN, 
+				"status", login.State,
+			)
 		}
 	}
 
@@ -59,22 +68,20 @@ func main() {
 		Protocol: "scsi",
 	}
 
-	fmt.Println("\nChecking WWPNs for existing host associations...")
-	// Check if any WWPN is already associated with a host
-	if *verbose {
-		log.Printf("Checking WWPNs: %v", host.Fcwwpn)
-	}
+	client.Logger.Info("Checking WWPNs for existing host associations...")
+	client.Logger.Debug("WWPN targets", "wwpns", host.Fcwwpn)
 
+	// Check if any WWPN is already associated with a host
 	existingHost, matchedWWPN, err := client.GetHostByWWPN(host.Fcwwpn)
+	
 	if err == nil && existingHost != "" {
-		fmt.Printf("✅ WWPN %s is already associated with host: %s\n", matchedWWPN, existingHost)
+		client.Logger.Info("✅ WWPN is already associated with host", "matched_wwpn", matchedWWPN, "host", existingHost)
 		return // Exit with success if already exists
 	} else if !strings.Contains(err.Error(), "not found") {
-		log.Fatalf("GetHostByWWPN error: %v", err)
+		client.Logger.Error("GetHostByWWPN error", "error", err)
+		os.Exit(1)
 	}
 
-	if *verbose {
-		log.Printf("None of the WWPNs found in fabric")
-	}
-	fmt.Println("✅ No existing host associations found for the specified WWPNs")
+	client.Logger.Debug("None of the specified WWPNs were found in the fabric")
+	client.Logger.Info("✅ No existing host associations found for the specified WWPNs")
 }

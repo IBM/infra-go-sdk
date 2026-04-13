@@ -1,30 +1,38 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Println("✅ Authenticated")
 
-	// Create a FlashCopyMappingRemove instance
 	mappingName := "test_fcmap"
-	removeMapping := svc.FlashCopyMappingRemove{
-		Force: true, // Force deletion if in stopped state
+	removeMapping := svc.FlashCopyMappingRemove{Force: true}
+
+	client.Logger.Info("Deleting FlashCopy mapping...", "name", mappingName)
+
+	if err := client.Rmfcmap(mappingName, removeMapping); err != nil {
+		client.Logger.Error("Rmfcmap error", "error", err)
+		os.Exit(1)
 	}
 
-	// Delete the FlashCopy mapping
-	if err := client.Rmfcmap(mappingName, removeMapping); err != nil {
-		log.Fatalf("Rmfcmap error: %v", err)
-	} else {
-		fmt.Printf("Successfully deleted FlashCopy mapping with name: %s\n", mappingName)
-	}
+	client.Logger.Info("✅ Successfully deleted FlashCopy mapping", "name", mappingName)
 }

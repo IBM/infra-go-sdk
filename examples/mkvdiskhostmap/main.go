@@ -1,32 +1,47 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
+	"strings"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
-	}
-	fmt.Println("✅ Authenticated")
-
-	// Create a VolumeHostMap instance
-	mapping := svc.VolumeHostMap{
-		Host:  "host1",        // Host name or ID
-		SCSI:  "1",            // Optional SCSI LUN ID
-		Force: true,           // Optional force flag
-		VDisk: "test_volume2", // Volume name or ID
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
 
-	// Create the volume to host mapping
-	if err := client.Mkvdiskhostmap(mapping); err != nil {
-		log.Fatalf("Mkvdiskhostmap error: %v", err)
+	hostName := "ltc09u31-vios1"
+	volName := "test_volume3" 
+
+	client.Logger.Info("Attempting to unmap volume from host...", "volume", volName, "host", hostName)
+
+	err := client.Rmvdiskhostmap(hostName, volName)
+	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "CMMVC6071E") {
+			client.Logger.Info("✅ Volume is already unmapped from this host. Nothing to do.")
+		} else if strings.Contains(errStr, "CMMVC5754E") {
+			client.Logger.Warn("Host or volume doesn't exist", "volume", volName, "host", hostName)
+		} else {
+			client.Logger.Error("Failed to unmap", "error", err)
+			os.Exit(1)
+		}
 	} else {
-		fmt.Printf("Successfully created volume host mapping for volume: %s to host: %s\n", mapping.VDisk, mapping.Host)
+		client.Logger.Info("✅ Successfully unmapped volume", "volume", volName, "host", hostName)
 	}
 }

@@ -1,44 +1,50 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Println("✅ Authenticated")
 
-	// Check if the FlashCopy mapping exists
 	mappingName := "test_fcmap"
+	client.Logger.Info("Verifying FlashCopy mapping...", "name", mappingName)
+
 	mappings, err := client.Lsfcmap(mappingName)
-	if err != nil {
-		log.Fatalf("Lsfcmap error: %v", err)
+	if err != nil || len(mappings) == 0 {
+		client.Logger.Error("No FlashCopy mapping found", "name", mappingName)
+		os.Exit(1)
 	}
-	if len(mappings) == 0 {
-		log.Fatalf("No FlashCopy mapping found with name: %s", mappingName)
-	}
-	fmt.Printf("Found FlashCopy mapping: %s\n", mappingName)
 
-	// Create a FlashCopyMappingStart instance
-	//id := mappings[0].ID
-	//Id, err := strconv.Atoi(id)
-	mapping := svc.FlashCopyMappingStart{
+	startParams := svc.FlashCopyMappingStart{
 		ID:      mappingName,
-		Prep:    true, // Prepare the mapping before starting
-		Restore: true, // Force start if target is in use
+		Prep:    true,
+		Restore: true,
 	}
 
-	// Start the FlashCopy mapping
-	if err := client.Startfcmap(mapping); err != nil {
-		log.Fatalf("Startfcmap error: %v", err)
-	} else {
-		fmt.Printf("Successfully started FlashCopy mapping with ID: %s\n", mappings[0].Name)
+	client.Logger.Info("Starting FlashCopy mapping...", "id", startParams.ID)
+
+	if err := client.Startfcmap(startParams); err != nil {
+		client.Logger.Error("Startfcmap error", "error", err)
+		os.Exit(1)
 	}
+
+	client.Logger.Info("✅ Successfully started FlashCopy mapping", "id", startParams.ID)
 }

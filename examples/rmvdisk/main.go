@@ -1,41 +1,43 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 	"strings"
 
 	"github.com/sudeeshjohn/svc-go-sdk"
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+	if *verbose {
+		client = client.WithDebug()
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Println("✅ Authenticated")
 
-	// Create a VolumeRemove instance
 	volumeName := "test_volume3"
-	removeVolume := svc.VolumeRemove{
-		Force:              true,  // -force flag: removes even if mapped or part of FC map
-		RemoveHostMappings: false, // SDK-specific logic
-	}
+	removeVolume := svc.VolumeRemove{Force: true, RemoveHostMappings: false}
 
-	fmt.Printf("Attempting to delete volume: %s...\n", volumeName)
+	client.Logger.Info("Attempting to delete volume...", "volume", volumeName)
 
-	// Delete the volume
 	if err := client.Rmvdisk(volumeName, removeVolume); err != nil {
-		errStr := err.Error()
-		// Catch the "object does not exist" error to make this idempotent
-		if strings.Contains(errStr, "CMMVC5754E") || strings.Contains(errStr, "CMMVC5804E") {
-			fmt.Printf("✅ Volume '%s' is already deleted (or does not exist). Nothing to do.\n", volumeName)
+		if strings.Contains(err.Error(), "CMMVC5754E") || strings.Contains(err.Error(), "CMMVC5804E") {
+			client.Logger.Info("✅ Volume is already deleted (or does not exist). Nothing to do.", "volume", volumeName)
 		} else {
-			// Fail loudly for actual errors (e.g., volume is in an active FlashCopy and Force wasn't enough)
-			log.Fatalf("❌ Rmvdisk error: %v", err)
+			client.Logger.Error("Rmvdisk error", "error", err)
+			os.Exit(1)
 		}
 	} else {
-		fmt.Printf("✅ Successfully deleted volume: %s\n", volumeName)
+		client.Logger.Info("✅ Successfully deleted volume", "volume", volumeName)
 	}
 }

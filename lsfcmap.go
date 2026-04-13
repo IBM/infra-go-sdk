@@ -33,25 +33,14 @@ type FlashCopyMappingInfo struct {
 // Lsfcmap retrieves information about FlashCopy mappings using the lsfcmap API endpoint
 func (c *Client) Lsfcmap(name string) ([]FlashCopyMappingInfo, error) {
 	endpoint := "lsfcmap"
-	//nameParam := name
 	if name != "" {
 		endpoint = fmt.Sprintf("lsfcmap/%s", name)
 	}
 
-	// Debug: Log the endpoint and name
-	//fmt.Printf("Lsfcmap endpoint: %s, name: %s\n", endpoint, nameParam)
-
 	data, err := c.post(endpoint, nil)
 	if err != nil {
-		var errResp ErrorResponse
-		if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
-			return nil, fmt.Errorf("error %s: %s", errResp.Code, errResp.Description)
-		}
-		return nil, fmt.Errorf("failed to list FlashCopy mappings: %v", err)
+		return nil, fmt.Errorf("failed to list FlashCopy mappings: %w", decodeIBMError(err))
 	}
-
-	// Debug: Log the raw response
-	//fmt.Printf("Lsfcmap raw response: %s\n", string(data))
 
 	var result []FlashCopyMappingInfo
 	if name != "" {
@@ -62,6 +51,7 @@ func (c *Client) Lsfcmap(name string) ([]FlashCopyMappingInfo, error) {
 			result = []FlashCopyMappingInfo{mapping}
 		} else {
 			// Fall back to array response (for consistency or unexpected cases)
+			c.Logger.Debug("Falling back to array parsing for FlashCopy mapping")
 			var mappings []FlashCopyMappingInfo
 			if err := json.Unmarshal(data, &mappings); err != nil {
 				return nil, fmt.Errorf("failed to parse response: %v", err)

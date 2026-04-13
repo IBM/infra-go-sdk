@@ -1,6 +1,9 @@
 package svc
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type Tier struct {
 	Tier                   string `json:"tier"`
@@ -111,14 +114,27 @@ type SystemInfo struct {
 }
 
 func (c *Client) Lssystem() (*SystemInfo, error) {
+	if c.Logger != nil {
+		c.Logger.Info("Fetching system information")
+	}
+
 	data, err := c.post("lssystem", nil)
 	if err != nil {
-		return nil, err
+		decodedErr := decodeIBMError(err)
+		return nil, fmt.Errorf("failed to get system info: %w", decodedErr)
 	}
 
 	var info SystemInfo
 	if err := json.Unmarshal(data, &info); err != nil {
-		return nil, err
+		if c.Logger != nil {
+			c.Logger.Error("Failed to parse lssystem response", "error", err)
+		}
+		return nil, fmt.Errorf("failed to parse lssystem response: %w", err)
 	}
+
+	if c.Logger != nil {
+		c.Logger.Info("System information retrieved", "id", info.ID, "name", info.Name, "code_level", info.CodeLevel)
+	}
+
 	return &info, nil
 }

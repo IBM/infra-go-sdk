@@ -1,61 +1,96 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
+	"os"
 
-	"github.com/sudeeshjohn/svc-go-sdk"
+	"github.com/sudeeshjohn/svc-go-sdk" // Adjust if your package path differs
 )
 
 func main() {
-	client := svc.NewClient("REDACTED_SVC_IP<==", "REDACTED_SVC_USER<==", "REDACTED_SVC_PASS<==").WithTLSInsecure()
+	// Command line flags
+	verbose := flag.Bool("verbose", false, "Enable verbose output to see detailed mappings")
+	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
+	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
+	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	flag.Parse()
+
+	// Initialize the client
+	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
+
+	// Enable debug logging if the verbose flag is passed
+	if *verbose {
+		client = client.WithDebug()
+		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
+	}
 
 	if err := client.Authenticate(); err != nil {
-		log.Fatalf("auth error: %v", err)
+		client.Logger.Error("Authentication error", "error", err)
+		os.Exit(1)
 	}
-	fmt.Println("✅ Authenticated")
+	client.Logger.Info("✅ Authenticated")
 
-	// Search for a specific FlashCopy consistency group by name
+	// --- 1. Search for a specific FlashCopy consistency group ---
 	groupName := "test_fcgrp"
+	client.Logger.Info("Searching for FlashCopy consistency group...", "target", groupName)
+	
 	groups, err := client.Lsfcconsistgrp(groupName)
 	if err != nil {
-		log.Fatalf("Lsfcconsistgrp error: %v", err)
+		client.Logger.Error("Lsfcconsistgrp error", "error", err)
+		os.Exit(1)
 	}
 
 	if len(groups) > 0 {
 		group := groups[0]
-		fmt.Printf("Successfully retrieved FlashCopy consistency group with name: %s\n", group.Name)
-		fmt.Printf("Details: Status: %s, Start Time: %sn", group.Status, group.StartTime)
+		client.Logger.Info("✅ Successfully retrieved FlashCopy consistency group", 
+			"name", group.Name, 
+			"status", group.Status, 
+			"start_time", group.StartTime,
+		)
+		
 		if len(group.Mappings) > 0 {
-			fmt.Println("Associated Mappings:")
+			client.Logger.Debug("Associated Mappings found", "count", len(group.Mappings))
 			for _, mapping := range group.Mappings {
-				fmt.Printf("  Mapping ID: %s, Name: %s\n", mapping.FCMappingID, mapping.FCMappingName)
+				client.Logger.Debug("Mapping Detail", 
+					"mapping_id", mapping.FCMappingID, 
+					"mapping_name", mapping.FCMappingName,
+				)
 			}
 		} else {
-			fmt.Println("Associated Mappings: None")
+			client.Logger.Debug("No associated mappings for this group")
 		}
 	} else {
-		fmt.Printf("No FlashCopy consistency group found with name: %s\n", groupName)
+		client.Logger.Warn("No FlashCopy consistency group found", "name", groupName)
 	}
 
-	// List all FlashCopy consistency groups
-	fmt.Println("\nAll FlashCopy Consistency Groups:")
+	// --- 2. List all FlashCopy consistency groups ---
+	client.Logger.Info("Fetching all FlashCopy consistency groups...")
 	allGroups, err := client.Lsfcconsistgrp("")
 	if err != nil {
-		log.Fatalf("Lsfcconsistgrp error for all groups: %v", err)
+		client.Logger.Error("Lsfcconsistgrp error for all groups", "error", err)
+		os.Exit(1)
 	}
+
 	if len(allGroups) == 0 {
-		fmt.Println("No FlashCopy consistency groups found")
+		client.Logger.Info("No FlashCopy consistency groups found on the system")
 	} else {
+		client.Logger.Info("Retrieved all FlashCopy consistency groups", "total_groups", len(allGroups))
+		
 		for _, group := range allGroups {
-			fmt.Printf("Name: %s, Status: %s, Start Time: %s\n", group.Name, group.Status, group.StartTime)
+			client.Logger.Debug("Consistency Group", 
+				"name", group.Name, 
+				"status", group.Status, 
+				"start_time", group.StartTime,
+			)
+			
 			if len(group.Mappings) > 0 {
-				fmt.Println("  Associated Mappings:")
 				for _, mapping := range group.Mappings {
-					fmt.Printf("    Mapping ID: %s, Name: %s\n", mapping.FCMappingID, mapping.FCMappingName)
+					client.Logger.Debug("  -> Mapping Detail", 
+						"parent_group", group.Name,
+						"mapping_id", mapping.FCMappingID, 
+						"mapping_name", mapping.FCMappingName,
+					)
 				}
-			} else {
-				fmt.Println("  Associated Mappings: None")
 			}
 		}
 	}

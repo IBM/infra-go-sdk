@@ -29,12 +29,7 @@ func (c *Client) Lsportfc() ([]PortFC, error) {
 	// Send the POST request to execute the lsportfc command
 	data, err := c.post("lsportfc", nil)
 	if err != nil {
-		var errResp ErrorResponse
-		// Catch specific IBM API error codes
-		if json.Unmarshal([]byte(err.Error()), &errResp) == nil {
-			return nil, fmt.Errorf("error %s: %s", errResp.Code, errResp.Description)
-		}
-		return nil, fmt.Errorf("failed to list FC ports: %v", err)
+		return nil, fmt.Errorf("failed to list FC ports: %w", decodeIBMError(err))
 	}
 
 	var ports []PortFC
