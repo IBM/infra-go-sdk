@@ -698,7 +698,7 @@ func getElementText(root *etree.Element, path string) string {
 
 // GetVirtualIOServers retrieves detailed, comprehensive information for all Virtual I/O Servers 
 // of a managed system using exhaustive Go struct unmarshaling.
-func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]VirtualIOServerDetails, error) {
+func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]VirtualIOServerDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
 	
 	if verbose {
@@ -747,7 +747,7 @@ func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]
 	// 3. Define an inline wrapper to catch the Atom Feed hierarchy
 	var feed struct {
 		Entries []struct {
-			VIOS VirtualIOServerDetails `xml:"content>VirtualIOServer"`
+			VIOS VirtualIOServerDetailed `xml:"content>VirtualIOServer"`
 		} `xml:"entry"`
 	}
 
@@ -757,7 +757,7 @@ func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]
 	}
 
 	// Extract from the feed wrapper into a clean slice
-	var viosList []VirtualIOServerDetails
+	var viosList []VirtualIOServerDetailed
 	for _, entry := range feed.Entries {
 		viosList = append(viosList, entry.VIOS)
 	}
@@ -769,7 +769,7 @@ func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, verbose bool) ([]
 	return viosList, nil
 }
 // GetVirtualIOServer retrieves detailed information for a specific Virtual I/O Server using its UUID.
-func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, verbose bool) (*VirtualIOServerDetails, error) {
+func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, verbose bool) (*VirtualIOServerDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
 	if verbose {
 		hmcLogger.Printf("Fetching VIOS details for UUID %s, URL: %s", viosUUID, url)
@@ -816,7 +816,7 @@ func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, verbose bool) (*Virt
 
 	// Define wrapper to catch the Atom entry hierarchy
 	var entry struct {
-		VIOS VirtualIOServerDetails `xml:"content>VirtualIOServer"`
+		VIOS VirtualIOServerDetailed `xml:"content>VirtualIOServer"`
 	}
 
 	// Unmarshal the entire payload into our exhaustive struct
@@ -2730,6 +2730,356 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 			}
 			c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
 		}
+	}
+
+	return "SUCCESS", nil
+}
+
+// CreateVirtualFibreChannelMappings creates multiple Virtual Fibre Channel (NPIV) mappings between a VIOS and an LPAR in a single operation.
+// By mapping directly to the physical FC ports, the HMC acts as an orchestrator and automatically generates the required Client and Server virtual adapters.
+//
+// Parameters:
+//   - sysUUID: The UUID of the managed system
+//   - viosUUID: The UUID of the Virtual I/O Server
+//   - lparUUID: The UUID of the logical partition
+//   - fcPortNames: Slice of physical FC port names to map to the LPAR (e.g., ["fcs0", "fcs1"])
+//   - verbose: Enable detailed logging
+//
+// Returns:
+//   - "SUCCESS" if mappings were successfully created and pushed to the OS
+//   - "SUCCESS_WITH_RMC_WARNING" if mappings were saved to the HMC profile but the dynamic LPAR push timed out (common for powered-off LPARs or SAN fabric delays)
+//   - error if the operation fails
+func (c *HmcRestClient) CreateVirtualFibreChannelMappings(sysUUID, viosUUID, lparUUID string, fcPortNames []string, verbose bool) (string, error) {
+	if len(fcPortNames) == 0 {
+		return "", fmt.Errorf("at least one Fibre Channel port name (e.g., 'fcs0') is required")
+	}
+
+	// 1. Raw GET - Fetch pristine VIOS XML to preserve namespaces and attributes
+	// We use 'group=ViosFCMapping' to target the Fibre Channel mapping configurations
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosFCMapping", c.hmcIP, viosUUID)
+	
+	if verbose {
+		c.Logger.Debug("Fetching pristine VIOS XML for vFC mappings", "viosUUID", viosUUID, "fcPorts", fcPortNames)
+	}
+
+	getReq, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	getReq.Header.Set("X-API-Session", c.session)
+	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	// LOG THE GET REQUEST (No payload)
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
+	getResp, err := c.client.Do(getReq)
+	if err != nil {
+		return "", err
+	}
+	defer getResp.Body.Close()
+
+	rawXML, _ := io.ReadAll(getResp.Body)
+	
+	// LOG THE GET RESPONSE (Pristine XML)
+	c.logRawTraffic("RESPONSE", url, string(rawXML))
+
+	if getResp.StatusCode != http.StatusOK {
+		c.Logger.Error("GET failed", "status", getResp.Status, "body", string(rawXML))
+		return "", fmt.Errorf("GET failed: %s", string(rawXML))
+	}
+
+	// 2. Load the pristine XML into etree
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(rawXML); err != nil {
+		return "", fmt.Errorf("failed to parse pristine XML: %v", err)
+	}
+
+	// 3. Extract ONLY the VirtualIOServer element from the <entry> wrapper
+	viosElem := doc.FindElement(".//*[local-name()='VirtualIOServer']")
+	if viosElem == nil {
+		return "", fmt.Errorf("VirtualIOServer element not found in response")
+	}
+
+	// 4. Find or create the VirtualFibreChannelMappings list
+	mappingsList := viosElem.FindElement(".//*[local-name()='VirtualFibreChannelMappings']")
+	if mappingsList == nil {
+		if verbose {
+			c.Logger.Debug("No existing vFC mappings found. Creating VirtualFibreChannelMappings group...")
+		}
+		mappingsList = viosElem.CreateElement("VirtualFibreChannelMappings")
+		mappingsList.CreateAttr("schemaVersion", "V1_3_0")
+	}
+
+	// 5. Construct and inject the new mapping XML blocks for EACH port
+	for _, fcPortName := range fcPortNames {
+		newMappingXML := fmt.Sprintf(`
+        <VirtualFibreChannelMapping schemaVersion="V1_3_0">
+            <AssociatedLogicalPartition href="https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s" rel="related"/>
+            <Port schemaVersion="V1_3_0">
+                <PortName>%s</PortName>
+            </Port>
+        </VirtualFibreChannelMapping>`, c.hmcIP, sysUUID, lparUUID, fcPortName)
+
+		newMappingDoc := etree.NewDocument()
+		if err := newMappingDoc.ReadFromString(newMappingXML); err != nil {
+			return "", fmt.Errorf("failed to parse mapping XML for port %s: %v", fcPortName, err)
+		}
+
+		// 6. Inject the new mapping into the DOM
+		mappingsList.AddChild(newMappingDoc.Root())
+		
+		if verbose {
+			c.Logger.Debug("Injected new vFC mapping into XML payload", "fcPort", fcPortName)
+		}
+	}
+
+	// 7. Extract the VIOS document to POST
+	postDoc := etree.NewDocument()
+	postDoc.SetRoot(viosElem.Copy())
+	postXML, _ := postDoc.WriteToString()
+
+	// 8. Execute POST
+	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
+	postReq, _ := http.NewRequest("POST", postURL, strings.NewReader(postXML))
+	postReq.Header.Set("X-API-Session", c.session)
+	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	postReq.Header.Set("Accept", "application/atom+xml")
+
+	// LOG THE POST REQUEST (Modified XML)
+	c.logRawTraffic("REQUEST (POST)", postURL, postXML)
+
+	postResp, err := c.client.Do(postReq)
+	if err != nil {
+		return "", err
+	}
+	defer postResp.Body.Close()
+
+	body, _ := io.ReadAll(postResp.Body)
+
+	// LOG THE POST RESPONSE (HMC Job Status or Error)
+	c.logRawTraffic("RESPONSE", postURL, string(body))
+
+	// =========================================================================
+	// GRACEFUL RMC ERROR HANDLING
+	// =========================================================================
+	if postResp.StatusCode >= 400 {
+		bodyStr := string(body)
+		// Catch known IBM DLPAR/RMC timeout warnings (like HSCL294D)
+		if strings.Contains(bodyStr, "HSCL294D") || strings.Contains(bodyStr, "HSCL2957") {
+			if verbose {
+				c.Logger.Warn("Mapping(s) saved to HMC, but dynamic DLPAR push timed out (Common with SAN fabric delays or offline LPARs).", 
+					"status", postResp.Status)
+			}
+			return "SUCCESS_WITH_RMC_WARNING", nil
+		}
+		
+		c.Logger.Error("POST failed", "status", postResp.Status, "body", bodyStr)
+		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+	}
+
+	// 9. Fetch Job Status
+	respDoc, err := xmlStripNamespace(body)
+	if err == nil {
+		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
+			if verbose {
+				c.Logger.Info("Mapping job triggered", "jobID", jobIDElem.Text())
+			}
+			_, jobErr := c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+			if jobErr != nil {
+				return "", fmt.Errorf("background job failed: %v", jobErr)
+			}
+		}
+	}
+
+	if verbose {
+		c.Logger.Info("Virtual Fibre Channel mapping(s) created successfully", "lparUUID", lparUUID, "fcPorts", fcPortNames)
+	}
+
+	return "SUCCESS", nil
+}
+
+// DeleteVirtualFibreChannelMappings removes multiple Virtual Fibre Channel (NPIV) mappings from a VIOS to an LPAR in a single operation.
+//
+// Parameters:
+//   - sysUUID: The UUID of the managed system
+//   - viosUUID: The UUID of the Virtual I/O Server
+//   - lparUUID: The UUID of the logical partition
+//   - fcPortNames: Slice of physical FC port names to unmap (e.g., ["fcs0", "fcs1"])
+//   - verbose: Enable detailed logging
+//
+// Returns:
+//   - "SUCCESS" if mappings were deleted
+//   - "SUCCESS_WITH_RMC_WARNING" if mappings were deleted but dynamic LPAR push timed out
+//   - "NOT_FOUND" if no matching mappings exist (idempotent)
+//   - error if operation fails
+func (c *HmcRestClient) DeleteVirtualFibreChannelMappings(sysUUID, viosUUID, lparUUID string, fcPortNames []string, verbose bool) (string, error) {
+	// 1. GET the VIOS with its mappings extended group
+	// IBM strictly requires 'group=ViosFCMapping' for Fibre Channel topologies
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosFCMapping", c.hmcIP, viosUUID)
+
+	if verbose {
+		c.Logger.Debug("Fetching VIOS to locate and remove vFC mappings", "viosUUID", viosUUID, "fcPorts", fcPortNames)
+	}
+
+	// Fetch and strip namespaces so we can easily query the DOM
+	doc, err := c.fetchAndParseHMCXML(url, verbose)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch VIOS vFC mappings: %v", err)
+	}
+
+	// 2. EXTRACT the actual VirtualIOServer element
+	viosElem := doc.FindElement("//VirtualIOServer")
+	if viosElem == nil {
+		return "", fmt.Errorf("VirtualIOServer element not found in VIOS XML")
+	}
+
+	// 3. Locate the VirtualFibreChannelMappings collection
+	mappingsList := viosElem.FindElement(".//VirtualFibreChannelMappings")
+	if mappingsList == nil {
+		if verbose {
+			c.Logger.Info("No VirtualFibreChannelMappings collection found. Nothing to delete.", "viosUUID", viosUUID)
+		}
+		return "NOT_FOUND", nil
+	}
+
+	// Create a fast lookup map for the ports we want to unmap
+	targetPorts := make(map[string]bool)
+	for _, port := range fcPortNames {
+		targetPorts[port] = true
+	}
+
+	// 4. Find all specific mappings to delete
+	var mappingsToRemove []*etree.Element
+	for _, mapping := range mappingsList.FindElements("VirtualFibreChannelMapping") {
+		// Check if it belongs to our target LPAR
+		lparRef := mapping.FindElement("AssociatedLogicalPartition")
+		if lparRef == nil {
+			continue
+		}
+		href := lparRef.SelectAttrValue("href", "")
+		if !strings.Contains(href, lparUUID) {
+			continue // Not our LPAR
+		}
+
+		// Check if the mapped port is one of our target ports
+		portNameElem := mapping.FindElement("Port/PortName")
+		if portNameElem == nil {
+			continue
+		}
+		
+		if targetPorts[portNameElem.Text()] {
+			if verbose {
+				c.Logger.Debug("Found mapping targeted for deletion", "fcPort", portNameElem.Text(), "lparUUID", lparUUID)
+			}
+			mappingsToRemove = append(mappingsToRemove, mapping)
+		}
+	}
+
+	if len(mappingsToRemove) == 0 {
+		if verbose {
+			c.Logger.Info("No matching vFC mappings found for the specified ports. Nothing to delete.", "lparUUID", lparUUID)
+		}
+		return "NOT_FOUND", nil // Idempotent success
+	}
+
+	// 5. Remove the matched mappings from the XML tree
+	if verbose {
+		c.Logger.Info("Removing vFC mappings from XML tree", "count", len(mappingsToRemove))
+	}
+	
+	for i, mapping := range mappingsToRemove {
+		portNameElem := mapping.FindElement("Port/PortName")
+		if portNameElem != nil && verbose {
+			c.Logger.Debug("Removing mapping", "index", i+1, "total", len(mappingsToRemove), "fcPort", portNameElem.Text())
+		}
+		mappingsList.RemoveChild(mapping)
+	}
+
+	// 6. Natively set the correct namespace and tag on the root element
+	// Because fetchAndParseHMCXML strips namespaces, we MUST add them back before POSTing
+	viosElem.Tag = "VirtualIOServer:VirtualIOServer"
+	viosElem.CreateAttr("xmlns:VirtualIOServer", "http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/")
+	viosElem.CreateAttr("xmlns", "http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/")
+	viosElem.CreateAttr("xmlns:ns2", "http://www.w3.org/XML/1998/namespace/k2")
+
+	if viosElem.SelectAttrValue("schemaVersion", "") == "" {
+		viosElem.CreateAttr("schemaVersion", "V1_0")
+	}
+
+	// 7. Serialize ONLY the VIOS element back to a string
+	payloadDoc := etree.NewDocument()
+	payloadDoc.SetRoot(viosElem.Copy())
+	xmlStr, err := payloadDoc.WriteToString()
+	if err != nil {
+		return "", err
+	}
+
+	// 8. POST the complete update back to the VIOS API
+	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
+	
+	if verbose {
+		c.Logger.Debug("POSTing updated VIOS XML back to HMC to apply vFC deletion")
+	}
+
+	req, err := http.NewRequest("POST", postURL, strings.NewReader(xmlStr))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	req.Header.Set("Accept", "application/atom+xml")
+
+	// Wire logging to capture the exact payload sent
+	c.logRawTraffic("REQUEST (POST)", postURL, xmlStr)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	
+	// Wire logging to capture the HMC response
+	c.logRawTraffic("RESPONSE", postURL, string(body))
+
+	// =========================================================================
+	// GRACEFUL RMC ERROR HANDLING
+	// =========================================================================
+	if resp.StatusCode >= 400 {
+		bodyStr := string(body)
+		
+		// Catch known IBM DLPAR/RMC timeout warnings (like HSCL294D)
+		// Deleting a mapping triggers OS-level changes on the LPAR and VIOS
+		if strings.Contains(bodyStr, "HSCL294D") || strings.Contains(bodyStr, "HSCL2957") {
+			if verbose {
+				c.Logger.Warn("Mapping deleted from HMC, but dynamic DLPAR push timed out (Common with SAN fabric delays or offline LPARs).", 
+					"status", resp.Status)
+			}
+			return "SUCCESS_WITH_RMC_WARNING", nil
+		}
+		
+		c.Logger.Error("POST failed", "status", resp.Status, "body", bodyStr)
+		return "", fmt.Errorf("POST failed (%s): %s", resp.Status, bodyStr)
+	}
+
+	// 9. Wait for HMC Job Completion
+	respDoc, err := xmlStripNamespace(body)
+	if err == nil {
+		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
+			if verbose {
+				c.Logger.Info("vFC deletion job triggered", "jobID", jobIDElem.Text())
+			}
+			_, jobErr := c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+			if jobErr != nil {
+				return "", fmt.Errorf("background job failed: %v", jobErr)
+			}
+		}
+	}
+
+	if verbose {
+		c.Logger.Info("Virtual Fibre Channel mapping(s) deleted successfully")
 	}
 
 	return "SUCCESS", nil

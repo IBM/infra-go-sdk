@@ -80,7 +80,7 @@ func main() {
 	// Apply VIOS filter if specified
 	// Apply VIOS filter if specified, otherwise process all VIOS
 	if *viosFilter != "" {
-		var filteredViosList []hmc.VirtualIOServerDetails
+		var filteredViosList []hmc.VirtualIOServerDetailed
 		for _, v := range viosList {
 			if v.PartitionName == *viosFilter {
 				filteredViosList = append(filteredViosList, v)

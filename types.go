@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/beevik/etree"
 )
@@ -113,13 +114,20 @@ type JobResponseResults struct {
 }
 
 // Logger with prefix for HMC operations
-var hmcLogger = log.New(log.Writer(), "[HMC] ", log.LstdFlags)
+var hmcLogger = log.New(os.Stderr, "[HMC] ", log.LstdFlags)
+
+// ReinitLogger reinitializes the HMC logger to use the current os.Stderr
+// This is needed when stderr is redirected after the logger is created
+func ReinitLogger() {
+	hmcLogger = log.New(os.Stderr, "[HMC] ", log.LstdFlags)
+}
 
 // HmcRestClient represents the REST client for HMC operations
 type HmcRestClient struct {
 	hmcIP   string
 	session string
 	client  *http.Client
+	Logger  *Logger // <-- Add your new structured logger here
 }
 
 // NewHmcRestClient initializes a new HmcRestClient with an insecure TLS HTTP client
@@ -129,10 +137,21 @@ func NewHmcRestClient(hmcIP string) *HmcRestClient {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
+	
+	// Create a default logger. We also set a prefix so all HMC logs are clearly marked!
+	defaultLogger := NewDefaultLogger()
+	defaultLogger.SetPrefix("[HMC]")
+
 	return &HmcRestClient{
 		hmcIP:  hmcIP,
 		client: client,
+		Logger: defaultLogger,
 	}
+}
+
+// EnableVerboseLogging turns on debug-level output for the HMC client
+func (c *HmcRestClient) EnableVerboseLogging() {
+    c.Logger.EnableDebug()
 }
 
 // Session returns the current session token
@@ -384,8 +403,8 @@ type VIOSQuick struct {
 // =====================================================================
 
 // VirtualIOServer represents the complete XML payload of a Virtual I/O Server.
-// RENAMED from VirtualIOServerDetails
-type VirtualIOServerDetails struct {
+// RENAMED from VirtualIOServerDetailed
+type VirtualIOServerDetailed struct {
 	XMLName       xml.Name `xml:"VirtualIOServer"`
 	SchemaVersion string   `xml:"schemaVersion,attr"`
 
@@ -1730,6 +1749,22 @@ type LparBootListInformation struct {
 	ShadowBootDeviceList   string `xml:"ShadowBootDeviceList"`
 	LastBootedDeviceString string `xml:"LastBootedDeviceString"`
 }
+// VirtualFibreChannelClientAdapter represents a vFC adapter on an LPAR
+type VirtualFibreChannelClientAdapter struct {
+	XMLName                             xml.Name `xml:"VirtualFibreChannelClientAdapter"`
+	UUID                                string   `xml:"Metadata>Atom>AtomID"`
+	DynamicReconfigurationConnectorName string   `xml:"DynamicReconfigurationConnectorName"`
+	LocationCode                        string   `xml:"LocationCode"`
+	LocalPartitionID                    string   `xml:"LocalPartitionID"`
+	RequiredAdapter                     string   `xml:"RequiredAdapter"`
+	VariedOn                            string   `xml:"VariedOn"`
+	VirtualSlotNumber                   string   `xml:"VirtualSlotNumber"`
+	AdapterType                         string   `xml:"AdapterType"`
+	ConnectingPartitionID               string   `xml:"ConnectingPartitionID"`
+	ConnectingVirtualSlotNumber         string   `xml:"ConnectingVirtualSlotNumber"`
+	WWPNs                               string   `xml:"WWPNs"`
+}
+
 
 // =====================================================================
 // JOB RESPONSE STRUCTURES

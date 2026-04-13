@@ -1191,3 +1191,156 @@ func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, v
 
 	return jobID, nil
 }
+
+// CreateVirtualFibreChannelClientAdapter adds a vFC Client Adapter to an LPAR and maps it to a VIOS.
+// NOTE: Unlike vSCSI, vFC strictly requires an explicit viosSlot number. It cannot be auto-assigned.
+func (c *HmcRestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, viosID, viosSlot int, verbose bool) (string, error) {
+	
+	// FAIL-FAST: IBM Hypervisor strictly requires a target slot for NPIV mapping.
+	if viosSlot <= 0 {
+		return "", fmt.Errorf("viosSlot must be greater than 0. The HMC does not support auto-assigning remote slots for Virtual Fibre Channel adapters")
+	}
+
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualFibreChannelClientAdapter", c.hmcIP, lparUUID)
+
+	if verbose {
+		c.Logger.Debug("Provisioning vFC Client Adapter", "viosID", viosID, "viosSlot", viosSlot)
+	}
+
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VirtualFibreChannelClientAdapter:VirtualFibreChannelClientAdapter xmlns:VirtualFibreChannelClientAdapter="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" 
+                                                                   xmlns="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" 
+                                                                   schemaVersion="V1_0">
+    <Metadata><Atom/></Metadata>
+    <AdapterType>Client</AdapterType>
+    <RequiredAdapter>false</RequiredAdapter>
+    <ConnectingPartitionID>%d</ConnectingPartitionID>
+    <ConnectingVirtualSlotNumber>%d</ConnectingVirtualSlotNumber>
+</VirtualFibreChannelClientAdapter:VirtualFibreChannelClientAdapter>`, viosID, viosSlot)
+
+
+	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualFibreChannelClientAdapter")
+	httpReq.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(ctx)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("vFC Adapter creation failed (%s):\n%s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", err
+	}
+
+	atomID := doc.FindElement("//AtomID")
+	if atomID == nil {
+		return "", fmt.Errorf("vFC Adapter created successfully, but failed to extract new UUID")
+	}
+
+	if verbose {
+		c.Logger.Info("vFC Adapter created successfully", "uuid", atomID.Text())
+	}
+
+	return atomID.Text(), nil
+}
+// GetVirtualFibreChannelClientAdapters retrieves all vFC Client Adapters attached to a specific LPAR.
+func (c *HmcRestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, verbose bool) ([]VirtualFibreChannelClientAdapter, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualFibreChannelClientAdapter", c.hmcIP, lparUUID)
+
+	if verbose {
+		c.Logger.Debug("Fetching Virtual Fibre Channel Client Adapters", "lparUUID", lparUUID, "url", url)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	// LOG THE REQUEST (GET requests have no payload, so we pass an empty string)
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// LOG THE RAW RESPONSE
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode != http.StatusOK {
+		// Handle the case where the LPAR simply has zero vFC adapters attached
+		if resp.StatusCode == http.StatusNoContent {
+			if verbose {
+				c.Logger.Debug("No vFC adapters found on LPAR (204 No Content)")
+			}
+			return []VirtualFibreChannelClientAdapter{}, nil
+		}
+		c.Logger.Error("Failed to fetch vFC adapters", "status", resp.Status, "body", string(body))
+		return nil, fmt.Errorf("request failed with status %s", resp.Status)
+	}
+
+	// Parse XML response and strip namespaces
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	var adapters []VirtualFibreChannelClientAdapter
+
+	// Extract the core elements and natively unmarshal them into structs
+	adapterElements := doc.FindElements("//VirtualFibreChannelClientAdapter")
+	
+	for _, elem := range adapterElements {
+		adapterDoc := etree.NewDocument()
+		adapterDoc.SetRoot(elem.Copy())
+		adapterBytes, err := adapterDoc.WriteToBytes()
+		if err != nil {
+			c.Logger.Warn("Failed to serialize adapter element", "error", err)
+			continue
+		}
+
+		var adapter VirtualFibreChannelClientAdapter
+		if err := xml.Unmarshal(adapterBytes, &adapter); err != nil {
+			c.Logger.Warn("Failed to unmarshal adapter XML", "error", err)
+			continue
+		}
+		
+		adapters = append(adapters, adapter)
+	}
+
+	if verbose {
+		c.Logger.Info("Successfully retrieved vFC adapters", "count", len(adapters), "lparUUID", lparUUID)
+	}
+
+	return adapters, nil
+}

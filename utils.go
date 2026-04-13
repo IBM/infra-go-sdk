@@ -1149,12 +1149,12 @@ func (c *HmcRestClient) CloseVirtualTerminalViaSsh(hmcIP, username, password, sy
 // It fetches detailed information for each VIOS and checks if ResourceMonitoringControlState is "active".
 // Returns a map where:
 //   - KEY: VIOS UUID
-//   - VALUE: VirtualIOServerDetails (complete VIOS details)
+//   - VALUE: VirtualIOServerDetailed (complete VIOS details)
 // 
 // Note: In PowerVM environments, multiple VIOS servers can be active simultaneously for redundancy.
 // This function returns ALL active VIOS servers, allowing the caller to choose which one to use.
-func (c *HmcRestClient) GetActiveVIOSServers(systemUUID string, viosUUIDs []string, verbose bool) (map[string]*VirtualIOServerDetails, error) {
-	activeVIOSServers := make(map[string]*VirtualIOServerDetails)
+func (c *HmcRestClient) GetActiveVIOSServers(systemUUID string, viosUUIDs []string, verbose bool) (map[string]*VirtualIOServerDetailed, error) {
+	activeVIOSServers := make(map[string]*VirtualIOServerDetailed)
 	
 	if verbose {
 		hmcLogger.Printf("Checking %d VIOS server(s) for active state...", len(viosUUIDs))

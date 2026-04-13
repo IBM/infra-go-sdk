@@ -11,7 +11,14 @@ import (
 )
 
 // Login performs the logon operation to the HMC REST API
+// Login performs the logon operation to the HMC REST API
 func (c *HmcRestClient) Login(username, password string, verbose bool) error {
+	// Optional: If you still want to pass 'verbose' through the function signature,
+	// you can toggle the logger level right here.
+	if verbose {
+		c.EnableVerboseLogging()
+	}
+
 	payload := LogonRequest{
 		SchemaVersion: "V1_0",
 		XMLNS:         "http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/",
@@ -19,17 +26,22 @@ func (c *HmcRestClient) Login(username, password string, verbose bool) error {
 		UserID:        username,
 		Password:      password,
 	}
+	
 	xmlData, err := xml.Marshal(payload)
 	if err != nil {
+		c.Logger.Error("XML marshal failed", "error", err)
 		return fmt.Errorf("XML marshal failed: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Sending logon request to https://%s/rest/api/web/Logon", c.hmcIP)
-		hmcLogger.Printf("Logon request payload:\n%s", string(xmlData))
-	}
-
 	url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
+	
+	// LOOK HOW CLEAN THIS IS! No more "if verbose { ... }" blocks!
+	// We pass the URL and Username as structured key-value pairs.
+	c.Logger.Debug("Sending logon request", 
+		"url", url, 
+		"user", username,
+	)
+
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(xmlData))
 	if err != nil {
 		return fmt.Errorf("request creation failed: %v", err)
@@ -43,22 +55,21 @@ func (c *HmcRestClient) Login(username, password string, verbose bool) error {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err, "url", url)
 		return fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if verbose {
-		hmcLogger.Printf("Logon response status: %s", resp.Status)
-	}
+	// Structured logging makes tracking status codes super easy
+	c.Logger.Debug("Logon response received", "status", resp.Status, "code", resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("reading response failed: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Logon response body:\n%s", string(body))
-	}
+	// For massive XML payloads, you can still use Debugf if you want formatted strings
+	c.Logger.Debugf("Logon response body:\n%s", string(body))
 
 	var logonResp LogonResponse
 	if err := xml.Unmarshal(body, &logonResp); err != nil {
@@ -66,6 +77,7 @@ func (c *HmcRestClient) Login(username, password string, verbose bool) error {
 	}
 
 	c.session = logonResp.Session
+	c.Logger.Info("Successfully authenticated with HMC", "user", username)
 	return nil
 }
 
