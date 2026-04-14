@@ -21,7 +21,7 @@ func main() {
 	viosName := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS Name")
 	
 	// Accepts multiple ports so you can tear down a dual-fabric configuration in one pass
-	fcPortsRaw := flag.String("fc-ports", "fcs1", "Comma-separated list of physical FC ports to unmap (e.g., 'fcs0,fcs1')")
+	fcPortsRaw := flag.String("fc-ports", "fcs0,fcs1", "Comma-separated list of physical FC ports to unmap (e.g., 'fcs0,fcs1')")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output (activates structured Debug logs)")
 	flag.Parse()

@@ -15,11 +15,11 @@ import (
 )
 
 // GetVirtualSwitchQuickAll retrieves a JSON array of all Virtual Switches on a Managed System.
-func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, verbose bool) ([]VirtualSwitchQuick, error) {
+func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, debug bool) ([]VirtualSwitchQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/quick/All", c.hmcIP, sysUUID)
 
-	if verbose {
-		hmcLogger.Printf("Fetching all Virtual Switches (Quick) for system %s...", sysUUID)
+	if debug {
+		c.Logger.Debug("Fetching all Virtual Switches (Quick)", "systemUUID", sysUUID)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -33,8 +33,11 @@ func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, verbose bool) (
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -44,24 +47,32 @@ func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, verbose bool) (
 		return nil, err
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Failed to fetch Virtual Switches Quick/All", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("failed to fetch Virtual Switches Quick/All: %s - %s", resp.Status, string(body))
 	}
 
 	var switches []VirtualSwitchQuick
 	if err := json.Unmarshal(body, &switches); err != nil {
+		c.Logger.Error("Failed to parse JSON response", "error", err)
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	if debug {
+		c.Logger.Info("Successfully parsed Virtual Switches Quick/All", "count", len(switches))
 	}
 
 	return switches, nil
 }
 
 // GetVirtualSwitchQuick retrieves JSON details for a specific Virtual Switch.
-func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, verbose bool) (*VirtualSwitchQuick, error) {
+func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, debug bool) (*VirtualSwitchQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s/quick", c.hmcIP, sysUUID, switchUUID)
 
-	if verbose {
-		hmcLogger.Printf("Fetching Virtual Switch (Quick) for UUID %s...", switchUUID)
+	if debug {
+		c.Logger.Debug("Fetching Virtual Switch (Quick)", "switchUUID", switchUUID)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -75,8 +86,11 @@ func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, verbos
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -86,27 +100,35 @@ func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, verbos
 		return nil, err
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Failed to fetch Virtual Switch Quick", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("failed to fetch Virtual Switch Quick: %s - %s", resp.Status, string(body))
 	}
 
 	var vSwitch VirtualSwitchQuick
 	if err := json.Unmarshal(body, &vSwitch); err != nil {
+		c.Logger.Error("Failed to parse JSON response", "error", err)
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
 	// The singular /quick endpoint omits the UUID, so we inject it manually
 	vSwitch.UUID = switchUUID
 
+	if debug {
+		c.Logger.Info("Successfully retrieved Virtual Switch Quick", "switchName", vSwitch.SwitchName)
+	}
+
 	return &vSwitch, nil
 }
 
 // GetVirtualSwitches retrieves the comprehensive XML feed of Virtual Switches on a Managed System.
-func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, verbose bool) ([]VirtualSwitch, error) {
+func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, debug bool) ([]VirtualSwitch, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch", c.hmcIP, sysUUID)
 
-	if verbose {
-		hmcLogger.Printf("Fetching Virtual Switches (XML) for system %s...", sysUUID)
+	if debug {
+		c.Logger.Debug("Fetching Virtual Switches (XML)", "systemUUID", sysUUID)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -120,8 +142,11 @@ func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, verbose bool) ([]Virt
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -131,7 +156,10 @@ func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, verbose bool) ([]Virt
 		return nil, err
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Failed to fetch Virtual Switches XML", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("failed to fetch Virtual Switches XML: %s - %s", resp.Status, string(body))
 	}
 
@@ -170,15 +198,19 @@ func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, verbose bool) ([]Virt
 		switches = append(switches, vSwitch)
 	}
 
+	if debug {
+		c.Logger.Info("Successfully parsed Virtual Switches XML", "count", len(switches))
+	}
+
 	return switches, nil
 }
 
 // GetClientNetworkAdapters retrieves all ClientNetworkAdapter details for a partition as parsed Go structs.
-func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, verbose bool) ([]ClientNetworkAdapter, error) {
+func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, debug bool) ([]ClientNetworkAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
 	
-	if verbose {
-		hmcLogger.Printf("Fetching ClientNetworkAdapters for system UUID %s, partition UUID %s, URL: %s", systemUUID, lparUUID, url)
+	if debug {
+		c.Logger.Debug("Fetching ClientNetworkAdapters", "systemUUID", systemUUID, "lparUUID", lparUUID, "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -192,8 +224,11 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, ve
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -203,7 +238,10 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, ve
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 	}
 
@@ -223,19 +261,21 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, ve
 		adapterDoc.SetRoot(elem.Copy())
 		adapterBytes, err := adapterDoc.WriteToBytes()
 		if err != nil {
+			c.Logger.Warn("Failed to serialize adapter element", "error", err)
 			return nil, fmt.Errorf("failed to serialize adapter element: %v", err)
 		}
 
 		var adapter ClientNetworkAdapter
 		if err := xml.Unmarshal(adapterBytes, &adapter); err != nil {
+			c.Logger.Warn("Failed to unmarshal adapter XML", "error", err)
 			return nil, fmt.Errorf("failed to unmarshal adapter XML: %v", err)
 		}
 		
 		adapters = append(adapters, adapter)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Successfully parsed %d ClientNetworkAdapter(s)", len(adapters))
+	if debug {
+		c.Logger.Info("Successfully parsed ClientNetworkAdapter(s)", "count", len(adapters))
 	}
 
 	return adapters, nil
@@ -250,18 +290,18 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, ve
 // Parameters:
 //   - lparUUID: UUID of the logical partition
 //   - profileUUID: UUID of the partition profile to query
-//   - verbose: Enable detailed logging
+//   - debug: Enable detailed logging
 //
 // Returns:
 //   - []NetworkBootDevice: List of network boot devices configured in the profile
 //   - error: Error if the operation fails
 //
 // Reference: HMC REST API - GetNetworkBootDevices job operation
-func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verbose bool) ([]NetworkBootDevice, error) {
+func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/GetNetworkBootDevices", c.hmcIP, lparUUID)
 
-	if verbose {
-		hmcLogger.Printf("Getting network boot devices for LPAR %s, profile %s", lparUUID, profileUUID)
+	if debug {
+		c.Logger.Debug("Getting network boot devices", "lparUUID", lparUUID, "profileUUID", profileUUID)
 	}
 
 	// Define operation details for the JobRequest
@@ -277,7 +317,7 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 	}
 
 	// Create XML payload using the existing job request helper
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_1_0", verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_1_0", debug, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
@@ -295,8 +335,11 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -306,7 +349,10 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
 		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
@@ -322,12 +368,12 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 	}
 	jobID := jobIDElem.Text()
 
-	if verbose {
-		hmcLogger.Printf("GetNetworkBootDevices job submitted, JobID: %s", jobID)
+	if debug {
+		c.Logger.Debug("GetNetworkBootDevices job submitted", "jobID", jobID)
 	}
 
 	// Wait for job completion
-	jobResp, err := c.FetchJobStatus(jobID, false, 5, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, false, 5, debug)
 	if err != nil {
 		return nil, fmt.Errorf("GetNetworkBootDevices job failed: %v", err)
 	}
@@ -345,15 +391,15 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 			xmlContent = strings.TrimSuffix(xmlContent, "]]>")
 			xmlContent = html.UnescapeString(strings.TrimSpace(xmlContent))
 
-			if verbose {
-				hmcLogger.Printf("Parsing cleaned XML content (%d bytes)", len(xmlContent))
+			if debug {
+				c.Logger.Debug("Parsing cleaned XML content", "bytes", len(xmlContent))
 			}
 
 			// 2. Strip Namespaces to make Unmarshaling easy
 			cleanDoc, err := xmlStripNamespace([]byte(xmlContent))
 			if err != nil {
-				if verbose {
-					hmcLogger.Printf("Failed to strip namespaces from result XML: %v", err)
+				if debug {
+					c.Logger.Warn("Failed to strip namespaces from result XML", "error", err)
 				}
 				continue
 			}
@@ -370,8 +416,8 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 			}
 
 			if err := xml.Unmarshal(strippedXML, &collection); err != nil {
-				if verbose {
-					hmcLogger.Printf("Failed to unmarshal NetworkBootDevices XML: %v", err)
+				if debug {
+					c.Logger.Warn("Failed to unmarshal NetworkBootDevices XML", "error", err)
 				}
 				continue
 			}
@@ -393,8 +439,8 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 		}
 	}
 
-	if verbose {
-		hmcLogger.Printf("Retrieved %d network boot device(s)", len(bootDevices))
+	if debug {
+		c.Logger.Info("Retrieved network boot device(s)", "count", len(bootDevices))
 	}
 
 	return bootDevices, nil
@@ -402,11 +448,11 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, verb
 
 // CreateClientNetworkAdapter adds a new Virtual Ethernet Adapter to an LPAR and connects it to a Virtual Switch.
 // Returns the complete ClientNetworkAdapter structure with all details.
-func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID string, vlanID int, verbose bool) (*ClientNetworkAdapter, error) {
+func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID string, vlanID int, debug bool) (*ClientNetworkAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, lparUUID)
 
-	if verbose {
-		hmcLogger.Printf("Adding Client Network Adapter (VLAN: %d) to LPAR %s...", vlanID, lparUUID)
+	if debug {
+		c.Logger.Debug("Adding Client Network Adapter", "vlanID", vlanID, "lparUUID", lparUUID)
 	}
 
 	// Fix: Changed <VirtualSwitch> to <AssociatedVirtualSwitch> with a <link> child.
@@ -435,20 +481,25 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUI
 	defer cancel()
 	httpReq = httpReq.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	
-	if verbose {
-		hmcLogger.Printf("CreateClientNetworkAdapter response status: %s", resp.Status)
-		hmcLogger.Printf("CreateClientNetworkAdapter response body:\n%s", string(body))
+	c.logRawTraffic("RESPONSE", url, string(body))
+	
+	if debug {
+		c.Logger.Debug("CreateClientNetworkAdapter response", "status", resp.Status, "body", string(body))
 	}
 	
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Adapter creation failed", "status", resp.Status)
 		return nil, fmt.Errorf("Adapter creation failed (%s): %s", resp.Status, string(body))
 	}
 
@@ -478,24 +529,25 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUI
 		return nil, fmt.Errorf("failed to unmarshal adapter XML: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("✅ Client Network Adapter created successfully!")
-		hmcLogger.Printf("   UUID: %s", adapter.UUID)
-		hmcLogger.Printf("   MAC Address: %s", adapter.MACAddress)
-		hmcLogger.Printf("   VLAN ID: %s", adapter.PortVLANID)
-		hmcLogger.Printf("   Virtual Slot: %s", adapter.VirtualSlotNumber)
-		hmcLogger.Printf("   Location Code: %s", adapter.LocationCode)
+	if debug {
+		c.Logger.Info("Client Network Adapter created successfully",
+			"uuid", adapter.UUID,
+			"macAddress", adapter.MACAddress,
+			"vlanID", adapter.PortVLANID,
+			"virtualSlot", adapter.VirtualSlotNumber,
+			"locationCode", adapter.LocationCode)
 	}
 
 	return &adapter, nil
 }
+
 // DeleteClientNetworkAdapter removes a specific Virtual Ethernet Adapter from an LPAR.
-func (c *HmcRestClient) DeleteClientNetworkAdapter(lparUUID, adapterUUID string, verbose bool) error {
+func (c *HmcRestClient) DeleteClientNetworkAdapter(lparUUID, adapterUUID string, debug bool) error {
 	// The specific endpoint for the adapter we want to delete
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter/%s", c.hmcIP, lparUUID, adapterUUID)
 
-	if verbose {
-		hmcLogger.Printf("Deleting Client Network Adapter %s from LPAR %s...", adapterUUID, lparUUID)
+	if debug {
+		c.Logger.Debug("Deleting Client Network Adapter", "adapterUUID", adapterUUID, "lparUUID", lparUUID)
 	}
 
 	// Create the DELETE request (No XML body required!)
@@ -511,21 +563,27 @@ func (c *HmcRestClient) DeleteClientNetworkAdapter(lparUUID, adapterUUID string,
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (DELETE)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	
+	c.logRawTraffic("RESPONSE", url, string(body))
+	
 	// A successful DELETE operation typically returns 200 OK or 204 No Content
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		c.Logger.Error("Failed to delete adapter", "status", resp.Status, "body", string(body))
 		return fmt.Errorf("failed to delete adapter (%s): %s", resp.Status, string(body))
 	}
 
-	if verbose {
-		hmcLogger.Printf("✅ Client Network Adapter %s successfully deleted.", adapterUUID)
+	if debug {
+		c.Logger.Info("Client Network Adapter successfully deleted", "adapterUUID", adapterUUID)
 	}
 
 	return nil

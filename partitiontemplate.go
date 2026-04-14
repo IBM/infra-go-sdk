@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -15,10 +14,10 @@ import (
 )
 
 // DeployPartitionTemplate deploys a partition template to a managed system
-func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbose bool) (string, error) {
+func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/deploy", c.hmcIP, draftUUID)
-	if verbose {
-		hmcLogger.Printf("Deploying partition template with UUID %s to system UUID %s, URL: %s", draftUUID, cecUUID, url)
+	if debug {
+		c.Logger.Debug("Deploying partition template", "draftUUID", draftUUID, "cecUUID", cecUUID, "url", url)
 	}
 
 	// Operation details for the job request
@@ -35,12 +34,12 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	}
 
 	// Create the XML payload for the job request
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
-	if verbose {
-		hmcLogger.Printf("Deploy job request payload:\n%s", payload)
+	if debug {
+		c.Logger.Debug("Deploy job request payload", "payload", payload)
 	}
 
 	// Create and configure the PUT request
@@ -53,13 +52,17 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	req.Header.Set("Accept", "*/*")
 	// Enable basic auth to match Python's force_basic_auth=True
 	req.SetBasicAuth("", "") // Credentials handled by session token
-	if verbose {
-		hmcLogger.Printf("Deploy request headers: %+v", req.Header)
+	
+	if debug {
+		c.Logger.Debug("Deploy request headers", "headers", req.Header)
 	}
+	
 	// Set a timeout of 300 seconds
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	// Send the request
 	resp, err := c.client.Do(req)
@@ -69,16 +72,19 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 	defer resp.Body.Close()
 
 	// Log the response status and body
-	if verbose {
-		hmcLogger.Printf("DeployPartitionTemplate response status: %s", resp.Status)
+	if debug {
+		c.Logger.Debug("DeployPartitionTemplate response status", "status", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
-	if verbose {
-		hmcLogger.Printf("DeployPartitionTemplate response body:\n%s", string(body))
+	
+	c.logRawTraffic("RESPONSE", url, string(body))
+	
+	if debug {
+		c.Logger.Debug("DeployPartitionTemplate response body", "body", string(body))
 	}
 
 	// Check for non-200 status codes
@@ -113,19 +119,18 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 		return "", fmt.Errorf("JobID not found in response: %s", string(body))
 	}
 	jobID := jobIDElem.Text()
-	if verbose {
-		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	if debug {
+		c.Logger.Debug("Extracted JobID", "jobID", jobID)
 	}
 
 	// Fetch and return the job status
-	jobResp, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, true, 10, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Deploy job status: %s", jobResp.Status)
-		log.Printf("Job status: %s", jobResp.Status)
+	if debug {
+		c.Logger.Info("Deploy job status", "status", jobResp.Status)
 	}
 
 	if jobResp.Status == "COMPLETED_OK" {
@@ -138,25 +143,25 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, verbo
 			}
 		}
 		if partUUID != "" {
-			if verbose {
-				fmt.Printf("Partition creation completed successfully UUID %s\n", partUUID)
+			if debug {
+				c.Logger.Info("Partition creation completed successfully", "partUUID", partUUID)
 			}
 			return partUUID, nil
 		}
 	}
 	
 	if jobResp.Status == "FAILED" || jobResp.Status == "COMPLETED_WITH_ERROR" {
-		log.Fatalf("Partition creation failed with status: %s", jobResp.Status)
+		c.Logger.Fatal("Partition creation failed", "status", jobResp.Status)
 	}
 
 	return jobResp.Status, err
 }
 
 // GetPartitionTemplateID retrieves the AtomID for a partition template by name
-func (c *HmcRestClient) GetPartitionTemplateID(name string, verbose bool) (string, error) {
+func (c *HmcRestClient) GetPartitionTemplateID(name string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
-	if verbose {
-		hmcLogger.Printf("Requesting template ID for name: %s, URL: %s", name, url)
+	if debug {
+		c.Logger.Debug("Requesting template ID for name", "name", name, "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -170,14 +175,16 @@ func (c *HmcRestClient) GetPartitionTemplateID(name string, verbose bool) (strin
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if verbose {
-		hmcLogger.Printf("Response status: %s", resp.Status)
+	if debug {
+		c.Logger.Debug("Response status", "status", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -185,8 +192,10 @@ func (c *HmcRestClient) GetPartitionTemplateID(name string, verbose bool) (strin
 		return "", fmt.Errorf("reading response failed: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Raw response body:\n%s", string(body))
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if debug {
+		c.Logger.Debug("Raw response body", "body", string(body))
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -211,8 +220,12 @@ func (c *HmcRestClient) GetPartitionTemplateID(name string, verbose bool) (strin
 }
 
 // ListPartitionTemplateIDs retrieves all PartitionTemplate AtomIDs
-func (c *HmcRestClient) ListPartitionTemplateIDs(verbose bool) ([]string, error) {
+func (c *HmcRestClient) ListPartitionTemplateIDs(debug bool) ([]string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
+	if debug {
+		c.Logger.Debug("Listing Partition Template IDs", "url", url)
+	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("request creation failed: %v", err)
@@ -224,6 +237,8 @@ func (c *HmcRestClient) ListPartitionTemplateIDs(verbose bool) ([]string, error)
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
@@ -234,6 +249,8 @@ func (c *HmcRestClient) ListPartitionTemplateIDs(verbose bool) ([]string, error)
 	if err != nil {
 		return nil, fmt.Errorf("reading response failed: %v", err)
 	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status: %s", resp.Status)
@@ -255,14 +272,18 @@ func (c *HmcRestClient) ListPartitionTemplateIDs(verbose bool) ([]string, error)
 		return nil, fmt.Errorf("no partition template IDs found")
 	}
 
+	if debug {
+		c.Logger.Info("Successfully retrieved partition template IDs", "count", len(ids))
+	}
+
 	return ids, nil
 }
 
 // GetPartitionTemplate retrieves the full PartitionTemplate XML by UUID or name
-func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, verbose bool) (*etree.Element, error) {
+func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, debug bool) (*etree.Element, error) {
 	if uuid == "" && name != "" {
 		var err error
-		uuid, err = c.GetPartitionTemplateID(name, verbose)
+		uuid, err = c.GetPartitionTemplateID(name, debug)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get template UUID for name %s: %v", name, err)
 		}
@@ -273,6 +294,10 @@ func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, verbose bool) (*
 	}
 
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s", c.hmcIP, uuid)
+	if debug {
+		c.Logger.Debug("Fetching Partition Template", "uuid", uuid, "url", url)
+	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("request creation failed: %v", err)
@@ -284,6 +309,8 @@ func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, verbose bool) (*
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
@@ -294,6 +321,8 @@ func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, verbose bool) (*
 	if err != nil {
 		return nil, fmt.Errorf("reading response failed: %v", err)
 	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status: %s", resp.Status)
@@ -318,12 +347,12 @@ func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, verbose bool) (*
 }
 
 // CopyPartitionTemplate copies a partition template from one name to another
-func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, verbose bool) error {
-	if verbose {
-		hmcLogger.Printf("Copying template from %s to %s", fromName, toName)
+func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, debug bool) error {
+	if debug {
+		c.Logger.Debug("Copying template", "fromName", fromName, "toName", toName)
 	}
 
-	templateDoc, err := c.GetPartitionTemplate("", fromName, verbose)
+	templateDoc, err := c.GetPartitionTemplate("", fromName, debug)
 	if err != nil || templateDoc == nil {
 		return fmt.Errorf("failed to fetch source template %s: %v", fromName, err)
 	}
@@ -356,6 +385,8 @@ func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, verbose b
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, xmlStr)
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %v", err)
@@ -366,6 +397,8 @@ func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, verbose b
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("request failed with status: %d", resp.StatusCode)
@@ -385,11 +418,15 @@ func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, verbose b
 		return fmt.Errorf("error in response: %s", errorMsgs[0].Text())
 	}
 
+	if debug {
+		c.Logger.Info("Successfully copied partition template", "fromName", fromName, "toName", toName)
+	}
+
 	return nil
 }
 
 // UpdatePartitionTemplate updates an existing partition template with the provided XML
-func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Element, verbose bool) error {
+func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Element, debug bool) error {
 	if uuid == "" {
 		return fmt.Errorf("UUID cannot be empty")
 	}
@@ -405,8 +442,8 @@ func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.
 	// Replace the PartitionTemplate tag with the namespace, mimicking the Python behavior
 	xmlStr = strings.Replace(xmlStr, "<PartitionTemplate>", "<"+LPAR_TEMPLATE_NS+">", 1)
 
-	if verbose {
-		hmcLogger.Printf("Updating partition template XML for UUID %s:\n%s", uuid, xmlStr)
+	if debug {
+		c.Logger.Debug("Updating partition template XML", "uuid", uuid, "xmlStr", xmlStr)
 	}
 
 	// Construct the URL
@@ -427,6 +464,8 @@ func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (POST)", templateURL, xmlStr)
+
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -440,9 +479,10 @@ func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Update partition template response status: %s", resp.Status)
-		hmcLogger.Printf("Response body:\n%s", string(body))
+	c.logRawTraffic("RESPONSE", templateURL, string(body))
+
+	if debug {
+		c.Logger.Debug("Update partition template response", "status", resp.Status, "body", string(body))
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
@@ -453,10 +493,10 @@ func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.
 }
 
 // CreatePartition creates a partition using a template UUID
-func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string, verbose bool) (string, error) {
+func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/do/CreatePartitionFromTemplate", c.hmcIP, systemUUID)
-	if verbose {
-		hmcLogger.Printf("Creating partition for system %s with template UUID %s and osType %s", systemUUID, templateUUID, osType)
+	if debug {
+		c.Logger.Debug("Creating partition from template", "systemUUID", systemUUID, "templateUUID", templateUUID, "osType", osType)
 	}
 
 	payload := JobRequest{
@@ -490,6 +530,8 @@ func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string,
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, string(body))
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %v", err)
@@ -501,8 +543,10 @@ func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string,
 		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Create partition response body:\n%s", string(respBody))
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
+	if debug {
+		c.Logger.Debug("Create partition response", "body", string(respBody))
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
@@ -527,13 +571,13 @@ func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string,
 }
 
 // DeletePartitionTemplate deletes a partition template by name
-func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose bool) error {
-	if verbose {
-		hmcLogger.Printf("Deleting partition template: %s", templateName)
+func (c *HmcRestClient) DeletePartitionTemplate(templateName string, debug bool) error {
+	if debug {
+		c.Logger.Debug("Deleting partition template", "templateName", templateName)
 	}
 
 	// Fetch the partition template to get the UUID
-	templateDoc, err := c.GetPartitionTemplate("", templateName, verbose)
+	templateDoc, err := c.GetPartitionTemplate("", templateName, debug)
 	if err != nil || templateDoc == nil {
 		return fmt.Errorf("failed to fetch partition template %s: %v", templateName, err)
 	}
@@ -543,14 +587,14 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose boo
 		return fmt.Errorf("AtomID not found for partition template %s", templateName)
 	}
 	templateUUID := atomIDs[0].Text()
-	if verbose {
-		hmcLogger.Printf("Found template UUID %s for template %s", templateUUID, templateName)
+	if debug {
+		c.Logger.Debug("Found template UUID", "templateUUID", templateUUID, "templateName", templateName)
 	}
 
 	// Construct the DELETE URL
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s", c.hmcIP, templateUUID)
-	if verbose {
-		hmcLogger.Printf("DELETE request URL: %s", url)
+	if debug {
+		c.Logger.Debug("DELETE request URL", "url", url)
 	}
 
 	// Create and configure the DELETE request
@@ -566,6 +610,8 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose boo
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (DELETE)", url, "")
+
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -574,8 +620,8 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose boo
 	defer resp.Body.Close()
 
 	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("DeletePartitionTemplate response status: %s", resp.Status)
+	if debug {
+		c.Logger.Debug("DeletePartitionTemplate response status", "status", resp.Status)
 	}
 
 	// Read the response body for error details
@@ -584,13 +630,15 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose boo
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
-	if verbose {
-		hmcLogger.Printf("Successfully deleted partition template %s", templateName)
+	if debug {
+		c.Logger.Info("Successfully deleted partition template", "templateName", templateName)
 	}
 
 	return nil
@@ -598,10 +646,10 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, verbose boo
 
 // TransformPartitionTemplate transforms a draft partition template for a managed system
 // Returns a TransformResult struct with the transformation details
-func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, verbose bool) (*TransformResult, error) {
+func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, debug bool) (*TransformResult, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/transform", c.hmcIP, draftUUID)
-	if verbose {
-		hmcLogger.Printf("Transforming partition template UUID %s for system UUID %s, URL: %s", draftUUID, cecUUID, url)
+	if debug {
+		c.Logger.Debug("Transforming partition template", "draftUUID", draftUUID, "cecUUID", cecUUID, "url", url)
 	}
 
 	// Define operation details
@@ -618,12 +666,12 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 	}
 
 	// Create XML payload using createJobRequestPayload
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
-	if verbose {
-		hmcLogger.Printf("Transform job request payload:\n%s", payload)
+	if debug {
+		c.Logger.Debug("Transform job request payload", "payload", payload)
 	}
 
 	// Create and configure the PUT request
@@ -639,6 +687,8 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -647,8 +697,8 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 	defer resp.Body.Close()
 
 	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("TransformPartitionTemplate response status: %s", resp.Status)
+	if debug {
+		c.Logger.Debug("TransformPartitionTemplate response status", "status", resp.Status)
 	}
 
 	// Read the response body
@@ -657,8 +707,10 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("TransformPartitionTemplate response body:\n%s", string(respBody))
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
+	if debug {
+		c.Logger.Debug("TransformPartitionTemplate response body", "body", string(respBody))
 	}
 
 	// Check for non-200 status codes
@@ -687,21 +739,21 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 		return nil, fmt.Errorf("JobID not found in response")
 	}
 	jobID := jobIDElem.Text()
-	if verbose {
-		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	if debug {
+		c.Logger.Debug("Extracted JobID", "jobID", jobID)
 	}
 
 	// Monitor job status
-	jobResp, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, true, 10, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}
 
 	// Build TransformResult from job response
 	result := &TransformResult{
-		JobID:    jobID,
-		Status:   jobResp.Status,
-		Success:  jobResp.Status == "COMPLETED_OK",
+		JobID:   jobID,
+		Status:  jobResp.Status,
+		Success: jobResp.Status == "COMPLETED_OK",
 	}
 
 	// Extract transformed UUID from results if available
@@ -712,8 +764,8 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 		}
 	}
 
-	if verbose {
-		hmcLogger.Printf("Transform result: Success=%v, Status=%s", result.Success, result.Status)
+	if debug {
+		c.Logger.Info("Transform result", "success", result.Success, "status", result.Status)
 	}
 
 	return result, nil
@@ -721,13 +773,13 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, ve
 
 // CheckPartitionTemplate checks a partition template for a managed system
 // Returns a TemplateValidationResult struct with validation details
-func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, verbose bool) (*TemplateValidationResult, error) {
-	if verbose {
-		hmcLogger.Printf("Checking partition template %s for system UUID %s", templateName, cecUUID)
+func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, debug bool) (*TemplateValidationResult, error) {
+	if debug {
+		c.Logger.Debug("Checking partition template", "templateName", templateName, "cecUUID", cecUUID)
 	}
 
 	// Fetch the partition template to get the UUID
-	templateDoc, err := c.GetPartitionTemplate("", templateName, verbose)
+	templateDoc, err := c.GetPartitionTemplate("", templateName, debug)
 	if err != nil || templateDoc == nil {
 		return nil, fmt.Errorf("failed to fetch partition template %s: %v", templateName, err)
 	}
@@ -737,14 +789,14 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 		return nil, fmt.Errorf("AtomID not found for partition template %s", templateName)
 	}
 	templateUUID := atomIDs[0].Text()
-	if verbose {
-		hmcLogger.Printf("Found template UUID %s for template %s", templateUUID, templateName)
+	if debug {
+		c.Logger.Debug("Found template UUID", "templateUUID", templateUUID, "templateName", templateName)
 	}
 
 	// Construct the check URL
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/check", c.hmcIP, templateUUID)
-	if verbose {
-		hmcLogger.Printf("Check request URL: %s", url)
+	if debug {
+		c.Logger.Debug("Check request URL", "url", url)
 	}
 
 	// Define operation details
@@ -761,12 +813,12 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 	}
 
 	// Create XML payload using createJobRequestPayload
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
-	if verbose {
-		hmcLogger.Printf("Check job request payload:\n%s", payload)
+	if debug {
+		c.Logger.Debug("Check job request payload", "payload", payload)
 	}
 
 	// Create and configure the PUT request
@@ -782,6 +834,8 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -790,8 +844,8 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 	defer resp.Body.Close()
 
 	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("CheckPartitionTemplate response status: %s", resp.Status)
+	if debug {
+		c.Logger.Debug("CheckPartitionTemplate response status", "status", resp.Status)
 	}
 
 	// Read the response body
@@ -800,8 +854,10 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("CheckPartitionTemplate response body:\n%s", string(respBody))
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
+	if debug {
+		c.Logger.Debug("CheckPartitionTemplate response body", "body", string(respBody))
 	}
 
 	// Check for non-200 status codes
@@ -830,12 +886,12 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 		return nil, fmt.Errorf("JobID not found in response")
 	}
 	jobID := jobIDElem.Text()
-	if verbose {
-		hmcLogger.Printf("Extracted JobID: %s", jobID)
+	if debug {
+		c.Logger.Debug("Extracted JobID", "jobID", jobID)
 	}
 
 	// Monitor job status
-	jobResp, err := c.FetchJobStatus(jobID, true, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, true, 10, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -869,9 +925,8 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, ver
 		}
 	}
 
-	if verbose {
-		hmcLogger.Printf("Template validation result: IsValid=%v, Status=%s, Errors=%d, Warnings=%d",
-			result.IsValid, result.Status, len(result.Errors), len(result.Warnings))
+	if debug {
+		c.Logger.Info("Template validation result", "isValid", result.IsValid, "status", result.Status, "errorCount", len(result.Errors), "warningCount", len(result.Warnings))
 	}
 
 	return result, nil

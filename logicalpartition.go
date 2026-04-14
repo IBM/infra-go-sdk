@@ -14,11 +14,11 @@ import (
 )
 
 // PowerOnPartition powers on a logical partition using options struct.
-func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOptions, verbose bool) (string, error) {
+func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOptions, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOn", c.hmcIP, lparUUID)
 
-	if verbose {
-		hmcLogger.Printf("Powering on partition UUID %s (Mode: %s), URL: %s", lparUUID, options.BootMode, url)
+	if debug {
+		c.Logger.Debug("Powering on partition", "partitionUUID", lparUUID, "bootMode", options.BootMode, "url", url)
 	}
 
 	reqdOperation := map[string]string{
@@ -98,7 +98,7 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 		}
 	}
 
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, schemaVersion, verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, schemaVersion, debug, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
@@ -112,14 +112,24 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("X-HMC-Schema-Version", schemaVersion) 
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
 		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
@@ -134,7 +144,11 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 	}
 	jobID := jobIDElem.Text()
 
-	jobResp, err := c.FetchJobStatus(jobID, false, 15, verbose)
+	if debug {
+		c.Logger.Debug("PowerOnPartition job submitted", "jobID", jobID)
+	}
+
+	jobResp, err := c.FetchJobStatus(jobID, false, 15, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -143,10 +157,10 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 }
 
 // PowerOffPartition powers off a logical partition directly by its UUID and returns the job status string.
-func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, restart bool, verbose bool) (string, error) {
+func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, restart bool, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOff", c.hmcIP, lparUUID)
-	if verbose {
-		hmcLogger.Printf("Powering off partition UUID %s, URL: %s", lparUUID, url)
+	if debug {
+		c.Logger.Debug("Powering off partition", "partitionUUID", lparUUID, "url", url)
 	}
 
 	// Define operation details for the JobRequest 
@@ -191,13 +205,14 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 	}
 
 	// Create XML payload using the existing job request helper
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
-    if verbose {
-		fmt.Printf("createJobRequestPayload: %s\n", payload)
+	if debug {
+		c.Logger.Debug("Created JobRequest Payload", "payload", payload)
 	}
+	
 	// Configure and execute the PUT request
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
@@ -211,8 +226,11 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -222,11 +240,14 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
 		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
-	if verbose {
-		fmt.Printf("Job Response: %s\n", string(respBody))
+	if debug {
+		c.Logger.Debug("Job Response", "body", string(respBody))
 	}
 
 	// Extract the JobID from the XML response
@@ -242,7 +263,7 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 	jobID := jobIDElem.Text()
 
 	// Monitor the background job for completion
-	jobResp, err := c.FetchJobStatus(jobID, false, 10, verbose)
+	jobResp, err := c.FetchJobStatus(jobID, false, 10, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -252,10 +273,10 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 }
 
 // GetLogicalPartitionsInSystem retrieves the advanced list of logical partitions for a managed system as a slice of deeply parsed Go structs.
-func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose bool) ([]LogicalPartitionDetailed, error) {
+func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, debug bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, systemUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching advanced logical partitions for system UUID %s, URL: %s", systemUUID, url)
+	if debug {
+		c.Logger.Debug("Fetching advanced logical partitions", "systemUUID", systemUUID, "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -270,18 +291,22 @@ func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose 
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartitions response status: %s", resp.Status)
+	if debug {
+		c.Logger.Debug("GetLogicalPartitions response status", "status", resp.Status)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
 		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -289,6 +314,8 @@ func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
 
 	// Parse XML response and strip namespaces to make querying easier
 	doc, err := xmlStripNamespace(body)
@@ -299,25 +326,25 @@ func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, verbose 
 	// Use FindElements (plural) to capture all partitions in the Atom feed
 	logicalPartitions := doc.FindElements("//LogicalPartition")
 	if len(logicalPartitions) == 0 {
-		if verbose {
-			hmcLogger.Printf("No LogicalPartition elements found in the response feed.")
+		if debug {
+			c.Logger.Debug("No LogicalPartition elements found in the response feed.")
 		}
 		return []LogicalPartitionDetailed{}, nil // Return empty slice instead of error if none exist
 	}
 
-	if verbose {
-		hmcLogger.Printf("Successfully parsed %d partitions from Advanced XML. Converting to structs...", len(logicalPartitions))
+	if debug {
+		c.Logger.Info("Successfully parsed partitions from Advanced XML", "count", len(logicalPartitions))
 	}
 
 	// Natively convert the XML nodes to Go Structs!
-	return parseLogicalPartitionElements(logicalPartitions, verbose)
+	return parseLogicalPartitionElements(logicalPartitions, debug)
 }
 
 // GetLogicalPartitionQuick retrieves quick details of a specific logical partition by UUID
-func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose bool) (*LogicalPartitionQuick, error) {
+func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, debug bool) (*LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick", c.hmcIP, partitionUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching quick logical partition details for UUID %s, URL: %s", partitionUUID, url)
+	if debug {
+		c.Logger.Debug("Fetching quick logical partition details", "partitionUUID", partitionUUID, "url", url)
 	}
 
 	// Create and configure the GET request
@@ -333,17 +360,15 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose b
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
-
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartitionQuick response status: %s", resp.Status)
-	}
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
@@ -351,15 +376,16 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose b
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	// Log response body if verbose
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartitionQuick response body:\n%s", string(body))
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if debug {
+		c.Logger.Debug("GetLogicalPartitionQuick response", "status", resp.Status, "body", string(body))
 	}
 
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		if verbose {
-			hmcLogger.Printf("Get of Logical Partition failed. Response code: %d", resp.StatusCode)
+		if debug {
+			c.Logger.Warn("Get of Logical Partition failed", "statusCode", resp.StatusCode)
 		}
 		return nil, nil
 	}
@@ -367,24 +393,25 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, verbose b
 	// Parse JSON response
 	var partition LogicalPartitionQuick
 	if err := json.Unmarshal(body, &partition); err != nil {
+		c.Logger.Error("Failed to parse JSON response", "error", err)
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
 	// Manually set the UUID since it's not in the JSON response
 	partition.UUID = partitionUUID
 
-	if verbose {
-		hmcLogger.Printf("Found logical partition: Name=%s, UUID=%s", partition.PartitionName, partition.UUID)
+	if debug {
+		c.Logger.Info("Found logical partition", "partitionName", partition.PartitionName, "partitionUUID", partition.UUID)
 	}
 
 	return &partition, nil
 }
 
 // GetLogicalPartitionsQuickAll retrieves the quick list of logical partitions for a system
-func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose bool) ([]LogicalPartitionQuick, error) {
+func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, debug bool) ([]LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching quick logical partitions for system UUID %s, URL: %s", systemUUID, url)
+	if debug {
+		c.Logger.Debug("Fetching quick logical partitions", "systemUUID", systemUUID, "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -398,45 +425,52 @@ func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, verbose 
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
-
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartitionsQuickAll response status: %s", resp.Status)
-	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartitionsQuickAll response body:\n%s", string(body))
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if debug {
+		c.Logger.Debug("GetLogicalPartitionsQuickAll response", "status", resp.Status, "body", string(body))
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil // No partitions found
 		}
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
 	}
 
 	var lparList []LogicalPartitionQuick
 	if err := json.Unmarshal(body, &lparList); err != nil {
+		c.Logger.Error("Failed to parse JSON response", "error", err)
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	if debug {
+		c.Logger.Info("Successfully retrieved logical partitions", "count", len(lparList))
 	}
 
 	return lparList, nil
 }
 
 // DeleteLogicalPartition deletes a logical partition by its UUID.
-func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose bool) error {
+func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, partitionUUID)
-	if verbose {
-		hmcLogger.Printf("Deleting logical partition UUID %s, URL: %s", partitionUUID, url)
+	if debug {
+		c.Logger.Debug("Deleting logical partition", "partitionUUID", partitionUUID, "url", url)
 	}
 
 	// Create and configure the DELETE request
@@ -452,17 +486,15 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose boo
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (DELETE)", url, "")
+
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
-
-	// Log response status if verbose
-	if verbose {
-		hmcLogger.Printf("DeleteLogicalPartition response status: %s", resp.Status)
-	}
 
 	// Read the response body (if any)
 	body, err := io.ReadAll(resp.Body)
@@ -470,8 +502,13 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose boo
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose && len(body) > 0 {
-		hmcLogger.Printf("DeleteLogicalPartition response body:\n%s", string(body))
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if debug {
+		c.Logger.Debug("DeleteLogicalPartition response", "status", resp.Status)
+		if len(body) > 0 {
+			c.Logger.Debug("DeleteLogicalPartition response body", "body", string(body))
+		}
 	}
 
 	// Check for success (204 No Content)
@@ -481,22 +518,28 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, verbose boo
 		if err == nil {
 			errorMsgs := doc.FindElements("//Message")
 			if len(errorMsgs) > 0 {
+				c.Logger.Error("Delete failed", "status", resp.Status, "message", errorMsgs[0].Text())
 				return fmt.Errorf("delete failed: %s, status: %s", errorMsgs[0].Text(), resp.Status)
 			}
 		}
+		c.Logger.Error("Delete failed", "status", resp.Status, "body", string(body))
 		return fmt.Errorf("delete failed with status %s: %s", resp.Status, string(body))
 	}
 
-	if verbose {
-		hmcLogger.Printf("Logical partition %s deleted successfully", partitionUUID)
+	if debug {
+		c.Logger.Info("Logical partition deleted successfully", "partitionUUID", partitionUUID)
 	}
 
 	return nil
 }
 
-func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool) ([]LogicalPartitionDetailed, error) {
+func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, debug bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
 	
+	if debug {
+		c.Logger.Debug("Fetching Advanced logical partitions", "systemUUID", systemUUID, "url", url)
+	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -508,18 +551,27 @@ func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool)
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("failed: %s - %s", resp.Status, string(body))
 	}
 
-	body, _ := io.ReadAll(resp.Body)
 	doc, err := xmlStripNamespace(body)
 	if err != nil {
 		return nil, err
@@ -537,12 +589,16 @@ func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool)
 
 		var detailedLpar LogicalPartitionDetailed
 		if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
-			if verbose {
-				hmcLogger.Printf("Unmarshal warning for LPAR: %v", err)
+			if debug {
+				c.Logger.Warn("Unmarshal warning for LPAR", "error", err)
 			}
 			continue
 		}
 		detailedPartitions = append(detailedPartitions, detailedLpar)
+	}
+
+	if debug {
+		c.Logger.Info("Successfully parsed Advanced logical partitions", "count", len(detailedPartitions))
 	}
 
 	return detailedPartitions, nil
@@ -551,8 +607,12 @@ func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, verbose bool)
 
 
 // CreateLogicalPartition creates a new LPAR using the direct UOM PUT method and returns the complete LPAR details.
-func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparRequest, verbose bool) (*LogicalPartitionDetailed, error) {
+func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparRequest, debug bool) (*LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, sysUUID)
+
+	if debug {
+		c.Logger.Debug("Creating Logical Partition", "systemUUID", sysUUID, "lparName", req.Name)
+	}
 
 	// The HMC demands STRICT ALPHABETICAL ORDERING for elements.
 	// We have rearranged the Processing Units and Virtual Processors 
@@ -606,20 +666,26 @@ func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparReq
 	defer cancel()
 	httpReq = httpReq.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		c.Logger.Error("UOM creation failed", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("UOM creation failed (%s): %s", resp.Status, string(body))
 	}
 
-	if verbose {
-		hmcLogger.Printf("CreateLogicalPartition response status: %s", resp.Status)
-		hmcLogger.Printf("CreateLogicalPartition response body:\n%s", string(body))
+	if debug {
+		c.Logger.Debug("CreateLogicalPartition response status", "status", resp.Status)
 	}
 
 	// Parse the complete LogicalPartition response
@@ -648,20 +714,19 @@ func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparReq
 		return nil, fmt.Errorf("failed to unmarshal LogicalPartition: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("🚀 LPAR Created! UUID: %s, Name: %s, Profile: %s",
-			lpar.MetadataID, lpar.PartitionName, lpar.DefaultProfileName)
+	if debug {
+		c.Logger.Info("LPAR Created!", "uuid", lpar.MetadataID, "name", lpar.PartitionName, "profile", lpar.DefaultProfileName)
 	}
 
 	return &lpar, nil
 }
 
 // CreateVirtualSCSIClientAdapter adds a vSCSI Client Adapter and strictly maps it to a VIOS.
-func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, viosSlot int, verbose bool) (string, error) {
+func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, viosSlot int, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualSCSIClientAdapter", c.hmcIP, lparUUID)
 
-	if verbose {
-		hmcLogger.Printf("Adding vSCSI Client Adapter mapping to VIOS ID: %d, VIOS Slot: %d...", viosID, viosSlot)
+	if debug {
+		c.Logger.Debug("Adding vSCSI Client Adapter mapping", "viosID", viosID, "viosSlot", viosSlot)
 	}
 
 	// We provide the Base Adapter properties (AdapterType, RequiredAdapter)
@@ -690,15 +755,21 @@ func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, 
 	defer cancel()
 	httpReq = httpReq.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		c.Logger.Error("vSCSI Adapter creation failed", "status", resp.Status, "body", string(body))
 		return "", fmt.Errorf("vSCSI Adapter creation failed (%s): %s", resp.Status, string(body))
 	}
 
@@ -712,14 +783,18 @@ func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, 
 		return "", fmt.Errorf("Adapter created successfully, but failed to extract new UUID")
 	}
 
+	if debug {
+		c.Logger.Info("Successfully created Virtual SCSI Client Adapter", "uuid", atomID.Text())
+	}
+
 	return atomID.Text(), nil
 }
 
 // GetLogicalPartitionDetailed fetches the exhaustive XML details of a specific logical partition by its UUID.
-func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, verbose bool) (*LogicalPartitionDetailed, error) {
+func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, debug bool) (*LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
-	if verbose {
-		hmcLogger.Printf("Fetching exhaustive logical partition details for UUID %s, URL: %s", lparUUID, url)
+	if debug {
+		c.Logger.Debug("Fetching exhaustive logical partition details", "lparUUID", lparUUID, "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -733,25 +808,30 @@ func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, verbose boo
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if verbose {
-		hmcLogger.Printf("GetLogicalPartitionDetailed response status: %s", resp.Status)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
-    }
+	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if debug {
+		c.Logger.Debug("GetLogicalPartitionDetailed response status", "status", resp.Status)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
 
 	// 1. Strip the namespaces using the existing helper to make unmarshaling clean
 	doc, err := xmlStripNamespace(body)
@@ -779,8 +859,8 @@ func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, verbose boo
 		return nil, fmt.Errorf("failed to unmarshal XML into LogicalPartitionDetailed struct: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("✅ Successfully parsed exhaustive details for LPAR: %s", detailedLpar.PartitionName)
+	if debug {
+		c.Logger.Info("Successfully parsed exhaustive details for LPAR", "partitionName", detailedLpar.PartitionName)
 	}
 
 	return &detailedLpar, nil
@@ -789,11 +869,11 @@ func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, verbose boo
 // MapPhysicalIOAdapters dynamically assigns multiple Physical I/O Adapters to an LPAR.
 // It accepts an optional inventory (*ManagedSystemDetailed) to perform a local safety check 
 // for ownership conflicts before talking to the HMC.
-func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterIDs []string, inventory *ManagedSystemDetailed, verbose bool) (string, error) {
+func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterIDs []string, inventory *ManagedSystemDetailed, debug bool) (string, error) {
 	
 	// 1. PRE-FLIGHT SAFETY CHECK (Only if inventory is provided)
 	if inventory != nil {
-		if verbose { hmcLogger.Printf("Performing pre-flight ownership check for %d adapters...", len(adapterIDs)) }
+		if debug { c.Logger.Debug("Performing pre-flight ownership check", "adapterCount", len(adapterIDs)) }
 		for _, adapterID := range adapterIDs {
 			for _, bus := range inventory.IOConfig.IOBuses {
 				for _, slot := range bus.IOSlots {
@@ -817,11 +897,16 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	getResp, err := c.client.Do(getReq)
 	if err != nil { return "", err }
 	defer getResp.Body.Close()
 
 	rawXML, _ := io.ReadAll(getResp.Body)
+	
+	c.logRawTraffic("RESPONSE", url, string(rawXML))
+
 	if getResp.StatusCode != 200 {
 		return "", fmt.Errorf("GET failed: %s", string(rawXML))
 	}
@@ -880,11 +965,16 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
 	postReq.Header.Set("Accept", "application/atom+xml")
 
+	c.logRawTraffic("REQUEST (POST)", url, postXML)
+
 	postResp, err := c.client.Do(postReq)
 	if err != nil { return "", err }
 	defer postResp.Body.Close()
 
 	body, _ := io.ReadAll(postResp.Body)
+
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if postResp.StatusCode >= 400 {
 		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
 	}
@@ -893,8 +983,8 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 	respDoc, err := xmlStripNamespace(body)
 	if err == nil {
 		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
-			if verbose { hmcLogger.Printf("I/O Batch job triggered: %s", jobIDElem.Text()) }
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, verbose)
+			if debug { c.Logger.Info("I/O Batch job triggered", "jobID", jobIDElem.Text()) }
+			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -902,10 +992,10 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 }
 
 // GetAllLogicalPartitionsInHmc retrieves the Go structures for all logical partitions managed by the HMC across all systems.
-func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]LogicalPartitionDetailed, error) {
+func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(debug bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition", c.hmcIP)
-	if verbose {
-		hmcLogger.Printf("Fetching ALL logical partitions across the HMC, URL: %s", url)
+	if debug {
+		c.Logger.Debug("Fetching ALL logical partitions across the HMC", "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -919,8 +1009,11 @@ func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]LogicalPar
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -930,7 +1023,10 @@ func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]LogicalPar
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
 		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -956,16 +1052,16 @@ func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]LogicalPar
 		// 4. Unmarshal into your big struct
 		var detailedLpar LogicalPartitionDetailed
 		if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
-			if verbose {
-				hmcLogger.Printf("Skipping partition due to unmarshal error: %v", err)
+			if debug {
+				c.Logger.Warn("Skipping partition due to unmarshal error", "error", err)
 			}
 			continue
 		}
 		allPartitions = append(allPartitions, detailedLpar)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Successfully parsed %d partitions from HMC global inventory.", len(allPartitions))
+	if debug {
+		c.Logger.Info("Successfully parsed partitions from HMC global inventory", "count", len(allPartitions))
 	}
 
 	return allPartitions, nil
@@ -987,10 +1083,10 @@ func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(verbose bool) ([]LogicalPar
 //   - PowerManagementMode            : The power management mode.
 //
 // Returns the cleaned value as a string (quotes and whitespace removed).
-func (c *HmcRestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName string, verbose bool) (string, error) {
+func (c *HmcRestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick/%s", c.hmcIP, lparUUID, propertyName)
-	if verbose {
-		hmcLogger.Printf("Fetching quick property '%s' for LPAR %s, URL: %s", propertyName, lparUUID, url)
+	if debug {
+		c.Logger.Debug("Fetching quick property for LPAR", "propertyName", propertyName, "lparUUID", lparUUID, "url", url)
 	}
 
 	// Create the request
@@ -1006,9 +1102,12 @@ func (c *HmcRestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName 
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	// Execute the request
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -1019,7 +1118,10 @@ func (c *HmcRestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName 
 		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
 
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusOK {
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
 		return "", fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 	}
 
@@ -1028,23 +1130,23 @@ func (c *HmcRestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName 
 	cleanValue := strings.TrimSpace(string(body))
 	cleanValue = strings.Trim(cleanValue, "\"")
 
-	if verbose {
-		hmcLogger.Printf("Property %s = %s", propertyName, cleanValue)
+	if debug {
+		c.Logger.Info("Property retrieved", "propertyName", propertyName, "value", cleanValue)
 	}
 
 	return cleanValue, nil
 }
 // SearchLogicalPartitions queries the HMC for logical partitions matching a specific property and value.
 // Example: SearchLogicalPartitions("PartitionState", "running", true)
-func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue string, verbose bool) ([]*etree.Element, error) {
+func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue string, debug bool) ([]*etree.Element, error) {
 	// Construct the HMC search string: (Property==Value)
 	// Note: If your value contains spaces or special characters (like AIX/Linux), 
 	// the HMC usually expects single quotes around it (e.g., 'AIX/Linux').
 	searchQuery := fmt.Sprintf("(%s==%s)", propertyName, propertyValue)
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/search/%s", c.hmcIP, searchQuery)
 
-	if verbose {
-		hmcLogger.Printf("Searching for Logical Partitions matching %s=%s, URL: %s", propertyName, propertyValue, url)
+	if debug {
+		c.Logger.Debug("Searching for Logical Partitions", "propertyName", propertyName, "propertyValue", propertyValue, "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -1059,18 +1161,22 @@ func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue stri
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if verbose {
-		hmcLogger.Printf("SearchLogicalPartitions response status: %s", resp.Status)
+	if debug {
+		c.Logger.Debug("SearchLogicalPartitions response status", "status", resp.Status)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
 		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1078,6 +1184,8 @@ func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
 
 	// Strip namespaces for easy querying
 	doc, err := xmlStripNamespace(body)
@@ -1088,14 +1196,14 @@ func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue stri
 	// Extract all LogicalPartition blocks returned by the search
 	logicalPartitions := doc.FindElements("//LogicalPartition")
 	if len(logicalPartitions) == 0 {
-		if verbose {
-			hmcLogger.Printf("No matching LogicalPartition elements found for %s.", searchQuery)
+		if debug {
+			c.Logger.Debug("No matching LogicalPartition elements found", "searchQuery", searchQuery)
 		}
 		return []*etree.Element{}, nil
 	}
 
-	if verbose {
-		hmcLogger.Printf("Successfully found %d partitions matching the search criteria.", len(logicalPartitions))
+	if debug {
+		c.Logger.Info("Successfully found partitions matching criteria", "count", len(logicalPartitions))
 	}
 
 	return logicalPartitions, nil
@@ -1107,19 +1215,19 @@ func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue stri
 // Parameters:
 //   - lparUUID: The UUID of the logical partition
 //   - profileName: The name of the profile to be assigned as the default profile
-//   - verbose: If true, logs detailed information
+//   - debug: If true, logs detailed information
 //
 // Returns:
 //   - jobID: The job ID for tracking the operation
 //   - error: Error if the operation fails, nil on success
 //
 // Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=jobs-changedefaultprofilename-logicalpartition-job
-func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, verbose bool) (string, error) {
+func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, debug bool) (string, error) {
 	// Construct the URL for the ChangeDefaultProfileName operation
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/ChangeDefaultProfileName", c.hmcIP, lparUUID)
 
-	if verbose {
-		hmcLogger.Printf("Changing default profile for LPAR UUID %s to profile '%s', URL: %s", lparUUID, profileName, url)
+	if debug {
+		c.Logger.Debug("Changing default profile", "lparUUID", lparUUID, "profileName", profileName, "url", url)
 	}
 
 	// Define operation details for the JobRequest
@@ -1135,7 +1243,7 @@ func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, v
 	}
 
 	// Create XML payload using existing helper
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", verbose, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
@@ -1153,8 +1261,11 @@ func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, v
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return "", fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -1164,12 +1275,15 @@ func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, v
 		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if verbose {
-		hmcLogger.Printf("Response status: %s", resp.Status)
-		hmcLogger.Printf("Response body: %s", string(respBody))
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
+	if debug {
+		c.Logger.Debug("Response status", "status", resp.Status)
+		c.Logger.Debug("Response body", "body", string(respBody))
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
 		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
@@ -1185,8 +1299,8 @@ func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, v
 	}
 	jobID := jobIDElem.Text()
 
-	if verbose {
-		hmcLogger.Printf("ChangeDefaultProfileName job submitted successfully, JobID: %s", jobID)
+	if debug {
+		c.Logger.Info("ChangeDefaultProfileName job submitted successfully", "jobID", jobID)
 	}
 
 	return jobID, nil
@@ -1194,7 +1308,7 @@ func (c *HmcRestClient) ChangeDefaultProfileName(lparUUID, profileName string, v
 
 // CreateVirtualFibreChannelClientAdapter adds a vFC Client Adapter to an LPAR and maps it to a VIOS.
 // NOTE: Unlike vSCSI, vFC strictly requires an explicit viosSlot number. It cannot be auto-assigned.
-func (c *HmcRestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, viosID, viosSlot int, verbose bool) (string, error) {
+func (c *HmcRestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, viosID, viosSlot int, debug bool) (string, error) {
 	
 	// FAIL-FAST: IBM Hypervisor strictly requires a target slot for NPIV mapping.
 	if viosSlot <= 0 {
@@ -1203,7 +1317,7 @@ func (c *HmcRestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, 
 
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualFibreChannelClientAdapter", c.hmcIP, lparUUID)
 
-	if verbose {
+	if debug {
 		c.Logger.Debug("Provisioning vFC Client Adapter", "viosID", viosID, "viosSlot", viosSlot)
 	}
 
@@ -1232,15 +1346,21 @@ func (c *HmcRestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, 
 	defer cancel()
 	httpReq = httpReq.WithContext(ctx)
 
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	
+	c.logRawTraffic("RESPONSE", url, string(body))
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		c.Logger.Error("vFC Adapter creation failed", "status", resp.Status, "body", string(body))
 		return "", fmt.Errorf("vFC Adapter creation failed (%s):\n%s", resp.Status, string(body))
 	}
 
@@ -1254,17 +1374,17 @@ func (c *HmcRestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, 
 		return "", fmt.Errorf("vFC Adapter created successfully, but failed to extract new UUID")
 	}
 
-	if verbose {
+	if debug {
 		c.Logger.Info("vFC Adapter created successfully", "uuid", atomID.Text())
 	}
 
 	return atomID.Text(), nil
 }
 // GetVirtualFibreChannelClientAdapters retrieves all vFC Client Adapters attached to a specific LPAR.
-func (c *HmcRestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, verbose bool) ([]VirtualFibreChannelClientAdapter, error) {
+func (c *HmcRestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, debug bool) ([]VirtualFibreChannelClientAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualFibreChannelClientAdapter", c.hmcIP, lparUUID)
 
-	if verbose {
+	if debug {
 		c.Logger.Debug("Fetching Virtual Fibre Channel Client Adapters", "lparUUID", lparUUID, "url", url)
 	}
 
@@ -1300,7 +1420,7 @@ func (c *HmcRestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, ve
 	if resp.StatusCode != http.StatusOK {
 		// Handle the case where the LPAR simply has zero vFC adapters attached
 		if resp.StatusCode == http.StatusNoContent {
-			if verbose {
+			if debug {
 				c.Logger.Debug("No vFC adapters found on LPAR (204 No Content)")
 			}
 			return []VirtualFibreChannelClientAdapter{}, nil
@@ -1338,7 +1458,7 @@ func (c *HmcRestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, ve
 		adapters = append(adapters, adapter)
 	}
 
-	if verbose {
+	if debug {
 		c.Logger.Info("Successfully retrieved vFC adapters", "count", len(adapters), "lparUUID", lparUUID)
 	}
 
