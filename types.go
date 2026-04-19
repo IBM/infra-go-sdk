@@ -4,9 +4,9 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/beevik/etree"
 )
@@ -114,12 +114,15 @@ type JobResponseResults struct {
 }
 
 // Logger with prefix for HMC operations
-var hmcLogger = log.New(os.Stderr, "[HMC] ", log.LstdFlags)
+var hmcLogger = log.New(io.Discard, "[HMC] ", log.LstdFlags)
 
-// ReinitLogger reinitializes the HMC logger to use the current os.Stderr
-// This is needed when stderr is redirected after the logger is created
-func ReinitLogger() {
-	hmcLogger = log.New(os.Stderr, "[HMC] ", log.LstdFlags)
+// ReinitLogger reinitializes the HMC logger with a custom writer
+// Pass io.Discard to suppress output, or a file/buffer to capture logs
+func ReinitLogger(w io.Writer) {
+	if w == nil {
+		w = io.Discard
+	}
+	hmcLogger = log.New(w, "[HMC] ", log.LstdFlags)
 }
 
 // HmcRestClient represents the REST client for HMC operations

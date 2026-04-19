@@ -95,3 +95,10 @@ func (c *HmcRestClient) logRawTraffic(direction, url, payload string) {
 		"payload", "\n"+safePayload,
 	)
 }
+// SetLogger replaces the default instance logger with a custom configured logger.
+// This is critical for downstream applications that want to route HTTP payloads to files.
+func (c *HmcRestClient) SetLogger(l *Logger) {
+	if l != nil {
+		c.Logger = l
+	}
+}

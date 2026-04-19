@@ -110,7 +110,7 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("X-HMC-Schema-Version", schemaVersion) 
+	req.Header.Set("X-HMC-Schema-Version", schemaVersion)
 
 	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
@@ -148,7 +148,17 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 		c.Logger.Debug("PowerOnPartition job submitted", "jobID", jobID)
 	}
 
-	jobResp, err := c.FetchJobStatus(jobID, false, 15, debug)
+	// Network boot operations take significantly longer than normal boots
+	// Use 30 minutes for netboot, 15 minutes for normal boot
+	timeout := 15
+	if bootMode == "netboot" {
+		timeout = 30
+		if debug {
+			c.Logger.Debug("Using extended timeout for network boot operation", "timeoutMinutes", timeout)
+		}
+	}
+
+	jobResp, err := c.FetchJobStatus(jobID, false, timeout, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
