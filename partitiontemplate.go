@@ -124,7 +124,7 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug
 	}
 
 	// Fetch and return the job status
-	jobResp, err := c.FetchJobStatus(jobID, true, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -744,7 +744,7 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, de
 	}
 
 	// Monitor job status
-	jobResp, err := c.FetchJobStatus(jobID, true, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -891,7 +891,7 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, deb
 	}
 
 	// Monitor job status
-	jobResp, err := c.FetchJobStatus(jobID, true, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}

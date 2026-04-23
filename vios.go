@@ -118,7 +118,7 @@ func (c *HmcRestClient) ConfigDevice(viosID string, devName string, debug bool) 
 	}
 
 	// Fetch the job response
-	jobResp, err := c.FetchJobStatus(jobID, false, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, false, 10, debug)
 	if err != nil {
 		return fmt.Errorf("failed to fetch job response: %v", err)
 	}
@@ -326,7 +326,7 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]Physica
 	}
 
 	// Fetch the job response
-	jobResp, err := c.FetchJobStatus(jobID, false, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, false, 10, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job response: %v", err)
 	}
@@ -652,7 +652,7 @@ func (c *HmcRestClient) removeDeviceViaJob(viosUUID, deviceName string, debug bo
 
 	doc, _ := xmlStripNamespace(body)
 	if jobIDElem := doc.FindElement("//JobID"); jobIDElem != nil {
-		_, err = c.FetchJobStatus(jobIDElem.Text(), false, 5, debug)
+		_, err = c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 5, debug)
 		return err
 	}
 	return fmt.Errorf("JobID not found")
@@ -700,7 +700,7 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, debug bool
 	if jobIDElem := doc.FindElement("//JobID"); jobIDElem != nil {
 		if debug { c.Logger.Info("Removing device from VIOS", "deviceName", deviceName, "jobID", jobIDElem.Text()) }
 		// Wait for the VIOS to finish deleting the disk
-		_, err = c.FetchJobStatus(jobIDElem.Text(), false, 5, debug)
+		_, err = c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 5, debug)
 		return err
 	}
 	
@@ -1411,7 +1411,7 @@ func (c *HmcRestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolum
 			if debug {
 				c.Logger.Info("CreateVolumeGroup Job submitted, waiting for completion...", "jobID", jobID)
 			}
-			_, err = c.FetchJobStatus(jobID, false, 10, debug)
+			_, err = c.FetchJobStatus(context.Background(), jobID, false, 10, debug)
 			if err != nil {
 				return fmt.Errorf("CreateVolumeGroup job failed: %v", err)
 			}
@@ -1600,7 +1600,7 @@ func (c *HmcRestClient) ExtendVirtualDisk(sysName, viosUUID, viosName, diskName 
 	return nil
 }
 // =====================================================================
-// CREATE VIRTUAL OPTICAL MEDIA - SMART CLI METHOD
+// VIRTUAL OPTICAL MEDIA (ISO) - SMART CLI METHODS (viosvrcmd)
 // =====================================================================
 
 // CreateVirtualOpticalMedia creates a Virtual Optical Media (ISO) in the VIOS Media Repository.
@@ -1664,6 +1664,200 @@ func (c *HmcRestClient) CreateVirtualOpticalMedia(sysName, viosUUID, viosName, m
 
 	if debug {
 		c.Logger.Info("Virtual Optical Media created successfully", "mediaName", mediaName, "viosOutput", strings.TrimSpace(output))
+	}
+
+	return nil
+}
+
+// DeleteVirtualOpticalMedia safely removes a Virtual Optical Media (ISO) from a VIOS Media Repository.
+// It uses the native VIOS rmvopt command. Note: The media must be unloaded/unmapped from all LPARs before it can be deleted.
+func (c *HmcRestClient) DeleteVirtualOpticalMedia(sysName, viosName, mediaName string, debug bool) error {
+	if debug {
+		c.Logger.Debug("Safely deleting Virtual Optical Media via CLI", "mediaName", mediaName, "viosName", viosName)
+	}
+
+	// Syntax: rmvopt -name <mediaName>
+	rmvoptCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmvopt -name %s"`, sysName, viosName, mediaName)
+	
+	if debug {
+		c.Logger.Debug("Executing", "command", rmvoptCmd)
+	}
+
+	output, err := c.CliRunner(rmvoptCmd, debug)
+	if err != nil {
+		return fmt.Errorf("failed to delete Virtual Optical Media via rmvopt: %v\nOutput: %s", err, output)
+	}
+
+	if debug {
+		c.Logger.Info("Virtual Optical Media deleted successfully", "mediaName", mediaName, "viosOutput", strings.TrimSpace(output))
+	}
+
+	return nil
+}
+
+// GetVirtualOpticalMedias retrieves a list of all Virtual Optical Media (ISO files) 
+// currently physically present in the VIOS Media Repository using the native VIOS CLI (lsrep).
+func (c *HmcRestClient) GetVirtualOpticalMedias(sysName, viosName string, debug bool) ([]VirtualOpticalMedia, error) {
+	if debug {
+		c.Logger.Debug("Fetching Virtual Optical Media from repository via CLI", "viosName", viosName, "sysName", sysName)
+	}
+
+	// Syntax: lsrep
+	lsrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lsrep"`, sysName, viosName)
+	
+	output, err := c.CliRunner(lsrepCmd, debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list media repository via lsrep: %v\nOutput: %s", err, output)
+	}
+
+	var opticalMediaList []VirtualOpticalMedia
+
+	// Parse the lsrep text output
+	// Typical lsrep output structure:
+	// Size(mb) Free(mb) Parent Pool         Parent Size      Parent Free
+	// 20480    10240    rootvg              ...
+	//
+	// Name                                    File Size Optical         Access
+	// rhel9.iso                               4096      vtopt0          rw
+	// aix73.iso                               2048      None            ro
+
+	lines := strings.Split(output, "\n")
+	parsingMedia := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+
+		// Detect the start of the media table
+		if strings.HasPrefix(line, "Name") && strings.Contains(line, "File Size") {
+			parsingMedia = true
+			continue
+		}
+
+		// Parse the rows under the header
+		if parsingMedia {
+			// Stop parsing if we hit a different section (like VTD summary)
+			if strings.HasPrefix(line, "VTD") || strings.HasPrefix(line, "Size(mb)") {
+				break
+			}
+
+			// Split by whitespace
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				mediaName := fields[0]
+				
+				size := ""
+				if len(fields) >= 2 {
+					size = fields[1]
+				}
+
+				mountType := ""
+				if len(fields) >= 4 {
+					mountType = fields[3]
+				}
+
+				media := VirtualOpticalMedia{
+					MediaName: mediaName,
+					Size:      size,
+					MountType: mountType,
+				}
+
+				opticalMediaList = append(opticalMediaList, media)
+			}
+		}
+	}
+
+	if debug {
+		c.Logger.Info("Successfully retrieved optical media from repository via CLI", "count", len(opticalMediaList), "viosName", viosName)
+	}
+
+	return opticalMediaList, nil
+}
+
+// GetVirtualOpticalMedia retrieves the details of a specific Virtual Optical Media (ISO) 
+// by searching the physical VIOS media repository via the CLI.
+// Returns an error if the specified media is not found.
+func (c *HmcRestClient) GetVirtualOpticalMedia(sysName, viosName, mediaName string, debug bool) (*VirtualOpticalMedia, error) {
+	if debug {
+		c.Logger.Debug("Fetching specific Virtual Optical Media via CLI", "mediaName", mediaName, "viosName", viosName)
+	}
+
+	// 1. Fetch the full list of media
+	mediaList, err := c.GetVirtualOpticalMedias(sysName, viosName, debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch media list from repository: %w", err)
+	}
+
+	// 2. Iterate through the list to find the exact match
+	for _, media := range mediaList {
+		if media.MediaName == mediaName {
+			if debug {
+				c.Logger.Info("Successfully found optical media in repository", 
+					"mediaName", media.MediaName, 
+					"size", media.Size,
+					"mountType", media.MountType,
+				)
+			}
+			return &media, nil
+		}
+	}
+
+	// 3. If loop completes, the media does not exist
+	if debug {
+		c.Logger.Warn("Optical media not found in repository", "mediaName", mediaName, "viosName", viosName)
+	}
+	return nil, fmt.Errorf("virtual optical media '%s' not found in repository on VIOS '%s'", mediaName, viosName)
+}
+
+// LoadVirtualOpticalMedia loads a virtual optical media (ISO) into an existing Virtual Target Device (VTD) on the VIOS.
+func (c *HmcRestClient) LoadVirtualOpticalMedia(sysName, viosName, vtdName, mediaName string, debug bool) error {
+	if debug {
+		c.Logger.Debug("Loading Virtual Optical Media into VTD via CLI", "mediaName", mediaName, "vtdName", vtdName, "viosName", viosName)
+	}
+
+	// Syntax: loadopt -disk <mediaName> -vtd <vtdName>
+	loadoptCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "loadopt -disk %s -vtd %s"`, sysName, viosName, mediaName, vtdName)
+	
+	if debug {
+		c.Logger.Debug("Executing", "command", loadoptCmd)
+	}
+
+	output, err := c.CliRunner(loadoptCmd, debug)
+	if err != nil {
+		return fmt.Errorf("failed to load Virtual Optical Media via loadopt: %v\nOutput: %s", err, output)
+	}
+
+	if debug {
+		c.Logger.Info("Virtual Optical Media loaded successfully", "mediaName", mediaName, "vtdName", vtdName, "viosOutput", strings.TrimSpace(output))
+	}
+
+	return nil
+}
+
+// UnloadVirtualOpticalMedia unloads a virtual optical media (ISO) from a Virtual Target Device (VTD) on the VIOS.
+func (c *HmcRestClient) UnloadVirtualOpticalMedia(sysName, viosName, vtdName string, debug bool) error {
+	if debug {
+		c.Logger.Debug("Unloading Virtual Optical Media from VTD via CLI", "vtdName", vtdName, "viosName", viosName)
+	}
+
+	// Syntax: unloadopt -vtd <vtdName>
+	unloadoptCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "unloadopt -vtd %s"`, sysName, viosName, vtdName)
+	
+	if debug {
+		c.Logger.Debug("Executing", "command", unloadoptCmd)
+	}
+
+	output, err := c.CliRunner(unloadoptCmd, debug)
+	if err != nil {
+		return fmt.Errorf("failed to unload Virtual Optical Media via unloadopt: %v\nOutput: %s", err, output)
+	}
+
+	if debug {
+		c.Logger.Info("Virtual Optical Media unloaded successfully", "vtdName", vtdName, "viosOutput", strings.TrimSpace(output))
 	}
 
 	return nil
@@ -1993,7 +2187,7 @@ func (c *HmcRestClient) CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID stri
 	if err == nil {
 		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
 			if debug { c.Logger.Info("Update job triggered", "jobID", jobIDElem.Text()) }
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -2132,7 +2326,7 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 	if err == nil {
 		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
 			if debug { c.Logger.Info("Update job triggered", "jobID", jobIDElem.Text()) }
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -2244,7 +2438,7 @@ func (c *HmcRestClient) AddVirtualOpticalMedia(viosUUID string, mediaFiles map[s
 		}
 
 		// 7. Wait for the background job to finish
-		_, err = c.FetchJobStatus(jobID, false, 10, debug)
+		_, err = c.FetchJobStatus(context.Background(), jobID, false, 10, debug)
 		if err != nil {
 			results[mediaName] = fmt.Errorf("failed during AddOpticalMedia job execution: %v", err)
 			continue
@@ -2335,6 +2529,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 	           <Storage>
 	               <VirtualOpticalMedia schemaVersion="V1_0">
 	                   <MediaName>%s</MediaName>
+	                   <MountType>r</MountType>
 	               </VirtualOpticalMedia>
 	           </Storage>
 	       </VirtualSCSIMapping>`, c.hmcIP, sysUUID, lparUUID, mediaName)
@@ -2390,7 +2585,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 	if err == nil {
 		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
 			if debug { c.Logger.Info("Optical mapping job triggered", "jobID", jobIDElem.Text()) }
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -2523,7 +2718,7 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 			if debug {
 				c.Logger.Info("Deletion job triggered", "jobID", jobIDElem.Text())
 			}
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -2676,7 +2871,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 			if debug {
 				c.Logger.Info("Virtual disk deletion job triggered", "jobID", jobIDElem.Text())
 			}
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -2830,7 +3025,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 			if debug {
 				c.Logger.Info("Virtual optical deletion job triggered", "jobID", jobIDElem.Text())
 			}
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -2986,7 +3181,7 @@ func (c *HmcRestClient) CreateVirtualFibreChannelMappings(sysUUID, viosUUID, lpa
 			if debug {
 				c.Logger.Info("Mapping job triggered", "jobID", jobIDElem.Text())
 			}
-			_, jobErr := c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			_, jobErr := c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 			if jobErr != nil {
 				return "", fmt.Errorf("background job failed: %v", jobErr)
 			}
@@ -3173,7 +3368,7 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMappings(sysUUID, viosUUID, lpa
 			if debug {
 				c.Logger.Info("vFC deletion job triggered", "jobID", jobIDElem.Text())
 			}
-			_, jobErr := c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			_, jobErr := c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 			if jobErr != nil {
 				return "", fmt.Errorf("background job failed: %v", jobErr)
 			}
@@ -3185,4 +3380,175 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMappings(sysUUID, viosUUID, lpa
 	}
 
 	return "SUCCESS", nil
+}
+
+// =====================================================================
+// VIOS MOUNT LOCK MANAGEMENT
+// =====================================================================
+
+// AcquireVIOSMountLock creates a lock file on VIOS to serialize /mnt access
+// Uses only commands allowed in padmin restricted shell (echo, test, rm)
+func (c *HmcRestClient) AcquireVIOSMountLock(systemName, viosName string, timeoutSeconds int, debug bool) error {
+	lockFile := "/home/padmin/mnt.lock"
+	checkInterval := 5 * time.Second
+	maxRetries := timeoutSeconds / 5
+	
+	if debug {
+		c.Logger.Info("Attempting to acquire VIOS mount lock",
+			"vios", viosName,
+			"timeout", timeoutSeconds)
+	}
+	
+	for i := 0; i < maxRetries; i++ {
+		// Check if lock exists using 'test' command (allowed in restricted shell)
+		checkCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "test -f %s && echo EXISTS || echo NOTFOUND"`,
+			systemName, viosName, lockFile)
+		output, err := c.CliRunner(checkCmd, debug)
+		
+		if err != nil || strings.Contains(output, "NOTFOUND") {
+			// Lock doesn't exist - try to create it atomically
+			// Use echo with PID and timestamp for debugging (echo is allowed)
+			createCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "echo powershift_\$\$_\$(date +%%s) > %s"`,
+				systemName, viosName, lockFile)
+			_, err := c.CliRunner(createCmd, debug)
+			
+			if err == nil {
+				if debug {
+					c.Logger.Info("✓ Acquired VIOS mount lock", "vios", viosName)
+				}
+				return nil
+			}
+			
+			// Race condition - another process created it first, retry
+			if debug {
+				c.Logger.Debug("Lock creation race detected, retrying...")
+			}
+		}
+		
+		// Lock exists, wait and retry
+		if debug {
+			c.Logger.Debug("VIOS mount lock held by another process",
+				"attempt", i+1,
+				"maxRetries", maxRetries,
+				"waitingSeconds", int(checkInterval.Seconds()))
+		}
+		
+		time.Sleep(checkInterval)
+	}
+	
+	return fmt.Errorf("timeout waiting for VIOS mount lock after %d seconds (another deployment may be stuck)", timeoutSeconds)
+}
+
+// ReleaseVIOSMountLock removes the lock file from VIOS
+func (c *HmcRestClient) ReleaseVIOSMountLock(systemName, viosName string, debug bool) error {
+	lockFile := "/home/padmin/mnt.lock"
+	
+	// Use 'rm' which is allowed in restricted shell
+	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rm -f %s"`, systemName, viosName, lockFile)
+	_, err := c.CliRunner(cmd, debug)
+	
+	if err != nil {
+		c.Logger.Warn("Failed to release VIOS mount lock", "vios", viosName, "error", err)
+		return err
+	}
+	
+	if debug {
+		c.Logger.Info("✓ Released VIOS mount lock", "vios", viosName)
+	}
+	return nil
+}
+// MediaRepositoryInfo holds the total and free space of a VIOS media repository
+type MediaRepositoryInfo struct {
+	SizeMB int
+	FreeMB int
+}
+// GetMediaRepositoryInfo parses the VIOS lsrep command to extract exact capacity and free space
+func (c *HmcRestClient) GetMediaRepositoryInfo(sysName, viosName string, debug bool) (*MediaRepositoryInfo, error) {
+	if debug {
+		c.Logger.Debug("Fetching Media Repository capacity via CLI", "viosName", viosName)
+	}
+
+	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lsrep"`, sysName, viosName)
+	output, err := c.CliRunner(cmd, debug)
+	if err != nil {
+		// If lsrep fails, the repository likely doesn't exist
+		return nil, fmt.Errorf("failed to run lsrep (repository may not exist): %w", err)
+	}
+
+	// Typical lsrep output:
+	// Size(mb) Free(mb) Parent Pool         Parent Size      Parent Free
+	// 20480    10240    rootvg              ...
+	lines := strings.Split(output, "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Size(mb)") && i+1 < len(lines) {
+			dataLine := strings.TrimSpace(lines[i+1])
+			fields := strings.Fields(dataLine)
+			if len(fields) >= 2 {
+				sizeMB, _ := strconv.Atoi(fields[0])
+				freeMB, _ := strconv.Atoi(fields[1])
+				return &MediaRepositoryInfo{
+					SizeMB: sizeMB,
+					FreeMB: freeMB,
+				}, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("could not parse repository size from lsrep output")
+}
+// CreateVirtualSCSIServerAdapter adds a vSCSI Server Adapter to a VIOS at a specific slot, locking it to a specific Client LPAR and Client Slot.
+func (c *HmcRestClient) CreateVirtualSCSIServerAdapter(viosUUID string, clientLparID int, viosSlot int, clientSlot int, debug bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VirtualSCSIServerAdapter", c.hmcIP, viosUUID)
+
+	if debug {
+		c.Logger.Info("Provisioning vSCSI Server Adapter via REST API", "viosUUID", viosUUID, "clientLparID", clientLparID, "viosSlot", viosSlot, "clientSlot", clientSlot)
+	}
+
+	// We now explicitly define BOTH the VirtualSlotNumber (local) and RemoteSlotNumber (client)
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VirtualSCSIServerAdapter:VirtualSCSIServerAdapter xmlns:VirtualSCSIServerAdapter="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" xmlns="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" schemaVersion="V1_0">
+    <Metadata><Atom/></Metadata>
+    <AdapterType>Server</AdapterType>
+    <VirtualSlotNumber>%d</VirtualSlotNumber>
+    <RemoteLogicalPartitionID>%d</RemoteLogicalPartitionID>
+    <RemoteSlotNumber>%d</RemoteSlotNumber>
+</VirtualSCSIServerAdapter:VirtualSCSIServerAdapter>`, viosSlot, clientLparID, clientSlot)
+
+	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualSCSIServerAdapter")
+	httpReq.Header.Set("Accept", "application/atom+xml")
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("vSCSI Server Adapter creation failed (%s): %s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract the new UUID
+	atomID := doc.FindElement("//AtomID")
+	if atomID == nil {
+		return "", fmt.Errorf("adapter created but failed to extract new UUID")
+	}
+
+	if debug {
+		c.Logger.Info("Successfully created Virtual SCSI Server Adapter", "uuid", atomID.Text(), "viosSlot", viosSlot, "clientSlot", clientSlot)
+	}
+
+	return atomID.Text(), nil
 }

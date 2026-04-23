@@ -109,6 +109,7 @@ func (c *HmcRestClient) FetchJobResponse(jobID string, debug bool) (*JobResponse
 //   - RUNNING: Job is executing (continues polling)
 //
 // Parameters:
+//   - ctx: Context for cancellation support
 //   - jobID: The job identifier to monitor
 //   - template: If true, uses template API endpoint; if false, uses UOM endpoint
 //   - timeoutInMin: Maximum time to wait for job completion (in minutes)
@@ -119,7 +120,7 @@ func (c *HmcRestClient) FetchJobResponse(jobID string, debug bool) (*JobResponse
 //   - error: Error if job fails, is canceled, or times out
 //
 // Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-job-status
-func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin int, debug bool) (*JobResponse, error) {
+func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, template bool, timeoutInMin int, debug bool) (*JobResponse, error) {
 	// Construct URL based on template flag
 	var url string
 	if template {
@@ -143,7 +144,21 @@ func (c *HmcRestClient) FetchJobStatus(jobID string, template bool, timeoutInMin
 	
 	for i := 0; i < maxChecks; i++ {
 		if i > 0 {
-			time.Sleep(checkInterval)
+			// Use select to allow context cancellation during sleep
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("job monitoring canceled: %w", ctx.Err())
+			case <-time.After(checkInterval):
+				// Continue to next iteration
+			}
+		}
+		
+		// Check for context cancellation before making request
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("job monitoring canceled: %w", ctx.Err())
+		default:
+			// Continue with request
 		}
 		// Create and configure HTTP request
 		req, err := http.NewRequest("GET", url, nil)

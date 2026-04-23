@@ -469,7 +469,7 @@ func (c *HmcRestClient) SaveCurrentLparConfig(lparUUID, profileName string, forc
 	}
 
 	// 8. Wait for the background job to finish
-	_, err = c.FetchJobStatus(jobID, false, 5, debug)
+	_, err = c.FetchJobStatus(context.Background(), jobID, false, 5, debug)
 	if err != nil {
 		return fmt.Errorf("failed during SaveCurrentConfig job execution: %v", err)
 	}

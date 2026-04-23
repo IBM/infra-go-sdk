@@ -14,7 +14,7 @@ import (
 )
 
 // PowerOnPartition powers on a logical partition using options struct.
-func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOptions, debug bool) (string, error) {
+func (c *HmcRestClient) PowerOnPartition(ctx context.Context, lparUUID string, options *PowerOnOptions, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOn", c.hmcIP, lparUUID)
 
 	if debug {
@@ -158,7 +158,7 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 		}
 	}
 
-	jobResp, err := c.FetchJobStatus(jobID, false, timeout, debug)
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, timeout, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -167,7 +167,7 @@ func (c *HmcRestClient) PowerOnPartition(lparUUID string, options *PowerOnOption
 }
 
 // PowerOffPartition powers off a logical partition directly by its UUID and returns the job status string.
-func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, restart bool, debug bool) (string, error) {
+func (c *HmcRestClient) PowerOffPartition(ctx context.Context, lparUUID, shutdownOption string, restart bool, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOff", c.hmcIP, lparUUID)
 	if debug {
 		c.Logger.Debug("Powering off partition", "partitionUUID", lparUUID, "url", url)
@@ -273,7 +273,7 @@ func (c *HmcRestClient) PowerOffPartition(lparUUID, shutdownOption string, resta
 	jobID := jobIDElem.Text()
 
 	// Monitor the background job for completion
-	jobResp, err := c.FetchJobStatus(jobID, false, 10, debug)
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, 10, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -994,7 +994,7 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 	if err == nil {
 		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
 			if debug { c.Logger.Info("I/O Batch job triggered", "jobID", jobIDElem.Text()) }
-			c.FetchJobStatus(jobIDElem.Text(), false, 10, debug)
+			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
 		}
 	}
 
@@ -1473,4 +1473,88 @@ func (c *HmcRestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, de
 	}
 
 	return adapters, nil
+}
+// SetPartitionBootString updates the LPAR's PendingBootString (e.g., "cd/dvd-all") 
+// to force a specific boot device priority on the next power-on.
+func (c *HmcRestClient) SetPartitionBootString(lparUUID, bootString string, debug bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+
+	if debug {
+		c.Logger.Debug("Setting partition boot string", "lparUUID", lparUUID, "bootString", bootString)
+	}
+
+	// 1. Raw GET - Fetch pristine LPAR XML to preserve namespaces and attributes
+	getReq, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	getReq.Header.Set("X-API-Session", c.session)
+	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	c.logRawTraffic("REQUEST (GET)", url, "")
+
+	getResp, err := c.client.Do(getReq)
+	if err != nil {
+		return err
+	}
+	defer getResp.Body.Close()
+
+	rawXML, _ := io.ReadAll(getResp.Body)
+	c.logRawTraffic("RESPONSE", url, string(rawXML))
+
+	if getResp.StatusCode != 200 {
+		return fmt.Errorf("GET failed: %s", string(rawXML))
+	}
+
+	// 2. Load the pristine XML into etree
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(rawXML); err != nil {
+		return fmt.Errorf("failed to parse pristine XML: %v", err)
+	}
+
+	lparElem := doc.FindElement(".//*[local-name()='LogicalPartition']")
+	if lparElem == nil {
+		return fmt.Errorf("LogicalPartition element not found in response")
+	}
+
+	// 3. Find or create BootListInformation block
+	bootListInfo := lparElem.FindElement(".//*[local-name()='BootListInformation']")
+	if bootListInfo == nil {
+		bootListInfo = lparElem.CreateElement("BootListInformation")
+	}
+
+	// 4. Find or create PendingBootString and inject our target string
+	pendingBootStr := bootListInfo.FindElement(".//*[local-name()='PendingBootString']")
+	if pendingBootStr == nil {
+		pendingBootStr = bootListInfo.CreateElement("PendingBootString")
+	}
+	pendingBootStr.SetText(bootString)
+
+	// 5. Extract the modified document to POST
+	postDoc := etree.NewDocument()
+	postDoc.SetRoot(lparElem.Copy())
+	postXML, _ := postDoc.WriteToString()
+
+	// 6. Execute POST
+	postReq, _ := http.NewRequest("POST", url, strings.NewReader(postXML))
+	postReq.Header.Set("X-API-Session", c.session)
+	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+	postReq.Header.Set("Accept", "application/atom+xml")
+
+	c.logRawTraffic("REQUEST (POST)", url, postXML)
+
+	postResp, err := c.client.Do(postReq)
+	if err != nil {
+		return err
+	}
+	defer postResp.Body.Close()
+
+	body, _ := io.ReadAll(postResp.Body)
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if postResp.StatusCode >= 400 {
+		return fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
+	}
+
+	return nil
 }

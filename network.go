@@ -373,7 +373,7 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, debu
 	}
 
 	// Wait for job completion
-	jobResp, err := c.FetchJobStatus(jobID, false, 5, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, false, 5, debug)
 	if err != nil {
 		return nil, fmt.Errorf("GetNetworkBootDevices job failed: %v", err)
 	}

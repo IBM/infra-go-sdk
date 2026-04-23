@@ -986,8 +986,8 @@ func MountNFS(restClient *HmcRestClient, sysName, viosName, nfsServer, exportPat
 	// Syntax: mount [-nfsvers version] Node:Directory Directory
 	var cmd string
 	if options != "" {
-		cmd = fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mount -nfsvers %s %s:%s %s"`,
-			sysName, viosName, options, nfsServer, exportPath, mountPoint)
+		cmd = fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mount %s:%s %s"`,
+			sysName, viosName, nfsServer, exportPath, mountPoint)
 	} else {
 		cmd = fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mount %s:%s %s"`,
 			sysName, viosName, nfsServer, exportPath, mountPoint)

@@ -2,6 +2,8 @@ package hmc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -580,17 +582,21 @@ func (c *HmcRestClient) CliRunner(cmdString string, debug bool) (string, error) 
 		}
 		
 		// 5. Wait for job completion and capture the resulting document
-		jobResp, err := c.FetchJobStatus(jobID, false, 10, debug)
+		jobResp, err := c.FetchJobStatus(context.Background(), jobID, false, 10, debug)
 		if err != nil {
 			return "", fmt.Errorf("CLIRunner job failed: %v", err)
 		}
 
 		// 6. Extract the stdout from the Job Results parameters
 		if jobResp != nil {
-			// Get stdout from results
 			for _, param := range jobResp.Results.Parameters {
-				if param.ParameterName == "stdout" {
-					cmdOutput = param.ParameterValue
+				// FIX: Support both "stdout" and "result" parameter names to handle HMC firmware variations
+				if param.ParameterName == "stdout" || param.ParameterName == "result" {
+					if cmdOutput == "" {
+						cmdOutput = param.ParameterValue
+					} else {
+						cmdOutput += "\n" + param.ParameterValue
+					}
 				} else if param.ParameterName == "stderr" && param.ParameterValue != "" && debug {
 					c.Logger.Warn("CLIRunner stderr output", "stderr", param.ParameterValue)
 				}
@@ -605,4 +611,138 @@ func (c *HmcRestClient) CliRunner(cmdString string, debug bool) (string, error) 
 	}
 
 	return cmdOutput, nil
+}
+
+// generateVIOSAdminPassword creates a deterministic password based on HMC IP
+// This ensures the same password is used across all PowerShift invocations
+func (c *HmcRestClient) generateVIOSAdminPassword() string {
+	salt := "PowerShift-VIOS-Admin-2026"
+	data := c.hmcIP + salt
+	
+	hash := sha256.Sum256([]byte(data))
+	// Convert to base64 and take first 20 characters
+	password := base64.StdEncoding.EncodeToString(hash[:])[:20]
+	
+	// Add special characters to meet HMC password requirements
+	return password + "!Ps"
+}
+
+// GetVIOSAdminCredentials returns the viosadmin credentials
+// Assumes viosadmin user already exists on HMC
+func (c *HmcRestClient) GetVIOSAdminCredentials() (username, password string) {
+	return "viosadmin", c.generateVIOSAdminPassword()
+}
+
+// CheckVIOSAdminUser checks if viosadmin user exists on HMC
+// Returns true if user exists, false otherwise
+func (c *HmcRestClient) CheckVIOSAdminUser(hmcUsername, hmcPassword string, debug bool) (bool, error) {
+	// Use lshmcusr with --filter to check if viosadmin exists
+	// Format: lshmcusr --filter "names=viosadmin"
+	cmd := `lshmcusr --filter "names=viosadmin"`
+	
+	if debug {
+		c.Logger.Debug("Checking if viosadmin user exists on HMC")
+	}
+	
+	output, err := CliRunnerViaSsh(c.hmcIP, hmcUsername, hmcPassword, cmd, debug)
+	if err != nil {
+		// If lshmcusr fails, return error
+		if debug {
+			c.Logger.Debug("Failed to check viosadmin user", "error", err)
+		}
+		return false, fmt.Errorf("lshmcusr command failed: %w", err)
+	}
+	
+	// If output contains "name=viosadmin", user exists
+	if strings.Contains(output, "name=viosadmin") {
+		if debug {
+			c.Logger.Debug("viosadmin user exists on HMC")
+		}
+		return true, nil
+	}
+	
+	// Empty output means user doesn't exist
+	if debug {
+		c.Logger.Debug("viosadmin user does not exist")
+	}
+	return false, nil
+}
+
+// EnsureVIOSAdminUser checks if viosadmin user exists, creates it if not
+// Returns the username, password, and whether the user was created (true) or already existed (false)
+func (c *HmcRestClient) EnsureVIOSAdminUser(hmcUsername, hmcPassword string, debug bool) (username, password string, created bool, err error) {
+	username, password = c.GetVIOSAdminCredentials()
+	
+	// Check if user already exists
+	exists, err := c.CheckVIOSAdminUser(hmcUsername, hmcPassword, debug)
+	if err != nil {
+		return "", "", false, fmt.Errorf("failed to check viosadmin user: %w", err)
+	}
+	
+	if exists {
+		if debug {
+			c.Logger.Info("viosadmin user already exists, using existing credentials")
+		}
+		return username, password, false, nil
+	}
+	
+	// User doesn't exist, create it with proper VIOS admin privileges
+	c.Logger.Info("Creating viosadmin user on HMC with VIOS admin role")
+	
+	// Step 1: Create custom VIOS_Admin role with ViosAdminOp permission
+	// This role is cloned from hmcsuperadmin but includes ViosAdminOp permission
+	roleCmd := `mkaccfg -t taskrole -i 'name=VIOS_Admin,parent=hmcsuperadmin,"resources=lpar:ViosAdminOp"'`
+	
+	if debug {
+		c.Logger.Debug("Creating VIOS_Admin role")
+	}
+	
+	_, err = CliRunnerViaSsh(c.hmcIP, hmcUsername, hmcPassword, roleCmd, debug)
+	if err != nil {
+		// Role might already exist, log warning but continue
+		if debug {
+			c.Logger.Debug("VIOS_Admin role creation failed (may already exist)", "error", err)
+		}
+	}
+	
+	// Step 2: Create viosadmin user with VIOS_Admin role
+	createCmd := fmt.Sprintf(`mkhmcusr -u %s -a VIOS_Admin --passwd %s`, username, password)
+	
+	if debug {
+		c.Logger.Debug("Creating viosadmin user with VIOS_Admin role", "username", username)
+	}
+	
+	_, err = CliRunnerViaSsh(c.hmcIP, hmcUsername, hmcPassword, createCmd, debug)
+	if err != nil {
+		return "", "", false, fmt.Errorf("failed to create viosadmin user: %w", err)
+	}
+	
+	c.Logger.Info("✓ Successfully created viosadmin user on HMC with VIOS admin privileges", "username", username)
+	
+	return username, password, true, nil
+}
+
+// RunVIOSCommandAsAdmin executes a viosvrcmd with --admin flag using viosadmin credentials
+// Uses SSH to authenticate as viosadmin user
+func (c *HmcRestClient) RunVIOSCommandAsAdmin(systemName, viosName, command string, debug bool) (string, error) {
+	viosAdminUser, viosAdminPass := c.GetVIOSAdminCredentials()
+	
+	// Build the full viosvrcmd command with --admin flag
+	viosCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "%s" --admin`,
+		systemName, viosName, command)
+	
+	// Use sshpass to execute command as viosadmin
+	sshCmd := fmt.Sprintf(`sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null %s@%s '%s'`,
+		viosAdminPass, viosAdminUser, c.hmcIP, viosCmd)
+	
+	if debug {
+		c.Logger.Debug("Executing viosvrcmd as viosadmin",
+			"user", viosAdminUser,
+			"system", systemName,
+			"vios", viosName,
+			"command", command)
+	}
+	
+	// Execute via CliRunner (which will run the SSH command)
+	return c.CliRunner(sshCmd, debug)
 }
