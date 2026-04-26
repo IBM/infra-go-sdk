@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
@@ -25,6 +27,8 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	
 	flag.Parse()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 
 	// Validation
 	if *password == "" || *sysName == "" || *lparName == "" {
@@ -101,7 +105,7 @@ func main() {
 	if *verbose {
 		fmt.Println("Initiating Power Off...")
 	}
-	status, err := restClient.PowerOffPartition(partUUID, *shutdownOpt, *restart, *verbose)
+	status, err := restClient.PowerOffPartition(ctx,partUUID, *shutdownOpt, *restart, *verbose)
 	if err != nil {
 		if *verbose {
 			log.Fatalf("Failed to power off partition: %v", err)

@@ -1124,6 +1124,7 @@ type ManagedSystemDetailed struct {
 	ManufacturingDefaultConfigurationEnabled bool                                `xml:"ManufacturingDefaultConfigurationEnabled"`
 	MaximumPartitions                        float64                                 `xml:"MaximumPartitions"`
 	MaximumPowerControlPartitions            float64                                 `xml:"MaximumPowerControlPartitions"`
+	SRIOVAdapters                            []SRIOVAdapter                      `xml:"SRIOVAdapters>IOAdapterChoice>SRIOVAdapter"`
 	MaximumRemoteRestartPartitions           int                                 `xml:"MaximumRemoteRestartPartitions"`
 	MaximumSharedProcessorCapablePartitionID int                                 `xml:"MaximumSharedProcessorCapablePartitionID"`
 	MaximumSuspendablePartitions             int                                 `xml:"MaximumSuspendablePartitions"`
@@ -1309,6 +1310,7 @@ type SystemIOConfiguration struct {
 	IOAdapters          []IOAdapterXML            `xml:"IOAdapters>IOAdapterChoice>IOAdapter"`
 	IOBuses             []IOBusXML                `xml:"IOBuses>IOBus"`
 	VirtualNetwork      SystemVirtualNetworkConfig `xml:"AssociatedSystemVirtualNetwork"`
+	SRIOVAdapters   []SRIOVAdapter             `xml:"SRIOVAdapters>IOAdapterChoice>SRIOVAdapter"`
 }
 
 type SystemVirtualNetworkConfig struct {
@@ -1551,6 +1553,62 @@ type SystemPersistentMemoryConfiguration struct {
 	SupportedPersistentMemoryDeviceTypes    string `xml:"SupportedPersistentMemoryDeviceTypes"`
 }
 // =====================================================================
+// SR-IOV AND VIRTUAL NIC STRUCTURES
+// =====================================================================
+
+// SRIOVPhysicalPort represents an individual ethernet port on an SR-IOV adapter.
+// These only appear in the XML if the SR-IOV adapter is configured in "Shared" mode.
+type SRIOVPhysicalPort struct {
+	LocationCode        string `xml:"LocationCode"`
+	ConfiguredLinkSpeed string `xml:"ConfiguredLinkSpeed"`
+	HardwareLinkSpeed   string `xml:"HardwareLinkSpeed"`
+	PortCapacity        string `xml:"PortCapacity"` 
+	PortID              string `xml:"PortID"`
+}
+
+// SRIOVAdapter represents a Single Root I/O Virtualization adapter on the Managed System.
+type SRIOVAdapter struct {
+	AdapterID     string              `xml:"AdapterID"`
+	LocationCode  string              `xml:"PhysicalLocation"`
+	AdapterMode   string              `xml:"AdapterMode"`  
+	AdapterState  string              `xml:"AdapterState"` 
+	IsFunctional  string              `xml:"IsFunctional"` 
+	Description   string              `xml:"Description"`
+	
+	// ✨ Here is the slice linking to the struct above! ✨
+	// Go will use the ">" syntax to step through the wrapper tag automatically.
+	PhysicalPorts []SRIOVPhysicalPort `xml:"SRIOVEthernetPhysicalPorts>SRIOVEthernetPhysicalPort"`
+}
+
+// SRIOVLogicalPortRequest represents the payload required to provision an SR-IOV port.
+// ⚠️ WARNING: IBM HMC schema strictly enforces the exact sequence defined in their XSD.
+// The order below matches the precise schema sequence expected by the HMC.
+type SRIOVLogicalPortRequest struct {
+	XMLName                      xml.Name `xml:"SRIOVEthernetLogicalPort"`
+	SchemaVersion                string   `xml:"schemaVersion,attr"`
+	XMLNS                        string   `xml:"xmlns,attr"`
+
+	// --- STRICT SCHEMA SEQUENCE ORDER ---
+	AdapterID                    string   `xml:"AdapterID"`
+	IsPromiscous                 *string  `xml:"IsPromiscous,omitempty"` // Note IBM's spelling
+	ConfiguredCapacity           *string  `xml:"ConfiguredCapacity,omitempty"`
+	PhysicalPortID               string   `xml:"PhysicalPortID"`
+	PortVLANID                   *string  `xml:"PortVLANID,omitempty"`
+	AllowedMACAddresses          *string  `xml:"AllowedMACAddresses,omitempty"`
+	IEEE8021QAllowablePriorities *string  `xml:"IEEE8021QAllowablePriorities,omitempty"`
+	AllowedVLANs                 *string  `xml:"AllowedVLANs,omitempty"`
+}
+// SRIOVPortCreateOptions holds the advanced parameters for provisioning an SR-IOV Logical Port.
+// These map directly to the advanced configuration GUI in the HMC.
+type SRIOVPortCreateOptions struct {
+	Capacity               string // e.g., "2.0%"
+	PortVLANID             string // Default is usually "0"
+	IsPromiscuous          bool   // true = On, false = Off
+	AllowedMACAddresses    string // "ALL", "NONE", or specify (e.g., "1607984ec203")
+	AllowedVLANs           string // "ALL", "NONE", or specify (e.g., "1,2,100")
+	Allowed8021QPriorities string // "ALL", "NONE", or specify (e.g., "0,1,2")
+}
+// =====================================================================
 // EXHAUSTIVE LOGICAL PARTITION XML STRUCTURES
 // =====================================================================
 
@@ -1614,6 +1672,8 @@ type LogicalPartitionDetailed struct {
 	VirtualSCSIClientAdapters         []LinkXML `xml:"VirtualSCSIClientAdapters>link"`
 	AssociatedTrunkAdapters           []LinkXML `xml:"AssociatedTrunkAdapters>link"`
 	DedicatedVirtualNICs              []LinkXML `xml:"DedicatedVirtualNICs>link"`
+	SRIOVEthernetLogicalPorts         []LinkXML `xml:"SRIOVEthernetLogicalPorts>link"`
+	SRIOVRoCELogicalPorts             []LinkXML `xml:"SRIOVRoCELogicalPorts>link"`
 	SharedVirtualNICs                 []LinkXML `xml:"SharedVirtualNICs>link"`
 	// ------------------------------
 
@@ -1768,6 +1828,32 @@ type VirtualFibreChannelClientAdapter struct {
 	WWPNs                               string   `xml:"WWPNs"`
 }
 
+// VirtualNICDedicated represents a Virtual NIC explicitly backed by an SR-IOV Logical Port.
+type VirtualNICDedicated struct {
+	XMLName           xml.Name `xml:"VirtualNICDedicated"`
+	UUID              string   `xml:"Metadata>Atom>AtomID"`
+	LocationCode      string   `xml:"LocationCode"`
+	MACAddress        string   `xml:"MACAddress"`
+	VirtualSlotNumber string   `xml:"VirtualSlotNumber"`
+	Capacity          string   `xml:"Capacity"` // Percentage of backing port bandwidth
+	VariedOn          string   `xml:"VariedOn"`
+	
+	// This links the vNIC to the actual SR-IOV Logical Port on the Managed System
+	BackingLogicalPort LinkXML `xml:"BackingLogicalPort>link"`
+}
+// SRIOVLogicalPort represents an SR-IOV Ethernet Logical Port assigned to an LPAR.
+type SRIOVLogicalPort struct {
+	UUID               string `xml:"Metadata>Atom>AtomID"`
+	ConfigurationID    string `xml:"ConfigurationID"`
+	AdapterID          string `xml:"AdapterID"`
+	LogicalPortID      string `xml:"LogicalPortID"`
+	PhysicalPortID     string `xml:"PhysicalPortID"`
+	ConfiguredCapacity string `xml:"ConfiguredCapacity"` // Usually a percentage, e.g., "2.0"
+	PortVLANID         string `xml:"PortVLANID"`
+	LocationCode       string `xml:"LocationCode"`
+	IsPromiscuous      bool   `xml:"IsPromiscous"`       // Note IBM's spelling "IsPromiscous" without the 'u'
+	IsFunctional       bool   `xml:"IsFunctional"`
+}
 
 // =====================================================================
 // JOB RESPONSE STRUCTURES

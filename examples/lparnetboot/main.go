@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
 )
@@ -29,7 +31,8 @@ func main() {
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
-
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 	if *password == "" || *sysName == "" || *lparName == "" || *macAddr == "" {
 		log.Fatal("❌ Error: hmc-pass, system-name, lpar-name, and mac are required.")
 	}
@@ -111,7 +114,7 @@ func main() {
 		Netmask:      *netmask,
 	}
 	
-	status, err := restClient.PowerOnPartition(partUUID, options, *verbose)
+	status, err := restClient.PowerOnPartition(ctx,partUUID, options, *verbose)
 
 	if err != nil {
 		log.Fatalf("❌ Failed to network boot partition: %v", err)

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
@@ -34,6 +36,8 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 	log.Println("=========================================================================")
 	log.Println(" 🚀 Starting Native PowerVM Provisioning (LPAR & Virtual Disks)")
 	log.Println("=========================================================================")
@@ -232,7 +236,7 @@ func main() {
 		OSType:      *osType,
 	}
 	
-	_, err = restClient.PowerOnPartition(finalLparUUID, options, *verbose)
+	_, err = restClient.PowerOnPartition(ctx,finalLparUUID, options, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}

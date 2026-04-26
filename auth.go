@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -90,51 +91,67 @@ func (c *HmcRestClient) Login(username, password string, debug bool) error {
 
 // Logoff performs the logoff operation from the HMC REST API
 func (c *HmcRestClient) Logoff() error {
-	if c.session == "" {
-		c.Logger.Debug("No active session to log off")
-		return nil // No session to log off
-	}
-	
-	url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
-	
-	c.Logger.Debug("Sending logoff request", "url", url)
-	
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		c.Logger.Error("Request creation failed", "error", err)
-		return fmt.Errorf("request creation failed: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
-	req.Header.Set("Authorization", "Basic Og==")
-	req.Header.Set("X-API-Session", c.session)
+    if c.session == "" {
+        c.Logger.Debug("No active session to log off")
+        return nil // No session to log off
+    }
+    
+    url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
+    
+    c.Logger.Debug("Sending logoff request", "url", url)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
+    // ✨ THE FIX #1: Flush stale keep-alive connections ✨
+    // Long-running scripts cause the HMC to silently drop the TCP connection.
+    // This forces Go to establish a fresh connection for the Logoff command.
+    c.client.CloseIdleConnections()
+    
+    req, err := http.NewRequest("DELETE", url, nil)
+    if err != nil {
+        c.Logger.Error("Request creation failed", "error", err)
+        return fmt.Errorf("request creation failed: %v", err)
+    }
+    req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
+    req.Header.Set("Authorization", "Basic Og==")
+    req.Header.Set("X-API-Session", c.session)
 
-	c.logRawTraffic("REQUEST (DELETE)", url, "")
+    // ✨ THE FIX #2: Tell Go not to reuse this connection ✨
+    req.Close = true
 
-	resp, err := c.client.Do(req)
-	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
-		return fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
+    ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+    defer cancel()
+    req = req.WithContext(ctx)
 
-	body, err := io.ReadAll(resp.Body)
-	if err == nil {
-		c.logRawTraffic("RESPONSE", url, string(body))
-	}
+    c.logRawTraffic("REQUEST (DELETE)", url, "")
 
-	c.Logger.Debug("Logoff response received", "status", resp.Status, "code", resp.StatusCode)
+    resp, err := c.client.Do(req)
+    if err != nil {
+        // ✨ THE FIX #3: Graceful EOF Handling ✨
+        // If the HMC aggressively killed the session while we were waiting, ignore it.
+        if strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "connection reset by peer") {
+            c.Logger.Debug("Ignored EOF during logoff (session already terminated by HMC).")
+            c.session = "" // Clear local session state
+            return nil
+        }
+        
+        c.Logger.Error("HTTP request failed", "error", err)
+        return fmt.Errorf("HTTP request failed: %v", err)
+    }
+    defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		c.Logger.Error("Logoff failed", "status", resp.Status)
-		return fmt.Errorf("logoff failed with status: %s", resp.Status)
-	}
-	
-	c.session = ""
-	c.Logger.Info("Successfully logged off from HMC")
-	
-	return nil
+    body, err := io.ReadAll(resp.Body)
+    if err == nil {
+        c.logRawTraffic("RESPONSE", url, string(body))
+    }
+
+    c.Logger.Debug("Logoff response received", "status", resp.Status, "code", resp.StatusCode)
+
+    if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+        c.Logger.Error("Logoff failed", "status", resp.Status)
+        return fmt.Errorf("logoff failed with status: %s", resp.Status)
+    }
+    
+    c.session = ""
+    c.Logger.Info("Successfully logged off from HMC")
+    
+    return nil
 }

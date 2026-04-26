@@ -1203,3 +1203,20 @@ func (c *HmcRestClient) GetActiveVIOSServers(systemUUID string, viosUUIDs []stri
 	
 	return activeVIOSServers, nil
 }
+// deduplicateAndClean trims whitespace and removes duplicates from a slice of strings.
+// It uses case-insensitive matching for deduplication but preserves the original casing of the first matched item.
+func deduplicateAndClean(inputs []string) []string {
+	var unique []string
+	seen := make(map[string]bool)
+
+	for _, item := range inputs {
+		cleanItem := strings.TrimSpace(item)
+		lowerItem := strings.ToLower(cleanItem)
+		
+		if cleanItem != "" && !seen[lowerItem] {
+			seen[lowerItem] = true
+			unique = append(unique, cleanItem)
+		}
+	}
+	return unique
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -31,6 +32,8 @@ func main() {
 	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
 
 	flag.Parse()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 
 	if *verbose {
 		log.Println("======================================================")
@@ -106,7 +109,7 @@ func main() {
 		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, viosUuidMap, *verbose)
 
 		// 7. Deploy, Start, and Cleanup
-		deployAndStartPartition(restClient, systemUUID, tempUUID, tempTemplateName, configDict, *osType, *verbose)
+		deployAndStartPartition(ctx,restClient, systemUUID, tempUUID, tempTemplateName, configDict, *osType, *verbose)
 
 		if *verbose {
 			log.Println("======================================================")
@@ -502,7 +505,7 @@ func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, 
 	}
 }
 
-func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID, tempTemplateName string, configDict map[string]string, osType string, verbose bool) {
+func deployAndStartPartition(ctx context.Context,restClient *hmc.HmcRestClient, systemUUID, tempUUID, tempTemplateName string, configDict map[string]string, osType string, verbose bool) {
 	if verbose {
 		log.Printf("[HMC-DEPLOY] Transforming Partition Template (UUID: %s) for System Deployment...", tempUUID)
 	}
@@ -558,7 +561,7 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 		OSType:      osType,
 	}
 	
-	if _, err := restClient.PowerOnPartition(partUUID, options, verbose); err != nil {
+	if _, err := restClient.PowerOnPartition(ctx,partUUID, options, verbose); err != nil {
 		log.Fatalf("[HMC-DEPLOY] Failed to PowerOn Partition: %v", err)
 	}
 	if verbose {
@@ -580,7 +583,7 @@ func deployAndStartPartition(restClient *hmc.HmcRestClient, systemUUID, tempUUID
 	if verbose {
 		log.Printf("[HMC-DEPLOY] Triggering 'Immediate' PowerOff/Restart on LPAR...")
 	}
-	if _, err := restClient.PowerOffPartition(partUUID, "Immediate", true, verbose); err != nil {
+	if _, err := restClient.PowerOffPartition(ctx,partUUID, "Immediate", true, verbose); err != nil {
 		log.Fatalf("[HMC-DEPLOY] Failed to Restart Partition: %v", err)
 	}
 }

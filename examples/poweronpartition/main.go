@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go"
 )
@@ -34,6 +36,8 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 
 	// Validation
 	if *password == "" || *sysName == "" || *lparName == "" {
@@ -156,7 +160,7 @@ func main() {
 		Netmask:      *netmask,
 	}
 	
-	status, err := restClient.PowerOnPartition(partUUID, options, *verbose)
+	status, err := restClient.PowerOnPartition(ctx,partUUID, options, *verbose)
 	
 	if err != nil {
 		log.Fatalf("❌ Power On failed: %v", err)

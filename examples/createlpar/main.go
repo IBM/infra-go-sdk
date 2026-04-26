@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -49,6 +50,9 @@ func main() {
 
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 
 	// Parse storage types
 	storageTypesMap := parseStorageTypes(*storageTypes)
@@ -384,7 +388,7 @@ func main() {
 	// Map Physical Disk (if provisioned)
 	if usePhysical {
 		log.Printf("[HMC] Attaching Physical Disk '%s' to LPAR '%s'...", physicalStorage.diskName, *lparName)
-		mappingUUID1, err := restClient.CreatePhysicalVolumeMap(sysUUID, physicalStorage.selectedViosUUID, lparUUID, []string{physicalStorage.diskName}, *verbose)
+		mappingUUID1, err := restClient.CreatePhysicalVolumeMaps(sysUUID, physicalStorage.selectedViosUUID, lparUUID, []string{physicalStorage.diskName}, *verbose)
 		if err != nil {
 			log.Fatalf("[HMC] Physical Storage Mapping Failed: %v", err)
 		}
@@ -477,8 +481,7 @@ func main() {
 		Keylock:     "normal",
 		OSType:      *osType,
 	}
-	
-	_, err = restClient.PowerOnPartition(lparUUID, options, *verbose)
+	_, err = restClient.PowerOnPartition(ctx,lparUUID, options, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}

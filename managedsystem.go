@@ -746,3 +746,46 @@ func (c *HmcRestClient) RunVIOSCommandAsAdmin(systemName, viosName, command stri
 	// Execute via CliRunner (which will run the SSH command)
 	return c.CliRunner(sshCmd, debug)
 }
+// GetSRIOVAdapters fetches the detailed Managed System configuration and extracts all SR-IOV adapters.
+// It bypasses the IBM Atom <entry> wrapper and unmarshals natively into ManagedSystemDetailed.
+func (c *HmcRestClient) GetSRIOVAdapters(sysUUID string, debug bool) ([]SRIOVAdapter, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, sysUUID)
+
+	if debug {
+		c.Logger.Debug("Fetching Managed System to extract SR-IOV Adapters", "sysUUID", sysUUID)
+	}
+
+	// 1. Fetch and strip namespaces into an etree Document
+	doc, err := c.fetchAndParseHMCXML(url, debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Managed System configuration: %v", err)
+	}
+
+	// 2. ✨ THE FIX: Bypass the <entry><content> wrapper and target the actual payload
+	sysElem := doc.FindElement("//ManagedSystem")
+	if sysElem == nil {
+		return nil, fmt.Errorf("ManagedSystem element not found in HMC response")
+	}
+
+	// 3. Convert only the ManagedSystem block back to bytes
+	tempDoc := etree.NewDocument()
+	tempDoc.SetRoot(sysElem.Copy())
+	sysBytes, _ := tempDoc.WriteToBytes()
+
+	// 4. Safely Unmarshal into your comprehensive struct
+	var sysDetailed ManagedSystemDetailed
+	if err := xml.Unmarshal(sysBytes, &sysDetailed); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Managed System XML: %v", err)
+	}
+
+	if debug {
+		c.Logger.Debug("Successfully extracted SR-IOV Adapters", "sysUUID", sysUUID, "count", len(sysDetailed.SRIOVAdapters))
+	}
+
+	if debug {
+		c.Logger.Debug("Successfully extracted SR-IOV Adapters", "sysUUID", sysUUID, "count", len(sysDetailed.IOConfig.SRIOVAdapters))
+	}
+
+	// 4. Return from the nested IOConfig!
+	return sysDetailed.IOConfig.SRIOVAdapters, nil
+}

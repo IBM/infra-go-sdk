@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -36,7 +37,8 @@ func main() {
 
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
-
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 	// Derive volume name from LPAR name
 	volumeName := fmt.Sprintf("%s_boot_vol", strings.ReplaceAll(*lparName, " ", "_"))
 
@@ -267,7 +269,7 @@ func main() {
 	log.Printf("[HMC] ✅ Matched SVC LUN to VIOS Disk: %s", diskName)
 
 	log.Printf("[HMC] Attaching '%s' to LPAR '%s'...", diskName, *lparName)
-	mappingUUID, err := restClient.CreatePhysicalVolumeMap(sysUUID, viosUUID, lparUUID, []string{diskName}, *verbose)
+	mappingUUID, err := restClient.CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID, []string{diskName}, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Storage Mapping Failed: %v", err)
 	}
@@ -316,8 +318,7 @@ func main() {
 		Keylock:     "normal",
 		OSType:      *osType,
 	}
-	
-	_, err = restClient.PowerOnPartition(lparUUID, options, *verbose)
+	_, err = restClient.PowerOnPartition(ctx,lparUUID, options, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}

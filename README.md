@@ -186,8 +186,8 @@ The `examples/` directory contains comprehensive examples for various operations
 
 ### Network Operations
 
-- [`createclientnetadaptor/`](examples/createclientnetadaptor/) - Create network adapter
-- [`deleteclientnetadaptor/`](examples/deleteclientnetadaptor/) - Delete network adapter
+- [`createclientnetadapter/`](examples/createclientnetadapter/) - Create network adapter
+- [`deleteclientnetadapter/`](examples/deleteclientnetadapter/) - Delete network adapter
 - [`getvirtualswitch/`](examples/getvirtualswitch/) - Get virtual switch details
 
 ### Query Operations

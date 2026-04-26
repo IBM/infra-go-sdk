@@ -1,6 +1,7 @@
 package hmc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -1557,4 +1558,287 @@ func (c *HmcRestClient) SetPartitionBootString(lparUUID, bootString string, debu
 	}
 
 	return nil
+}
+
+// GetDedicatedVirtualNICs fetches the detailed configurations of all Dedicated vNICs attached to an LPAR.
+func (c *HmcRestClient) GetDedicatedVirtualNICs(lparUUID string, debug bool) ([]VirtualNICDedicated, error) {
+	// Query the Dedicated Virtual NIC child collection
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualNICDedicated", c.hmcIP, lparUUID)
+
+	if debug {
+		c.Logger.Debug("Fetching Dedicated Virtual NICs for LPAR", "lparUUID", lparUUID)
+	}
+
+	// 1. Fetch and strip namespaces into an etree Document
+	doc, err := c.fetchAndParseHMCXML(url, debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch VirtualNICDedicated collection: %v", err)
+	}
+
+	var vnics []VirtualNICDedicated
+
+	// 2. Bypass the Atom <feed> and <entry> wrappers, slice out the actual vNIC elements
+	vnicElements := doc.FindElements("//VirtualNICDedicated")
+	
+	for _, vnicElem := range vnicElements {
+		tempDoc := etree.NewDocument()
+		tempDoc.SetRoot(vnicElem.Copy())
+		vnicBytes, _ := tempDoc.WriteToBytes()
+
+		var vnicInfo VirtualNICDedicated
+		if err := xml.Unmarshal(vnicBytes, &vnicInfo); err != nil {
+			if debug {
+				c.Logger.Warn("Failed to unmarshal VirtualNICDedicated XML", "error", err)
+			}
+			continue
+		}
+
+		vnics = append(vnics, vnicInfo)
+	}
+
+	if debug {
+		c.Logger.Debug("Successfully extracted Dedicated Virtual NICs", "lparUUID", lparUUID, "count", len(vnics))
+	}
+
+	return vnics, nil
+}
+// GetSRIOVLogicalPorts fetches all SR-IOV Ethernet Logical Ports provisioned to a specific Logical Partition.
+func (c *HmcRestClient) GetSRIOVLogicalPorts(lparUUID string, debug bool) ([]SRIOVLogicalPort, error) {
+	// Query the child collection directly for this LPAR
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/SRIOVEthernetLogicalPort", c.hmcIP, lparUUID)
+
+	if debug {
+		c.Logger.Debug("Fetching SR-IOV Logical Ports for LPAR", "lparUUID", lparUUID)
+	}
+
+	// 1. Fetch and strip namespaces into an etree Document
+	doc, err := c.fetchAndParseHMCXML(url, debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch SR-IOV Logical Ports: %v", err)
+	}
+
+	// 2. Bypass the <feed><entry> Atom wrappers and find the actual port elements
+	portElements := doc.FindElements("//SRIOVEthernetLogicalPort")
+	var logicalPorts []SRIOVLogicalPort
+
+	// 3. Unmarshal each element directly into our Go struct
+	for _, portElem := range portElements {
+		tempDoc := etree.NewDocument()
+		tempDoc.SetRoot(portElem.Copy())
+		portBytes, _ := tempDoc.WriteToBytes()
+
+		var port SRIOVLogicalPort
+		if err := xml.Unmarshal(portBytes, &port); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal SRIOVLogicalPort XML: %v", err)
+		}
+		logicalPorts = append(logicalPorts, port)
+	}
+
+	if debug {
+		c.Logger.Debug("Successfully extracted SR-IOV Logical Ports", "lparUUID", lparUUID, "count", len(logicalPorts))
+	}
+
+	return logicalPorts, nil
+}
+
+// CreateSRIOVLogicalPort provisions a new SR-IOV Ethernet Logical Port to a specific Logical Partition.
+func (c *HmcRestClient) CreateSRIOVLogicalPort(lparUUID string, adapterID string, physicalPortID string, opts SRIOVPortCreateOptions, debug bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/SRIOVEthernetLogicalPort", c.hmcIP, lparUUID)
+
+	if debug {
+		c.Logger.Debug("Provisioning SR-IOV Logical Port", "lparUUID", lparUUID, "adapterID", adapterID, "physicalPortID", physicalPortID)
+	}
+
+	// 1. Construct the base payload natively
+	reqPayload := SRIOVLogicalPortRequest{
+		SchemaVersion:  "V1_3_0",
+		XMLNS:          "http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/",
+		AdapterID:      adapterID,
+		PhysicalPortID: physicalPortID,
+	}
+
+	// 2. Apply Advanced Options
+	if opts.Capacity != "" {
+		cap := opts.Capacity
+		if !strings.HasSuffix(cap, "%") {
+			cap += "%"
+		}
+		reqPayload.ConfiguredCapacity = &cap
+	}
+
+	if opts.PortVLANID != "" {
+		reqPayload.PortVLANID = &opts.PortVLANID
+	}
+
+	// Handle IBM's boolean logic as a string
+	promiscuousStr := "false"
+	if opts.IsPromiscuous {
+		promiscuousStr = "true"
+	}
+	reqPayload.IsPromiscous = &promiscuousStr
+
+	if opts.AllowedMACAddresses != "" {
+		reqPayload.AllowedMACAddresses = &opts.AllowedMACAddresses
+	}
+
+	if opts.AllowedVLANs != "" {
+		reqPayload.AllowedVLANs = &opts.AllowedVLANs
+	}
+
+	if opts.Allowed8021QPriorities != "" {
+		reqPayload.IEEE8021QAllowablePriorities = &opts.Allowed8021QPriorities
+	}
+
+	// 3. Marshal into XML
+	payloadBytes, err := xml.MarshalIndent(reqPayload, "", "  ")
+	if err != nil {
+		return  "FAILED",fmt.Errorf("failed to marshal SR-IOV Logical Port request: %v", err)
+	}
+
+	if debug {
+		c.Logger.Debug(fmt.Sprintf("Create Payload:\n%s", string(payloadBytes)))
+	}
+
+	// 4. Execute PUT Request
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return  "FAILED",err
+	}
+
+	// Exact Header Matching
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml;type=SRIOVEthernetLogicalPort")
+	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml, */*")
+	req.Header.Set("X-API-Session", c.session)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return  "FAILED",fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "FAILED",fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// 5. Evaluate the HMC Response
+	if resp.StatusCode >= 400 {
+		return  "FAILED",fmt.Errorf("failed to create SR-IOV Logical Port (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	return "SUCCESS", nil
+}
+
+// DeleteSRIOVLogicalPorts intelligently removes one or more SR-IOV Ethernet Logical Ports.
+// It accepts a list of targets which can be either the LogicalPortID or the LocationCode.
+func (c *HmcRestClient) DeleteSRIOVLogicalPorts(lparUUID string, targets []string, debug bool) error {
+	if len(targets) == 0 {
+		return nil // Nothing to delete
+	}
+
+	if debug {
+		c.Logger.Debug("Initiating Smart Deletion for SR-IOV Logical Ports", "lparUUID", lparUUID, "targets", targets)
+	}
+
+	// 1. Fetch current ports on the LPAR so we can resolve IDs/Locations to UUIDs
+	currentPorts, err := c.GetSRIOVLogicalPorts(lparUUID, debug)
+	if err != nil {
+		return fmt.Errorf("failed to fetch current SR-IOV logical ports for resolution: %v", err)
+	}
+
+	// 2. Resolve the user's targets into actual Atom UUIDs
+	var uuidsToDelete []string
+	for _, target := range targets {
+		cleanTarget := strings.TrimSpace(target)
+		if cleanTarget == "" {
+			continue
+		}
+
+		found := false
+		for _, port := range currentPorts {
+			// Match against Logical Port ID, Location Code, OR the UUID itself
+			if strings.EqualFold(port.LogicalPortID, cleanTarget) ||
+				strings.EqualFold(port.LocationCode, cleanTarget) ||
+				strings.EqualFold(port.UUID, cleanTarget) {
+				
+				uuidsToDelete = append(uuidsToDelete, port.UUID)
+				found = true
+				if debug {
+					c.Logger.Debug("Resolved Target", "input", cleanTarget, "uuid", port.UUID)
+				}
+				break
+			}
+		}
+
+		if !found && debug {
+			c.Logger.Warn("⚠️ Deletion target not found on LPAR (Skipping)", "target", cleanTarget)
+		}
+	}
+
+	if len(uuidsToDelete) == 0 {
+		return fmt.Errorf("none of the specified targets were found on this LPAR")
+	}
+
+	// 3. Execute the DELETE request for each resolved UUID
+	for _, portUUID := range uuidsToDelete {
+		url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/SRIOVEthernetLogicalPort/%s", c.hmcIP, lparUUID, portUUID)
+
+		req, err := http.NewRequest("DELETE", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create delete request for %s: %v", portUUID, err)
+		}
+
+		req.Header.Set("X-API-Session", c.session)
+
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("HTTP request failed for %s: %v", portUUID, err)
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("failed to delete SR-IOV Logical Port %s (HTTP %d): %s", portUUID, resp.StatusCode, string(body))
+		}
+
+		if debug {
+			c.Logger.Debug("Successfully deleted SR-IOV Logical Port", "portUUID", portUUID)
+		}
+	}
+
+	return nil
+}
+// GetRawLparXML fetches the raw XML payload for a Logical Partition (Useful for diffs and backups)
+func (c *HmcRestClient) GetRawLparXML(sysUUID, lparUUID string, debug bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+
+	if debug {
+		c.Logger.Debug("Fetching raw LPAR XML", "lparUUID", lparUUID)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to fetch LPAR XML (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	return string(body), nil
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -31,7 +32,7 @@ type RollbackTracker struct {
 	verbose           bool
 }
 
-func (r *RollbackTracker) Rollback() {
+func (r *RollbackTracker) Rollback(ctx context.Context) {
 	if r.restClient == nil {
 		return
 	}
@@ -41,7 +42,7 @@ func (r *RollbackTracker) Rollback() {
 	// Step 1: Power off LPAR if we powered it on
 	if r.poweredOn && r.lparUUID != "" {
 		fmt.Printf("   [1/7] Powering off LPAR '%s'...\n", r.lparName)
-		_, err := r.restClient.PowerOffPartition(r.lparUUID, "immediate", false, r.verbose)
+		_, err := r.restClient.PowerOffPartition(ctx, r.lparUUID, "immediate", false, r.verbose)
 		if err != nil {
 			fmt.Printf("   ⚠️  Failed to power off LPAR: %v\n", err)
 		} else {
@@ -121,7 +122,7 @@ func (r *RollbackTracker) Rollback() {
 }
 
 // deleteLPAR handles the deletion of an LPAR and its associated resources
-func deleteLPAR(hmcIP, username, password, sysName, lparName, viosName string, verbose bool) {
+func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName, viosName string, verbose bool) {
 	fmt.Println("=========================================================================")
 	fmt.Printf(" 🗑️  LPAR Deletion Workflow: %s\n", lparName)
 	fmt.Println("=========================================================================")
@@ -218,7 +219,7 @@ func deleteLPAR(hmcIP, username, password, sysName, lparName, viosName string, v
 	
 	if lparDetails.PartitionState == "running" || lparDetails.PartitionState == "starting" {
 		fmt.Printf("   LPAR is %s, powering off...\n", lparDetails.PartitionState)
-		_, err := restClient.PowerOffPartition(lparUUID, "Immediate", false, verbose)
+		_, err := restClient.PowerOffPartition(ctx,lparUUID, "Immediate", false, verbose)
 		if err != nil {
 			if strings.Contains(err.Error(), "not running") || strings.Contains(err.Error(), "not activated") {
 				fmt.Printf("   ℹ️  LPAR already powered off\n")
@@ -386,6 +387,8 @@ func main() {
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 
 	// Validate mutually exclusive flags
 	if *createMode && *deleteMode {
@@ -402,7 +405,7 @@ func main() {
 
 	// Route to appropriate operation
 	if *deleteMode {
-		deleteLPAR(*hmcIP, *username, *password, *sysName, *lparName, *viosName, *verbose)
+		deleteLPAR(ctx,*hmcIP, *username, *password, *sysName, *lparName, *viosName, *verbose)
 		return
 	}
 
@@ -421,7 +424,7 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("\n❌ PANIC: %v\n", r)
-			rollback.Rollback()
+			rollback.Rollback(ctx)
 			panic(r)
 		}
 	}()
@@ -554,7 +557,7 @@ func main() {
 	switches, err := restClient.GetVirtualSwitchQuickAll(sysUUID, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to retrieve Virtual Switches: %v\n", err)
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at vSwitch retrieval stage")
 	}
 	
@@ -567,7 +570,7 @@ func main() {
 	}
 	if vswitchUUID == "" {
 		fmt.Printf("❌ Virtual Switch '%s' not found\n", *vswitchName)
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at vSwitch resolution stage")
 	}
 	fmt.Printf("   ✅ Found vSwitch UUID: %s\n", vswitchUUID)
@@ -576,7 +579,7 @@ func main() {
 	_, err = restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to create network adapter: %v\n", err)
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at network adapter creation stage")
 	}
 	fmt.Printf("✅ Network adapter created successfully\n")
@@ -598,7 +601,7 @@ func main() {
 			fmt.Printf("⚠️  NFS already mounted (continuing)\n")
 		} else {
 			fmt.Printf("❌ Failed to mount NFS: %v\n", err)
-			rollback.Rollback()
+			rollback.Rollback(ctx)
 			log.Fatalf("Provisioning failed at NFS mount stage")
 		}
 	} else {
@@ -657,7 +660,7 @@ func main() {
 	}
 	
 	if successCount == 0 {
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatal("❌ No optical media created successfully")
 	}
 	fmt.Printf("✅ Created %d optical media successfully\n", successCount)
@@ -674,7 +677,7 @@ func main() {
 	mappingStatus, err := restClient.CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID, createdMedia, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to map optical media: %v\n", err)
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at optical media mapping stage")
 	}
 	fmt.Printf("✅ Optical media mapped successfully (Status: %s)\n", mappingStatus)
@@ -701,7 +704,7 @@ func main() {
 	// Validate counts match
 	if len(diskNameList) != len(diskSizeList) {
 		fmt.Printf("❌ Error: Number of disk names (%d) must match number of disk sizes (%d)\n", len(diskNameList), len(diskSizeList))
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at disk validation stage")
 	}
 	
@@ -719,7 +722,7 @@ func main() {
 		if err != nil {
 			fmt.Printf("❌ Invalid disk size '%s': %v\n", diskSizeList[i], err)
 			rollback.createdDisks = createdDisks
-			rollback.Rollback()
+			rollback.Rollback(ctx)
 			log.Fatalf("Provisioning failed at disk size parsing stage")
 		}
 		
@@ -730,7 +733,7 @@ func main() {
 		if err != nil {
 			fmt.Printf("❌ Failed to create virtual disk '%s': %v\n", diskName, err)
 			rollback.createdDisks = createdDisks
-			rollback.Rollback()
+			rollback.Rollback(ctx)
 			log.Fatalf("Provisioning failed at virtual disk creation stage")
 		}
 		fmt.Printf("   ✅ Created: %s\n", diskName)
@@ -738,7 +741,7 @@ func main() {
 	}
 	
 	if len(createdDisks) == 0 {
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatal("❌ No virtual disks created")
 	}
 	fmt.Printf("✅ Created %d virtual disk(s) successfully\n", len(createdDisks))
@@ -759,7 +762,7 @@ func main() {
 	mapStatus, err := restClient.CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID, createdDisks, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to map virtual disks: %v\n", err)
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at virtual disk mapping stage")
 	}
 	fmt.Printf("✅ Virtual disks mapped successfully (Status: %s)\n", mapStatus)
@@ -776,7 +779,7 @@ func main() {
 	err = restClient.SaveCurrentLparConfig(lparUUID, *lparProfile, true, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to save partition profile: %v\n", err)
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at profile save stage")
 	}
 	fmt.Printf("✅ Partition profile '%s' saved successfully\n", *lparProfile)
@@ -793,13 +796,13 @@ func main() {
 	lparDetailed, err := restClient.GetLogicalPartitionDetailed(lparUUID, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to retrieve LPAR details: %v\n", err)
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatalf("Provisioning failed at LPAR details retrieval stage")
 	}
 	
 	profileHref := lparDetailed.AssociatedPartitionProfile.Href
 	if profileHref == "" {
-		rollback.Rollback()
+		rollback.Rollback(ctx)
 		log.Fatal("❌ No associated partition profile found.")
 	}
 	// Extract UUID from href (last 36 characters)
@@ -814,14 +817,14 @@ func main() {
 		Keylock:     "normal",
 	}
 	
-	_, err = restClient.PowerOnPartition(lparUUID, powerOnOpts, *verbose)
+	_, err = restClient.PowerOnPartition(ctx,lparUUID, powerOnOpts, *verbose)
 	if err != nil {
 		// Check if already running
 		if strings.Contains(err.Error(), "already running") || strings.Contains(err.Error(), "operating") {
 			fmt.Printf("⚠️  LPAR is already running\n")
 		} else {
 			fmt.Printf("❌ Failed to power on LPAR: %v\n", err)
-			rollback.Rollback()
+			rollback.Rollback(ctx)
 			log.Fatalf("Provisioning failed at power on stage")
 		}
 	} else {

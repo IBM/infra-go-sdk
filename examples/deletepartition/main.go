@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -36,6 +37,8 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC password")
 
 	flag.Parse()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 
 	if *hmcPass == "" || *sysName == "" || *lparName == "" || *svcPass == "" {
 		log.Fatal("Error: hmc-pass, system-name, lpar-name, and svc-pass are all required.")
@@ -71,7 +74,7 @@ func main() {
 	// Shutdown Partition
 	if currentState != "not activated" {
 		fmt.Printf("Step 1: Partition is '%s'. Powering off...\n", currentState)
-		restClient.PowerOffPartition(targetLparUUID, "Immediate", false, *verbose)
+		restClient.PowerOffPartition(ctx,targetLparUUID, "Immediate", false, *verbose)
 		for i := 0; i < 20; i++ {
 			p, _ := restClient.GetLogicalPartitionQuick(targetLparUUID, false)
 			if p != nil && strings.ToLower(p.PartitionState) == "not activated" {
