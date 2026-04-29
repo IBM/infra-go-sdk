@@ -240,7 +240,14 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, de
 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
+	// ✨ THE FIX: Handle the 204 No Content status cleanly
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNoContent {
+			if debug {
+				c.Logger.Debug("No Client Network Adapters found on LPAR (204 No Content)")
+			}
+			return []ClientNetworkAdapter{}, nil
+		}
 		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
 		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 	}
@@ -280,7 +287,6 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, de
 
 	return adapters, nil
 }
-
 // GetNetworkBootDevices retrieves network boot devices from an LPAR's profile using the HMC REST API job.
 //
 // WARNING: This operation will power off the LPAR if it is currently running.
