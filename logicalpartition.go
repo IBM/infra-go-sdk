@@ -877,59 +877,93 @@ func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, debug bool)
 	return &detailedLpar, nil
 }
 
-// MapPhysicalIOAdapters dynamically assigns multiple Physical I/O Adapters to an LPAR.
-// It accepts an optional inventory (*ManagedSystemDetailed) to perform a local safety check 
-// for ownership conflicts before talking to the HMC.
-func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterIDs []string, inventory *ManagedSystemDetailed, debug bool) (string, error) {
-	
-	// 1. PRE-FLIGHT SAFETY CHECK (Only if inventory is provided)
-	if inventory != nil {
-		if debug { c.Logger.Debug("Performing pre-flight ownership check", "adapterCount", len(adapterIDs)) }
-		for _, adapterID := range adapterIDs {
-			for _, bus := range inventory.IOConfig.IOBuses {
-				for _, slot := range bus.IOSlots {
-					if slot.RelatedIOAdapter.AdapterID == adapterID {
-						// PartitionID > 0 means the slot is assigned to someone 
-						// We check if that someone is NOT our target LPAR
-						if slot.PartitionID > 0 && slot.PartitionUUID != lparUUID {
-							return "", fmt.Errorf("ABORT: Adapter %s is currently owned by LPAR '%s' (ID: %d)", 
-								adapterID, slot.PartitionName, slot.PartitionID)
+// MapPhysicalIOAdapters dynamically assigns Physical I/O Adapters to an LPAR.
+// It rigorously validates ownership against the system inventory.
+// Returns a list of successfully attached adapters, a list of skipped adapters, and any errors.
+func (c *HmcRestClient) MapPhysicalIOAdapters(ctx context.Context, sysUUID, lparUUID, lparName string, targets []string, inventory *ManagedSystemDetailed, debug bool) ([]string, []string, error) {
+	if inventory == nil {
+		return nil, nil, fmt.Errorf("inventory is required for pre-flight validation")
+	}
+
+	type SlotInjection struct {
+		DRCIndex     string
+		LocationCode string
+		TargetName   string
+	}
+	var slotsToInject []SlotInjection
+	var attached []string
+	var skipped []string
+
+	// =====================================================================
+	// 1. PRE-FLIGHT VALIDATION
+	// =====================================================================
+	for _, target := range targets {
+		found := false
+		cleanTarget := strings.ToLower(strings.TrimSpace(target))
+
+		for _, bus := range inventory.IOConfig.IOBuses {
+			for _, slot := range bus.IOSlots {
+				actualLocCode := slot.PhysicalLocationCode
+				if slot.RelatedIOAdapter.DeviceName != "" {
+					actualLocCode = slot.RelatedIOAdapter.DeviceName
+				}
+
+				if strings.ToLower(actualLocCode) == cleanTarget || strings.ToLower(slot.PCAdapterID) == cleanTarget || strings.ToLower(slot.ConnectorIndex) == cleanTarget {
+					found = true
+					
+					if slot.PartitionID > 0 {
+						// It is owned by someone. Is it us?
+						if !strings.EqualFold(slot.PartitionName, lparName) {
+							return nil, nil, fmt.Errorf("ABORT: Target '%s' is currently assigned to a DIFFERENT LPAR ('%s', ID: %d)", target, slot.PartitionName, slot.PartitionID)
 						}
+						// It's already ours! Skip it.
+						skipped = append(skipped, target)
+					} else {
+						// It's unassigned. Safe to map.
+						slotsToInject = append(slotsToInject, SlotInjection{
+							DRCIndex:     slot.ConnectorIndex,
+							LocationCode: actualLocCode,
+							TargetName:   target,
+						})
 					}
+					break
 				}
 			}
+			if found { break }
+		}
+		if !found {
+			return nil, nil, fmt.Errorf("ABORT: Target '%s' does not exist on the Managed System", target)
 		}
 	}
 
+	// If everything was already mapped, exit early!
+	if len(slotsToInject) == 0 {
+		return attached, skipped, nil
+	}
+
+	// =====================================================================
 	// 2. FETCH PRISTINE LPAR XML
+	// =====================================================================
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
-	getReq, err := http.NewRequest("GET", url, nil)
-	if err != nil { return "", err }
+	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil { return nil, nil, err }
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
-
 	getResp, err := c.client.Do(getReq)
-	if err != nil { return "", err }
+	if err != nil { return nil, nil, err }
 	defer getResp.Body.Close()
-
 	rawXML, _ := io.ReadAll(getResp.Body)
-	
-	c.logRawTraffic("RESPONSE", url, string(rawXML))
 
-	if getResp.StatusCode != 200 {
-		return "", fmt.Errorf("GET failed: %s", string(rawXML))
-	}
+	if getResp.StatusCode != 200 { return nil, nil, fmt.Errorf("GET failed: %s", string(rawXML)) }
 
 	doc := etree.NewDocument()
-	if err := doc.ReadFromBytes(rawXML); err != nil { return "", err }
+	if err := doc.ReadFromBytes(rawXML); err != nil { return nil, nil, err }
 	lparElem := doc.FindElement(".//*[local-name()='LogicalPartition']")
-	if lparElem == nil { return "", fmt.Errorf("LogicalPartition element not found") }
+	if lparElem == nil { return nil, nil, fmt.Errorf("LogicalPartition element not found") }
 
-	// 3. TARGET THE IO CONFIGURATION
 	ioConfig := lparElem.FindElement(".//*[local-name()='PartitionIOConfiguration']")
-	if ioConfig == nil { return "", fmt.Errorf("PartitionIOConfiguration not found") }
+	if ioConfig == nil { return nil, nil, fmt.Errorf("PartitionIOConfiguration not found") }
 
 	profileSlots := ioConfig.FindElement(".//*[local-name()='ProfileIOSlots']")
 	if profileSlots == nil {
@@ -937,70 +971,185 @@ func (c *HmcRestClient) MapPhysicalIOAdapters(sysUUID, lparUUID string, adapterI
 		profileSlots.CreateAttr("schemaVersion", "V1_0")
 	}
 
-	// 4. INJECT ALL ADAPTERS
-	var newlyAdded int
-	for _, adapterID := range adapterIDs {
-		// Duplicate Check (Don't map what's already in this specific LPAR's profile)
+	// =====================================================================
+	// 3. INJECT ADAPTERS
+	// =====================================================================
+	for _, slotInfo := range slotsToInject {
+		// Strict XML Deduplication Check (in case inventory was stale)
 		duplicate := false
-		for _, slot := range profileSlots.FindElements(".//*[local-name()='AssociatedIOSlot']/*[local-name()='SlotDynamicReconfigurationConnectorIndex']") {
-			if slot.Text() == adapterID {
+		for _, existingSlot := range profileSlots.FindElements(".//*[local-name()='AssociatedIOSlot']/*[local-name()='SlotDynamicReconfigurationConnectorIndex']") {
+			if existingSlot.Text() == slotInfo.DRCIndex {
 				duplicate = true
 				break
 			}
 		}
-		if duplicate { continue }
+		
+		if duplicate {
+			skipped = append(skipped, slotInfo.TargetName)
+			continue
+		}
 
 		newSlotXML := fmt.Sprintf(`
 			<ProfileIOSlot schemaVersion="V1_0">
 				<AssociatedIOSlot schemaVersion="V1_0">
 					<SlotDynamicReconfigurationConnectorIndex>%s</SlotDynamicReconfigurationConnectorIndex>
+					<SlotPhysicalLocationCode>%s</SlotPhysicalLocationCode>
 				</AssociatedIOSlot>
 				<IsRequired>false</IsRequired>
-			</ProfileIOSlot>`, adapterID)
+			</ProfileIOSlot>`, slotInfo.DRCIndex, slotInfo.LocationCode)
 		
 		slotDoc := etree.NewDocument()
 		slotDoc.ReadFromString(newSlotXML)
 		profileSlots.AddChild(slotDoc.Root())
-		newlyAdded++
+		
+		attached = append(attached, slotInfo.TargetName)
 	}
 
-	if newlyAdded == 0 { return "ALREADY_MAPPED", nil }
+	if len(attached) == 0 {
+		return attached, skipped, nil
+	}
 
-	// 5. POST UPDATED XML
+	// =====================================================================
+	// 4. POST UPDATED XML
+	// =====================================================================
 	postDoc := etree.NewDocument()
 	postDoc.SetRoot(lparElem.Copy())
 	postXML, _ := postDoc.WriteToString()
 
-	postReq, _ := http.NewRequest("POST", url, strings.NewReader(postXML))
+	postReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(postXML))
+	if err != nil { return nil, nil, err }
 	postReq.Header.Set("X-API-Session", c.session)
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
 	postReq.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (POST)", url, postXML)
-
 	postResp, err := c.client.Do(postReq)
-	if err != nil { return "", err }
+	if err != nil { return nil, nil, err }
 	defer postResp.Body.Close()
-
 	body, _ := io.ReadAll(postResp.Body)
 
-	c.logRawTraffic("RESPONSE", url, string(body))
+	if postResp.StatusCode >= 400 { return nil, nil, fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body)) }
 
-	if postResp.StatusCode >= 400 {
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
+	return attached, skipped, nil
+}
+
+// UnmapPhysicalIOAdapters dynamically detaches Physical I/O Adapters from an LPAR.
+func (c *HmcRestClient) UnmapPhysicalIOAdapters(ctx context.Context, sysUUID, lparUUID, lparName string, targets []string, inventory *ManagedSystemDetailed, debug bool) ([]string, []string, error) {
+	if inventory == nil {
+		return nil, nil, fmt.Errorf("inventory is required for pre-flight validation")
 	}
 
-	// 6. MONITOR DLPAR JOB
-	respDoc, err := xmlStripNamespace(body)
-	if err == nil {
-		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
-			if debug { c.Logger.Info("I/O Batch job triggered", "jobID", jobIDElem.Text()) }
-			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
+	var drcIndexesToRemove = make(map[string]string) // Map DRC Index -> Original Target Name
+	var detached []string
+	var skipped []string
+
+	// =====================================================================
+	// 1. PRE-FLIGHT VALIDATION
+	// =====================================================================
+	for _, target := range targets {
+		foundAndAttached := false
+		cleanTarget := strings.ToLower(strings.TrimSpace(target))
+
+		for _, bus := range inventory.IOConfig.IOBuses {
+			for _, slot := range bus.IOSlots {
+				actualLocCode := slot.PhysicalLocationCode
+				if slot.RelatedIOAdapter.DeviceName != "" { actualLocCode = slot.RelatedIOAdapter.DeviceName }
+
+				if strings.ToLower(actualLocCode) == cleanTarget || strings.ToLower(slot.PCAdapterID) == cleanTarget || strings.ToLower(slot.ConnectorIndex) == cleanTarget {
+					if strings.EqualFold(slot.PartitionName, lparName) {
+						// It is attached to our LPAR! Mark it for removal.
+						drcIndexesToRemove[slot.ConnectorIndex] = target
+						foundAndAttached = true
+					} else if slot.PartitionID == 0 || slot.PartitionName == "" {
+						// ✨ THE FIX: Target is completely unassigned (owned by hypervisor). 
+						// This means it is already detached from our perspective. Break to add to 'skipped' list.
+						break
+					} else {
+						// It is attached to a DIFFERENT LPAR! Abort to prevent taking down another VM.
+						return nil, nil, fmt.Errorf("ABORT: Target '%s' is not attached to LPAR '%s'. (Currently assigned to '%s')", target, lparName, slot.PartitionName)
+					}
+					break
+				}
+			}
+			if foundAndAttached { break }
+		}
+		
+		if !foundAndAttached {
+			// It's not attached to us (or doesn't exist). We skip it!
+			skipped = append(skipped, target)
 		}
 	}
 
-	return "SUCCESS", nil
+	if len(drcIndexesToRemove) == 0 {
+		return detached, skipped, nil
+	}
+
+	// =====================================================================
+	// 2. FETCH LPAR XML
+	// =====================================================================
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil { return nil, nil, err }
+	getReq.Header.Set("X-API-Session", c.session)
+	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	getResp, err := c.client.Do(getReq)
+	if err != nil { return nil, nil, err }
+	defer getResp.Body.Close()
+	rawXML, _ := io.ReadAll(getResp.Body)
+
+	if getResp.StatusCode != 200 { return nil, nil, fmt.Errorf("GET failed: %s", string(rawXML)) }
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(rawXML); err != nil { return nil, nil, err }
+	lparElem := doc.FindElement(".//*[local-name()='LogicalPartition']")
+	if lparElem == nil { return nil, nil, fmt.Errorf("LogicalPartition element not found") }
+
+	ioConfig := lparElem.FindElement(".//*[local-name()='PartitionIOConfiguration']")
+	if ioConfig == nil { return detached, skipped, nil }
+
+	profileSlots := ioConfig.FindElement(".//*[local-name()='ProfileIOSlots']")
+	if profileSlots == nil { return detached, skipped, nil }
+
+	// =====================================================================
+	// 3. REMOVE NODES
+	// =====================================================================
+	for _, slot := range profileSlots.FindElements(".//*[local-name()='ProfileIOSlot']") {
+		drcElem := slot.FindElement(".//*[local-name()='SlotDynamicReconfigurationConnectorIndex']")
+		if drcElem != nil {
+			if targetName, exists := drcIndexesToRemove[drcElem.Text()]; exists {
+				profileSlots.RemoveChild(slot)
+				detached = append(detached, targetName)
+			}
+		}
+	}
+
+	if len(detached) == 0 {
+		return detached, skipped, nil
+	}
+
+	// =====================================================================
+	// 4. POST UPDATED XML
+	// =====================================================================
+	postDoc := etree.NewDocument()
+	postDoc.SetRoot(lparElem.Copy())
+	postXML, _ := postDoc.WriteToString()
+
+	postReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(postXML))
+	if err != nil { return nil, nil, err }
+	postReq.Header.Set("X-API-Session", c.session)
+	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+	postReq.Header.Set("Accept", "application/atom+xml")
+
+	postResp, err := c.client.Do(postReq)
+	if err != nil { return nil, nil, err }
+	defer postResp.Body.Close()
+	body, _ := io.ReadAll(postResp.Body)
+
+	if postResp.StatusCode >= 400 { return nil, nil, fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body)) }
+
+	return detached, skipped, nil
 }
+
 
 // GetAllLogicalPartitionsInHmc retrieves the Go structures for all logical partitions managed by the HMC across all systems.
 func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(debug bool) ([]LogicalPartitionDetailed, error) {
