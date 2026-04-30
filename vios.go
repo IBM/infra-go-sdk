@@ -17,7 +17,7 @@ import (
 // / ConfigDevice submits a job request to configure a device on a Virtual I/O Server.
 // If devName is empty, it attempts to configure all devices.
 // It waits for the job to complete and checks for success.
-func (c *HmcRestClient) ConfigDevice(viosID string, devName string, debug bool) error {
+func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/ConfigDevice", c.hmcIP, viosID)
 	if debug {
 		c.Logger.Debug("Submitting ConfigDevice job", "viosID", viosID, "url", url)
@@ -62,9 +62,9 @@ func (c *HmcRestClient) ConfigDevice(viosID string, devName string, debug bool) 
 	req.Header.Set("Accept", "*/*")
 
 	// Set timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(reqCtx)
 
 	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
@@ -118,7 +118,7 @@ func (c *HmcRestClient) ConfigDevice(viosID string, devName string, debug bool) 
 	}
 
 	// Fetch the job response
-	jobResp, err := c.FetchJobStatus(context.Background(), jobID, false, 10, debug)
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, 10, debug)
 	if err != nil {
 		return fmt.Errorf("failed to fetch job response: %v", err)
 	}

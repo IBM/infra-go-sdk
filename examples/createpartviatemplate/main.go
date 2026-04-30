@@ -106,10 +106,10 @@ func main() {
 		targetVol, selectedViosName := provisionSVCStorage(*svcIP, *svcUser, *svcPass, *baseImageName, viosWwpnMap, *verbose)
 
 		// 6. Configure VSCSI and update the template (with cached VIOS UUIDs)
-		configureVSCSI(restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, viosUuidMap, *verbose)
+		configureVSCSI(ctx,restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, viosUuidMap, *verbose)
 
 		// 7. Deploy, Start, and Cleanup
-		deployAndStartPartition(ctx,restClient, systemUUID, tempUUID, tempTemplateName, configDict, *osType, *verbose)
+		deployAndStartPartition(ctx, restClient, systemUUID, tempUUID, tempTemplateName, configDict, *osType, *verbose)
 
 		if *verbose {
 			log.Println("======================================================")
@@ -448,7 +448,7 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 	return targetVol, selectedViosName
 }
 
-func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, viosUuidMap map[string]string, verbose bool) {
+func configureVSCSI(ctx context.Context,restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, viosUuidMap map[string]string, verbose bool) {
 	if verbose {
 		log.Printf("[HMC-VSCSI] Beginning VSCSI Configuration on VIOS: %s", viosName)
 	}
@@ -471,12 +471,12 @@ func configureVSCSI(restClient *hmc.HmcRestClient, systemUUID, tempUUID string, 
 		if verbose {
 			log.Printf("[HMC-VSCSI] Running ConfigDevice (cfgdev) on VIOS %s to scan for new SVC disks...", volConfig.ViosName)
 		}
-		restClient.ConfigDevice(viosUUID, "", verbose)
+		restClient.ConfigDevice(ctx,viosUUID, "", verbose)
 		
 		if verbose {
 			log.Printf("[HMC-VSCSI] Correlating SVC VdiskUID (%s) to an HMC Physical Volume...", targetVol.VdiskUID)
 		}
-		pv, err := identifyFreeVolume(restClient, viosUUID, volConfig, targetVol.VdiskUID, verbose)
+		pv, err := identifyFreeVolume(ctx, restClient, viosUUID, volConfig, targetVol.VdiskUID, verbose)
 		if err != nil { log.Fatalf("[HMC-VSCSI] Failed to identify free volume: %v", err) }
 		
 		if verbose {
@@ -592,7 +592,7 @@ func deployAndStartPartition(ctx context.Context,restClient *hmc.HmcRestClient, 
 // PRE-EXISTING WRAPPER FUNCTIONS (Preserved Functionality)
 // =========================================================================
 
-func identifyFreeVolume(restClient *hmc.HmcRestClient, viosUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
+func identifyFreeVolume(ctx context.Context, restClient *hmc.HmcRestClient, viosUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
 	viosName := volConfig.ViosName
 	if verbose {
 		log.Printf("[HMC-UTIL] Identifying free volume on VIOS '%s' (UUID: %s) matching UID '%s'", viosName, viosUUID, VdiskUID)

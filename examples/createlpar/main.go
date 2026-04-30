@@ -313,13 +313,13 @@ func main() {
 				selectedViosUUID := viosUuidMap[selectedViosName]
 
 				log.Printf("[Branch-Physical] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
-				if err := restClient.ConfigDevice(selectedViosUUID, "", *verbose); err != nil {
+				if err := restClient.ConfigDevice(ctx,selectedViosUUID, "", *verbose); err != nil {
 					physicalErrCh <- fmt.Errorf("failed to run cfgdev: %v", err)
 					return
 				}
 
 				log.Printf("[Branch-Physical] Locating new physical volume matching SVC UID: %s...", targetVol.VdiskUID)
-				diskName, err := identifyFreeVolume(restClient, selectedViosUUID, selectedViosName, targetVol.VdiskUID, *verbose)
+				diskName, err := identifyFreeVolume(ctx, restClient, selectedViosUUID, selectedViosName, targetVol.VdiskUID, *verbose)
 				if err != nil {
 					physicalErrCh <- fmt.Errorf("failed to identify free volume: %v", err)
 					return
@@ -718,7 +718,7 @@ func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMa
 	return targetVol, selectedViosName, nil
 }
 
-func identifyFreeVolume(restClient *hmc.HmcRestClient, viosUUID string, viosName string, VdiskUID string, verbose bool) (string, error) {
+func identifyFreeVolume(ctx context.Context, restClient *hmc.HmcRestClient, viosUUID string, viosName string, VdiskUID string, verbose bool) (string, error) {
 	pvList, err := restClient.GetFreePhyVolume(viosUUID, verbose)
 	if err != nil {
 		pvList = []hmc.PhysicalVolume{}

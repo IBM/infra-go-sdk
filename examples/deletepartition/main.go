@@ -303,7 +303,7 @@ func main() {
 		// Run cfgdev on affected VIOSes
 		fmt.Println("\nStep 7: Running cfgdev on VIOSes...")
 		for uuid, name := range processedVios {
-			if err := restClient.ConfigDevice(uuid, "", *verbose); err == nil {
+			if err := restClient.ConfigDevice(ctx,uuid, "", *verbose); err == nil {
 				fmt.Printf("✅ Device tree cleaned on %s.\n", name)
 			}
 		}
