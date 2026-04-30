@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strings"
@@ -15,12 +16,15 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+
+	ctx := context.Background()
+	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -30,7 +34,7 @@ func main() {
 
 	client.Logger.Info("Attempting to delete volume...", "volume", volumeName)
 
-	if err := client.Rmvdisk(volumeName, removeVolume); err != nil {
+	if err := client.Rmvdisk(ctx,volumeName, removeVolume); err != nil {
 		if strings.Contains(err.Error(), "CMMVC5754E") || strings.Contains(err.Error(), "CMMVC5804E") {
 			client.Logger.Info("✅ Volume is already deleted (or does not exist). Nothing to do.", "volume", volumeName)
 		} else {

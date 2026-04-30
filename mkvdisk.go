@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -18,7 +19,7 @@ type Volume struct {
 }
 
 // Mkvdisk sends a POST request to /mkvdisk to create a volume
-func (c *Client) Mkvdisk(reqBody Volume) error {
+func (c *Client) Mkvdisk(ctx context.Context,reqBody Volume) error {
 	// Validate required fields
 	if reqBody.Name == "" || reqBody.MdiskGrp == "" || reqBody.Size <= 0 {
 		return fmt.Errorf("name, mdiskgrp, and size are required")
@@ -48,7 +49,7 @@ func (c *Client) Mkvdisk(reqBody Volume) error {
 		payload["grainsize"] = *reqBody.GrainSize
 	}
 
-	_, err := c.post("mkvdisk", payload)
+	_, err := c.post(ctx,"mkvdisk", payload)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return fmt.Errorf("failed to create volume: %w", decodedErr)

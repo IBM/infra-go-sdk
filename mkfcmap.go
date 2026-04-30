@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -18,7 +19,7 @@ type FlashCopyMapping struct {
 	IOGrp       string `json:"iogrp,omitempty"`
 }
 
-func (c *Client) Mkfcmap(reqBody FlashCopyMapping) error {
+func (c *Client) Mkfcmap(ctx context.Context,reqBody FlashCopyMapping) error {
 	if reqBody.Source == "" || reqBody.Target == "" {
 		return fmt.Errorf("source and target are required")
 	}
@@ -54,7 +55,7 @@ func (c *Client) Mkfcmap(reqBody FlashCopyMapping) error {
 		payload["iogrp"] = reqBody.IOGrp
 	}
 
-	_, err := c.post("mkfcmap", payload)
+	_, err := c.post(ctx,"mkfcmap", payload)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return fmt.Errorf("failed to create FlashCopy mapping: %w", decodedErr)

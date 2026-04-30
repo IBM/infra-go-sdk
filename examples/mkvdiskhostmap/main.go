@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strings"
@@ -15,12 +16,14 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+	ctx := context.Background()
+	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -30,7 +33,7 @@ func main() {
 
 	client.Logger.Info("Attempting to unmap volume from host...", "volume", volName, "host", hostName)
 
-	err := client.Rmvdiskhostmap(hostName, volName)
+	err := client.Rmvdiskhostmap(ctx,hostName, volName)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "CMMVC6071E") {

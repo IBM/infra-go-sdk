@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -14,7 +15,7 @@ func main() {
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
-
+	ctx := context.Background()
 	// Initialize the client
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 
@@ -24,7 +25,7 @@ func main() {
 		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -32,7 +33,7 @@ func main() {
 
 	// Fetch all FC ports
 	client.Logger.Info("Fetching all FC ports...")
-	ports, err := client.Lsportfc()
+	ports, err := client.Lsportfc(ctx)
 	if err != nil {
 		client.Logger.Error("Lsportfc error", "error", err)
 		os.Exit(1)

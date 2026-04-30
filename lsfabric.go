@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -21,13 +22,13 @@ type FabricLoginInfo struct {
 	RemoteType    string `json:"type"`
 }
 
-func (c *Client) Lsfabric() ([]FabricLoginInfo, error) {
+func (c *Client) Lsfabric(ctx context.Context) ([]FabricLoginInfo, error) {
 	tempClient := &http.Client{
 		Transport: c.HTTPClient.Transport,
 		Timeout:   fabricTimeout,
 	}
 
-	data, err := c.postWithHTTPClient(tempClient, "lsfabric", nil)
+	data, err := c.postWithHTTPClient(ctx,tempClient, "lsfabric", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list fabric logins: %w", decodeIBMError(err))
 	}

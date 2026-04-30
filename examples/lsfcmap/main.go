@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strconv"
@@ -16,6 +17,8 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+	ctx := context.Background()
+
 	// Initialize the client
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 
@@ -25,7 +28,7 @@ func main() {
 		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -35,7 +38,7 @@ func main() {
 	mappingName := "test_fcmap"
 	client.Logger.Info("Searching for FlashCopy mapping...", "target", mappingName)
 
-	mappings, err := client.Lsfcmap(mappingName)
+	mappings, err := client.Lsfcmap(ctx,mappingName)
 	if err != nil {
 		client.Logger.Error("Lsfcmap error", "error", err)
 		os.Exit(1)
@@ -66,7 +69,7 @@ func main() {
 	// --- 2. List all FlashCopy mappings ---
 	client.Logger.Info("Fetching all FlashCopy mappings...")
 	
-	allMappings, err := client.Lsfcmap("")
+	allMappings, err := client.Lsfcmap(ctx,"")
 	if err != nil {
 		client.Logger.Error("Lsfcmap error for all mappings", "error", err)
 		os.Exit(1)

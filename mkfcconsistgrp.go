@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -9,7 +10,7 @@ type FlashCopyConsistGroup struct {
 	AutoDelete bool   `json:"autodelete,omitempty"`
 }
 
-func (c *Client) Mkfcconsistgrp(reqBody FlashCopyConsistGroup) error {
+func (c *Client) Mkfcconsistgrp(ctx context.Context,reqBody FlashCopyConsistGroup) error {
 	payload := make(map[string]interface{})
 	if reqBody.Name != "" {
 		payload["name"] = reqBody.Name
@@ -18,7 +19,7 @@ func (c *Client) Mkfcconsistgrp(reqBody FlashCopyConsistGroup) error {
 		payload["autodelete"] = true
 	}
 	
-	_, err := c.post("mkfcconsistgrp", payload)
+	_, err := c.post(ctx,"mkfcconsistgrp", payload)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return fmt.Errorf("failed to create FlashCopy consistency group: %w", decodedErr)

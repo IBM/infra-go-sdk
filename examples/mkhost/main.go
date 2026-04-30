@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strings"
@@ -15,12 +16,15 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+
+	ctx := context.Background()
+
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -34,7 +38,7 @@ func main() {
 
 	client.Logger.Info("Attempting to create host...", "host_name", hostParams.Name)
 
-	err := client.Mkhost(hostParams)
+	err := client.Mkhost(ctx,hostParams)
 	if err != nil {
 		if strings.Contains(err.Error(), "CMMVC6035E") || strings.Contains(err.Error(), "object already exists") {
 			client.Logger.Info("✅ Host already exists, skipping creation", "host_name", hostParams.Name)

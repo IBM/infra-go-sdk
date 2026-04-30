@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -14,7 +15,7 @@ type Host struct {
 	Protocol string
 }
 
-func (c *Client) Mkhost(host Host) error {
+func (c *Client) Mkhost(ctx context.Context,host Host) error {
 	if host.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -34,7 +35,7 @@ func (c *Client) Mkhost(host Host) error {
 		params["force"] = true
 	}
 
-	_, err := c.post("mkhost", params)
+	_, err := c.post(ctx,"mkhost", params)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return fmt.Errorf("failed to create host: %w", decodedErr)

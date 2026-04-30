@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -31,13 +32,13 @@ type FlashCopyMappingInfo struct {
 }
 
 // Lsfcmap retrieves information about FlashCopy mappings using the lsfcmap API endpoint
-func (c *Client) Lsfcmap(name string) ([]FlashCopyMappingInfo, error) {
+func (c *Client) Lsfcmap(ctx context.Context,name string) ([]FlashCopyMappingInfo, error) {
 	endpoint := "lsfcmap"
 	if name != "" {
 		endpoint = fmt.Sprintf("lsfcmap/%s", name)
 	}
 
-	data, err := c.post(endpoint, nil)
+	data, err := c.post(ctx,endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list FlashCopy mappings: %w", decodeIBMError(err))
 	}

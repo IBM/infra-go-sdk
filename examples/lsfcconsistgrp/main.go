@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -14,7 +15,7 @@ func main() {
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
-
+	ctx := context.Background()
 	// Initialize the client
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 
@@ -24,7 +25,7 @@ func main() {
 		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -34,7 +35,7 @@ func main() {
 	groupName := "test_fcgrp"
 	client.Logger.Info("Searching for FlashCopy consistency group...", "target", groupName)
 	
-	groups, err := client.Lsfcconsistgrp(groupName)
+	groups, err := client.Lsfcconsistgrp(ctx,groupName)
 	if err != nil {
 		client.Logger.Error("Lsfcconsistgrp error", "error", err)
 		os.Exit(1)
@@ -65,7 +66,7 @@ func main() {
 
 	// --- 2. List all FlashCopy consistency groups ---
 	client.Logger.Info("Fetching all FlashCopy consistency groups...")
-	allGroups, err := client.Lsfcconsistgrp("")
+	allGroups, err := client.Lsfcconsistgrp(ctx,"")
 	if err != nil {
 		client.Logger.Error("Lsfcconsistgrp error for all groups", "error", err)
 		os.Exit(1)

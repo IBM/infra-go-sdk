@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -10,7 +11,7 @@ type FlashCopyMappingStart struct {
 	Restore bool   `json:"restore,omitempty"`
 }
 
-func (c *Client) Startfcmap(reqBody FlashCopyMappingStart) error {
+func (c *Client) Startfcmap(ctx context.Context,reqBody FlashCopyMappingStart) error {
 	if reqBody.ID == "" {
 		return fmt.Errorf("id is required: CMMVC5701E No object ID was specified")
 	}
@@ -24,7 +25,7 @@ func (c *Client) Startfcmap(reqBody FlashCopyMappingStart) error {
 	}
 	
 	endpoint := fmt.Sprintf("startfcmap/%s", reqBody.ID)
-	_, err := c.post(endpoint, payload)
+	_, err := c.post(ctx,endpoint, payload)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return fmt.Errorf("failed to start FlashCopy mapping:%s, %w", reqBody.ID,decodedErr)

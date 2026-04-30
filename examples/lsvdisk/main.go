@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strconv"
@@ -16,12 +17,14 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+	ctx := context.Background()
+
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -29,7 +32,7 @@ func main() {
 	volumeName := "test_volume2"
 	client.Logger.Info("Searching for volume...", "volume", volumeName)
 
-	foundVolume, err := client.LsVdiskByName(volumeName)
+	foundVolume, err := client.LsVdiskByName(ctx,volumeName)
 	if err != nil {
 		if strings.Contains(err.Error(), "CMMVC5754E") {
 			client.Logger.Warn("No disk found with name", "volume", volumeName)

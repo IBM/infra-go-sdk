@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -24,14 +25,14 @@ type FlashCopyConsistGroupInfo struct {
 }
 
 // Lsfcconsistgrp retrieves information about FlashCopy consistency groups using the lsfcconsistgrp API endpoint
-func (c *Client) Lsfcconsistgrp(name string) ([]FlashCopyConsistGroupInfo, error) {
+func (c *Client) Lsfcconsistgrp(ctx context.Context,name string) ([]FlashCopyConsistGroupInfo, error) {
 	// Construct endpoint with or without name
 	endpoint := "lsfcconsistgrp"
 	if name != "" {
 		endpoint = fmt.Sprintf("lsfcconsistgrp/%s", name)
 	}
 
-	data, err := c.post(endpoint, nil)
+	data, err := c.post(ctx,endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list FlashCopy consistency groups: %w", decodeIBMError(err))
 	}

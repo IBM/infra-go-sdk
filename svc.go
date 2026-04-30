@@ -2,6 +2,7 @@ package svc
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -79,11 +80,11 @@ func (c *Client) baseURL() string {
 	return fmt.Sprintf("https://%s:%d", c.Host, c.Port)
 }
 
-
-func (c *Client) authenticateLocked(httpClient *http.Client) error {
+func (c *Client) authenticateLocked(ctx context.Context, httpClient *http.Client) error {
 	url := fmt.Sprintf("%s/rest/auth", c.baseURL())
 
-	req, err := http.NewRequest("POST", url, nil)
+	// Use NewRequestWithContext here
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return err
 	}
@@ -116,30 +117,30 @@ func (c *Client) authenticateLocked(httpClient *http.Client) error {
 	return nil
 }
 
-func (c *Client) Authenticate() error {
+func (c *Client) Authenticate(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.authenticateLocked(c.HTTPClient)
+	return c.authenticateLocked(ctx, c.HTTPClient)
 }
 
-func (c *Client) ensureTokenValid(httpClient *http.Client) (string, error) {
+func (c *Client) ensureTokenValid(ctx context.Context, httpClient *http.Client) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.Token == "" || time.Now().After(c.TokenExpiry.Add(-2*time.Minute)) {
-		if err := c.authenticateLocked(httpClient); err != nil {
+		if err := c.authenticateLocked(ctx, httpClient); err != nil {
 			return "", err
 		}
 	}
 	return c.Token, nil // Safely return the token while locked
 }
 
-func (c *Client) post(endpoint string, payload map[string]interface{}) ([]byte, error) {
-	return c.postWithHTTPClient(c.HTTPClient, endpoint, payload)
+func (c *Client) post(ctx context.Context, endpoint string, payload map[string]interface{}) ([]byte, error) {
+	return c.postWithHTTPClient(ctx, c.HTTPClient, endpoint, payload)
 }
 
-func (c *Client) postWithHTTPClient(httpClient *http.Client, endpoint string, payload map[string]interface{}) ([]byte, error) {
-	activeToken, err := c.ensureTokenValid(httpClient)
+func (c *Client) postWithHTTPClient(ctx context.Context, httpClient *http.Client, endpoint string, payload map[string]interface{}) ([]byte, error) {
+	activeToken, err := c.ensureTokenValid(ctx, httpClient)
 	if err != nil {
 		c.Logger.Error("Token validation failed", "error", err)
 		return nil, fmt.Errorf("token refresh failed: %v", err)
@@ -159,7 +160,8 @@ func (c *Client) postWithHTTPClient(httpClient *http.Client, endpoint string, pa
 		body = bytes.NewBuffer(jsonBody)
 	}
 
-	req, err := http.NewRequest("POST", url, body)
+	// Use NewRequestWithContext here
+	req, err := http.NewRequestWithContext(ctx, "POST", url, body)
 	if err != nil {
 		c.Logger.Error("Failed to create HTTP request", "error", err)
 		return nil, err

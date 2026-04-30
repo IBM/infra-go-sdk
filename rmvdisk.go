@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -11,7 +12,7 @@ type VolumeRemove struct {
 }
 
 // Rmvdisk sends a POST request to /rmvdisk/<name> to delete a volume
-func (c *Client) Rmvdisk(name string, reqBody VolumeRemove) error {
+func (c *Client) Rmvdisk(ctx context.Context,name string, reqBody VolumeRemove) error {
 	if name == "" {
 		return fmt.Errorf("name is required: CMMVC5701E No object ID was specified")
 	}
@@ -29,7 +30,7 @@ func (c *Client) Rmvdisk(name string, reqBody VolumeRemove) error {
 		payload["removehostmappings"] = true
 	}
 
-	_, err := c.post(endpoint, payload)
+	_, err := c.post(ctx,endpoint, payload)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return fmt.Errorf("failed to delete volume %s: %w", name, decodedErr)

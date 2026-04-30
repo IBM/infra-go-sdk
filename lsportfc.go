@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -25,9 +26,9 @@ type PortFC struct {
 }
 
 // Lsportfc retrieves a list of all physical Fibre Channel ports on the system.
-func (c *Client) Lsportfc() ([]PortFC, error) {
+func (c *Client) Lsportfc(ctx context.Context) ([]PortFC, error) {
 	// Send the POST request to execute the lsportfc command
-	data, err := c.post("lsportfc", nil)
+	data, err := c.post(ctx,"lsportfc", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list FC ports: %w", decodeIBMError(err))
 	}

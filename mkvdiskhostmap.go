@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -13,7 +14,7 @@ type VolumeHostMap struct {
 }
 
 // Mkvdiskhostmap sends a POST request to /mkvdiskhostmap to create a volume to host mapping
-func (c *Client) Mkvdiskhostmap(reqBody VolumeHostMap) error {
+func (c *Client) Mkvdiskhostmap(ctx context.Context,reqBody VolumeHostMap) error {
 	if reqBody.Host == "" || reqBody.VDisk == "" {
 		return fmt.Errorf("host and vdisk are required")
 	}
@@ -28,7 +29,7 @@ func (c *Client) Mkvdiskhostmap(reqBody VolumeHostMap) error {
 	}
 	
 	endpoint := fmt.Sprintf("mkvdiskhostmap/%s", reqBody.VDisk)
-	_, err := c.post(endpoint, payload)
+	_, err := c.post(ctx,endpoint, payload)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return fmt.Errorf("failed to create volume host mapping: %w", decodedErr)

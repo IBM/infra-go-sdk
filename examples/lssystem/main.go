@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -15,7 +16,7 @@ func main() {
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
-
+	ctx := context.Background()
 	// Initialize the client
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 
@@ -25,7 +26,7 @@ func main() {
 		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -34,7 +35,7 @@ func main() {
 	client.Logger.Info("Fetching system information...")
 
 	// systemInfo is returned as a *svc.SystemInfo pointer
-	systemInfo, err := client.Lssystem()
+	systemInfo, err := client.Lssystem(ctx)
 	if err != nil {
 		client.Logger.Error("lssystem error", "error", err)
 		os.Exit(1)

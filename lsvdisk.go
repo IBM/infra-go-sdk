@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -72,8 +73,8 @@ type Vdisk struct {
 
 // LsVdisk retrieves a list of all volumes on the FlashSystem.
 // The REST API returns an array of objects for this endpoint.
-func (c *Client) LsVdisk() ([]Vdisk, error) {
-	data, err := c.post("lsvdisk", nil)
+func (c *Client) LsVdisk(ctx context.Context) ([]Vdisk, error) {
+	data, err := c.post(ctx,"lsvdisk", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list vdisks: %w", decodeIBMError(err))
 	}
@@ -88,9 +89,9 @@ func (c *Client) LsVdisk() ([]Vdisk, error) {
 }
 
 // LsVdiskByName retrieves detailed information for a specific volume by its name or ID.
-func (c *Client) LsVdiskByName(target string) (*Vdisk, error) {
+func (c *Client) LsVdiskByName(ctx context.Context,target string) (*Vdisk, error) {
 	endpoint := fmt.Sprintf("lsvdisk/%s", target)
-	data, err := c.post(endpoint, nil)
+	data, err := c.post(ctx,endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vdisk details for %s: %w", target, decodeIBMError(err))
 	}

@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -113,12 +114,12 @@ type SystemInfo struct {
 	SafeguardedCopySuspended        string `json:"safeguarded_copy_suspended"`
 }
 
-func (c *Client) Lssystem() (*SystemInfo, error) {
+func (c *Client) Lssystem(ctx context.Context) (*SystemInfo, error) {
 	if c.Logger != nil {
 		c.Logger.Info("Fetching system information")
 	}
 
-	data, err := c.post("lssystem", nil)
+	data, err := c.post(ctx,"lssystem", nil)
 	if err != nil {
 		decodedErr := decodeIBMError(err)
 		return nil, fmt.Errorf("failed to get system info: %w", decodedErr)

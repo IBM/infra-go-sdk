@@ -1,13 +1,14 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
 // GetHostByWWPN searches for any of the provided WWPNs in the fabric logins
 // and returns the associated host name and matching WWPN if found
-func (c *Client) GetHostByWWPN(wwpns []string) (string, string, error) {
+func (c *Client) GetHostByWWPN(ctx context.Context, wwpns []string) (string, string, error) {
 	if len(wwpns) == 0 {
 		if c.Logger != nil {
 			c.Logger.Warn("GetHostByWWPN called with no WWPNs")
@@ -19,7 +20,7 @@ func (c *Client) GetHostByWWPN(wwpns []string) (string, string, error) {
 		c.Logger.Debug("Looking up host by WWPNs", "wwpn_count", len(wwpns))
 	}
 
-	logins, err := c.Lsfabric()
+	logins, err := c.Lsfabric(ctx) // <-- Pass the context down
 	if err != nil {
 		if c.Logger != nil {
 			c.Logger.Error("Failed to retrieve fabric logins", "error", err)

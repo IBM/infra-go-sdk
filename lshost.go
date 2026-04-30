@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -29,8 +30,8 @@ type Hosts struct {
 }
 
 // Lshost retrieves a list of all defined hosts
-func (c *Client) Lshost() ([]Hosts, error) {
-	data, err := c.post("lshost", nil)
+func (c *Client) Lshost(ctx context.Context) ([]Hosts, error) {
+	data, err := c.post(ctx,"lshost", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list hosts: %w", decodeIBMError(err))
 	}
@@ -46,9 +47,9 @@ func (c *Client) Lshost() ([]Hosts, error) {
 
 // LshostByTarget retrieves details for a specific host.
 // Note: The API returns a single object for specific resource requests.
-func (c *Client) LshostByTarget(target string) (*Hosts, error) {
+func (c *Client) LshostByTarget(ctx context.Context,target string) (*Hosts, error) {
 	endpoint := fmt.Sprintf("lshost/%s", target)
-	data, err := c.post(endpoint, nil)
+	data, err := c.post(ctx,endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get host details for %s: %w", target, decodeIBMError(err))
 	}

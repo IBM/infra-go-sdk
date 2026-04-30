@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -14,12 +15,16 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+
+	ctx := context.Background()
+
+	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -33,7 +38,7 @@ func main() {
 
 	client.Logger.Info("Mapping volume to host...", "volume", mapping.VDisk, "host", mapping.Host)
 
-	if err := client.Mkvdiskhostmap(mapping); err != nil {
+	if err := client.Mkvdiskhostmap(ctx,mapping); err != nil {
 		client.Logger.Error("Mkvdiskhostmap error", "error", err)
 		os.Exit(1)
 	}

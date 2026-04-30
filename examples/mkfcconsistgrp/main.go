@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -14,12 +15,14 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+	ctx := context.Background()
+
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -31,7 +34,7 @@ func main() {
 
 	client.Logger.Info("Creating FlashCopy consistency group...", "name", group.Name)
 
-	if err := client.Mkfcconsistgrp(group); err != nil {
+	if err := client.Mkfcconsistgrp(ctx,group); err != nil {
 		client.Logger.Error("Mkfcconsistgrp error", "error", err)
 		os.Exit(1)
 	}

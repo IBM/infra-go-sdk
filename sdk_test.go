@@ -2,6 +2,7 @@ package svc
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -104,11 +105,11 @@ func TestMkhostValidation(t *testing.T) {
 		return nil, nil
 	}))
 
-	if err := client.Mkhost(Host{}); err == nil || !strings.Contains(err.Error(), "name is required") {
+	if err := client.Mkhost(context.Background(), Host{}); err == nil || !strings.Contains(err.Error(), "name is required") {
 		t.Fatalf("expected missing name validation error, got %v", err)
 	}
 
-	if err := client.Mkhost(Host{Name: "host1"}); err == nil || !strings.Contains(err.Error(), "missing fcwwpn") {
+	if err := client.Mkhost(context.Background(), Host{Name: "host1"}); err == nil || !strings.Contains(err.Error(), "missing fcwwpn") {
 		t.Fatalf("expected missing fcwwpn validation error, got %v", err)
 	}
 }
@@ -132,7 +133,7 @@ func TestMkhostPayloadFormatting(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{}`), nil
 	}))
 
-	err := client.Mkhost(Host{
+	err := client.Mkhost(context.Background(), Host{
 		Name:     "host1",
 		Fcwwpn:   []string{"10000000AAAA0001", "10000000AAAA0002"},
 		Type:     "generic",
@@ -163,7 +164,7 @@ func TestLsVdiskByNameParsesSingleItemArray(t *testing.T) {
 		return jsonResponse(http.StatusOK, `[{"id":"1","name":"vol1"}]`), nil
 	}))
 
-	vdisk, err := client.LsVdiskByName("vol1")
+	vdisk, err := client.LsVdiskByName(context.Background(), "vol1")
 	if err != nil {
 		t.Fatalf("LsVdiskByName returned error: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestLsVdiskByNameEmptyArray(t *testing.T) {
 		return jsonResponse(http.StatusOK, `[]`), nil
 	}))
 
-	_, err := client.LsVdiskByName("missing-vol")
+	_, err := client.LsVdiskByName(context.Background(), "missing-vol")
 	if err == nil {
 		t.Fatal("expected error for empty response array")
 	}
@@ -194,7 +195,7 @@ func TestPostReturnsRawIBMErrorForDecoding(t *testing.T) {
 		return jsonResponse(http.StatusBadRequest, `{"code":"CMMVC1234E","description":"bad input"}`), nil
 	}))
 
-	_, err := client.post("failing-endpoint", map[string]interface{}{"x": "y"})
+	_, err := client.post(context.Background(), "failing-endpoint", map[string]interface{}{"x": "y"})
 	if err == nil {
 		t.Fatal("expected post error")
 	}
@@ -223,7 +224,7 @@ func TestPostSendsJSONPayload(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{}`), nil
 	}))
 
-	_, err := client.post("payload-check", map[string]interface{}{"name": "demo", "size": 10})
+	_, err := client.post(context.Background(), "payload-check", map[string]interface{}{"name": "demo", "size": 10})
 	if err != nil {
 		t.Fatalf("post returned error: %v", err)
 	}
@@ -275,7 +276,7 @@ func TestEnsureTokenValidRefreshesExpiredToken(t *testing.T) {
 	client.Token = "old-token"
 	client.TokenExpiry = time.Now().Add(-1 * time.Minute)
 
-	token, err := client.ensureTokenValid(client.HTTPClient)
+	token, err := client.ensureTokenValid(context.Background(), client.HTTPClient)
 	if err != nil {
 		t.Fatalf("ensureTokenValid returned error: %v", err)
 	}
@@ -296,7 +297,7 @@ func TestLsfcmapByNameParsesSingleObject(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{"id":"1","name":"fcmap1","source_vdisk_name":"src1","target_vdisk_name":"tgt1"}`), nil
 	}))
 
-	mappings, err := client.Lsfcmap("fcmap1")
+	mappings, err := client.Lsfcmap(context.Background(), "fcmap1")
 	if err != nil {
 		t.Fatalf("Lsfcmap returned error: %v", err)
 	}
@@ -313,7 +314,7 @@ func TestLsfcmapByNameFallsBackToArrayAndFiltersByName(t *testing.T) {
 		return jsonResponse(http.StatusOK, `[{"id":"1","name":"other"},{"id":"2","name":"fcmap2","source_vdisk_name":"src2","target_vdisk_name":"tgt2"}]`), nil
 	}))
 
-	mappings, err := client.Lsfcmap("fcmap2")
+	mappings, err := client.Lsfcmap(context.Background(), "fcmap2")
 	if err != nil {
 		t.Fatalf("Lsfcmap returned error: %v", err)
 	}
@@ -333,7 +334,7 @@ func TestLsfcconsistgrpByNameParsesSingleObject(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{"id":"10","name":"grp1","status":"idle"}`), nil
 	}))
 
-	groups, err := client.Lsfcconsistgrp("grp1")
+	groups, err := client.Lsfcconsistgrp(context.Background(), "grp1")
 	if err != nil {
 		t.Fatalf("Lsfcconsistgrp returned error: %v", err)
 	}
@@ -353,7 +354,7 @@ func TestLsfcconsistgrpByNameFallsBackToMixedArray(t *testing.T) {
 		return jsonResponse(http.StatusOK, `[{"id":"10","name":"grp1","status":"copying"},{"FC_mapping_id":"21","FC_mapping_name":"fcmapA"},{"FC_mapping_id":"22","FC_mapping_name":"fcmapB"}]`), nil
 	}))
 
-	groups, err := client.Lsfcconsistgrp("grp1")
+	groups, err := client.Lsfcconsistgrp(context.Background(), "grp1")
 	if err != nil {
 		t.Fatalf("Lsfcconsistgrp returned error: %v", err)
 	}
@@ -390,7 +391,7 @@ func TestMkfcmapPayloadOmitsFalseBooleansAndIncludesTrueOnes(t *testing.T) {
 	}))
 
 	copyRate := 25
-	err := client.Mkfcmap(FlashCopyMapping{
+	err := client.Mkfcmap(context.Background(), FlashCopyMapping{
 		Name:        "fcmap1",
 		Source:      "src1",
 		Target:      "tgt1",
@@ -436,7 +437,7 @@ func TestMkfcconsistgrpPayloadOmitsFalseAutodelete(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{}`), nil
 	}))
 
-	err := client.Mkfcconsistgrp(FlashCopyConsistGroup{
+	err := client.Mkfcconsistgrp(context.Background(), FlashCopyConsistGroup{
 		Name:       "grp1",
 		AutoDelete: false,
 	})
@@ -452,6 +453,7 @@ func TestMkfcconsistgrpPayloadOmitsFalseAutodelete(t *testing.T) {
 		t.Fatalf("expected autodelete to be omitted when false: %s", bodyStr)
 	}
 }
+
 func TestAuthenticateFailure(t *testing.T) {
 	client := NewClient("test.example.com", "user", "pass")
 	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
@@ -462,7 +464,7 @@ func TestAuthenticateFailure(t *testing.T) {
 		Timeout: 5 * time.Second,
 	}
 
-	err := client.Authenticate()
+	err := client.Authenticate(context.Background())
 	if err == nil {
 		t.Fatal("expected authenticate error")
 	}
@@ -483,7 +485,7 @@ func TestPostPropagatesTokenRefreshFailure(t *testing.T) {
 	client.Token = ""
 	client.TokenExpiry = time.Time{}
 
-	_, err := client.post("anything", nil)
+	_, err := client.post(context.Background(), "anything", nil)
 	if err == nil {
 		t.Fatal("expected post error")
 	}
@@ -521,7 +523,7 @@ func TestPostReturnsTransportError(t *testing.T) {
 		return nil, errors.New("transport failure")
 	}))
 
-	_, err := client.post("transport-fail", nil)
+	_, err := client.post(context.Background(), "transport-fail", nil)
 	if err == nil {
 		t.Fatal("expected transport error")
 	}
@@ -564,7 +566,7 @@ func TestSVCAuthenticationIntegration(t *testing.T) {
 	client := NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(context.Background()); err != nil {
 		t.Fatalf("Authenticate failed against SVC %s: %v", *svcIP, err)
 	}
 	if client.Token == "" {
@@ -583,11 +585,11 @@ func TestSVCLssystemIntegration(t *testing.T) {
 	client := NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(context.Background()); err != nil {
 		t.Fatalf("Authenticate failed against SVC %s: %v", *svcIP, err)
 	}
 
-	systemInfo, err := client.Lssystem()
+	systemInfo, err := client.Lssystem(context.Background())
 	if err != nil {
 		t.Fatalf("Lssystem failed against SVC %s: %v", *svcIP, err)
 	}

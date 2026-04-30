@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -21,9 +22,9 @@ type TargetPortFC struct {
 }
 
 // Lstargetportfc retrieves a list of all Virtual (NPIV) Fibre Channel target ports on the system.
-func (c *Client) Lstargetportfc() ([]TargetPortFC, error) {
+func (c *Client) Lstargetportfc(ctx context.Context) ([]TargetPortFC, error) {
 	// Send the POST request to execute the lstargetportfc command
-	data, err := c.post("lstargetportfc", nil)
+	data, err := c.post(ctx,"lstargetportfc", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list virtual FC target ports: %w", decodeIBMError(err))
 	}

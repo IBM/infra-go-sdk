@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strings"
@@ -14,20 +15,20 @@ func main() {
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
-
+	ctx := context.Background()
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
 
 	// List all hosts
 	client.Logger.Info("Fetching all hosts...")
-	hosts, err := client.Lshost()
+	hosts, err := client.Lshost(ctx)
 	if err != nil {
 		client.Logger.Error("Lshost error", "error", err)
 		os.Exit(1)
@@ -38,7 +39,7 @@ func main() {
 	targetHost := "ltc09u31-vios1"
 	client.Logger.Info("Searching for specific host...", "target", targetHost)
 
-	host, err := client.LshostByTarget(targetHost)
+	host, err := client.LshostByTarget(ctx,targetHost)
 	if err != nil {
 		if strings.Contains(err.Error(), "CMMVC5754E") {
 			client.Logger.Warn("Host not found", "target", targetHost)

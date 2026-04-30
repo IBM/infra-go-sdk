@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -14,12 +15,15 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
 
+
+	ctx := context.Background()
+	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 	if *verbose {
 		client = client.WithDebug()
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1)
 	}
@@ -38,7 +42,7 @@ func main() {
 
 	client.Logger.Info("Creating new volume...", "volume_name", volume.Name)
 
-	if err := client.Mkvdisk(volume); err != nil {
+	if err := client.Mkvdisk(ctx,volume); err != nil {
 		client.Logger.Error("Mkvdisk error", "error", err)
 		os.Exit(1)
 	}

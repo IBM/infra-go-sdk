@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strings"
@@ -16,7 +17,7 @@ func main() {
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
 	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
 	flag.Parse()
-
+	ctx := context.Background()
 	// Initialize the client
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
 
@@ -28,7 +29,7 @@ func main() {
 		client = client.WithLogger(svc.NewLogger(log.InfoLevel, os.Stderr))
 	}
 
-	if err := client.Authenticate(); err != nil {
+	if err := client.Authenticate(ctx); err != nil {
 		client.Logger.Error("Authentication error", "error", err)
 		os.Exit(1) // Replaces log.Fatalf
 	}
@@ -37,7 +38,7 @@ func main() {
 	// List all fabric logins
 	client.Logger.Debug("Fetching fabric logins (this may take a few minutes)...")
 
-	logins, err := client.Lsfabric()
+	logins, err := client.Lsfabric(ctx)
 	if err != nil {
 		client.Logger.Error("Lsfabric error", "error", err)
 		os.Exit(1)
@@ -72,7 +73,7 @@ func main() {
 	client.Logger.Debug("WWPN targets", "wwpns", host.Fcwwpn)
 
 	// Check if any WWPN is already associated with a host
-	existingHost, matchedWWPN, err := client.GetHostByWWPN(host.Fcwwpn)
+	existingHost, matchedWWPN, err := client.GetHostByWWPN(ctx,host.Fcwwpn)
 	
 	if err == nil && existingHost != "" {
 		client.Logger.Info("✅ WWPN is already associated with host", "matched_wwpn", matchedWWPN, "host", existingHost)
