@@ -147,7 +147,7 @@ func (c *Client) postWithHTTPClient(ctx context.Context, httpClient *http.Client
 	}
 
 	url := fmt.Sprintf("%s/rest/%s", c.baseURL(), endpoint)
-	c.Logger.Debug("Preparing POST request", "url", url, "endpoint", endpoint)
+	c.Logger.Debug("→ HTTP Request", "method", "POST", "url", url, "endpoint", endpoint)
 
 	var body io.Reader
 	if payload != nil {
@@ -156,7 +156,7 @@ func (c *Client) postWithHTTPClient(ctx context.Context, httpClient *http.Client
 			c.Logger.Error("Failed to marshal payload", "error", err)
 			return nil, err
 		}
-		c.Logger.Debug("Request payload", "body", string(jsonBody))
+		c.Logger.Debug("  Request Body:", "payload", string(jsonBody))
 		body = bytes.NewBuffer(jsonBody)
 	}
 
@@ -179,14 +179,15 @@ func (c *Client) postWithHTTPClient(ctx context.Context, httpClient *http.Client
 		return nil, err
 	}
 	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
 
-	c.Logger.Debug("Received HTTP response", "status", resp.StatusCode, "duration", duration)
+	c.Logger.Debug("← HTTP Response", "status", resp.StatusCode, "duration", duration)
+	c.Logger.Debug("  Response Body:", "payload", string(respBody))
 
 	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
 		c.Logger.Warn("Non-200 response received", "status", resp.StatusCode, "response", string(respBody))
 		return nil, errors.New(string(respBody))
 	}
 
-	return io.ReadAll(resp.Body)
+	return respBody, nil
 }
