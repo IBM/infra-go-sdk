@@ -9,7 +9,7 @@ type FlashCopyMappingID struct {
 	ID string `json:"id"`
 }
 
-func (c *Client) Prestartfcmap(ctx context.Context,reqBody FlashCopyMappingID) error {
+func (c *Client) Prestartfcmap(ctx context.Context, reqBody FlashCopyMappingID) error {
 	if reqBody.ID == "" {
 		return fmt.Errorf("id is required")
 	}

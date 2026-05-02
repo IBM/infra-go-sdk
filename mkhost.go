@@ -15,7 +15,7 @@ type Host struct {
 	Protocol string
 }
 
-func (c *Client) Mkhost(ctx context.Context,host Host) error {
+func (c *Client) Mkhost(ctx context.Context, host Host) error {
 	if host.Name == "" {
 		return fmt.Errorf("name is required")
 	}

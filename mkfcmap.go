@@ -19,7 +19,7 @@ type FlashCopyMapping struct {
 	IOGrp       string `json:"iogrp,omitempty"`
 }
 
-func (c *Client) Mkfcmap(ctx context.Context,reqBody FlashCopyMapping) error {
+func (c *Client) Mkfcmap(ctx context.Context, reqBody FlashCopyMapping) error {
 	if reqBody.Source == "" || reqBody.Target == "" {
 		return fmt.Errorf("source and target are required")
 	}

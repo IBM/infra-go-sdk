@@ -25,7 +25,7 @@ type FlashCopyConsistGroupInfo struct {
 }
 
 // Lsfcconsistgrp retrieves information about FlashCopy consistency groups using the lsfcconsistgrp API endpoint
-func (c *Client) Lsfcconsistgrp(ctx context.Context,name string) ([]FlashCopyConsistGroupInfo, error) {
+func (c *Client) Lsfcconsistgrp(ctx context.Context, name string) ([]FlashCopyConsistGroupInfo, error) {
 	// Construct endpoint with or without name
 	endpoint := "lsfcconsistgrp"
 	if name != "" {

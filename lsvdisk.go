@@ -89,7 +89,7 @@ func (c *Client) LsVdisk(ctx context.Context) ([]Vdisk, error) {
 }
 
 // LsVdiskByName retrieves detailed information for a specific volume by its name or ID.
-func (c *Client) LsVdiskByName(ctx context.Context,target string) (*Vdisk, error) {
+func (c *Client) LsVdiskByName(ctx context.Context, target string) (*Vdisk, error) {
 	endpoint := fmt.Sprintf("lsvdisk/%s", target)
 	data, err := c.post(ctx,endpoint, nil)
 	if err != nil {

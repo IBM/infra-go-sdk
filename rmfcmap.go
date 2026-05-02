@@ -9,7 +9,7 @@ type FlashCopyMappingRemove struct {
 	Force bool `json:"force,omitempty"`
 }
 
-func (c *Client) Rmfcmap(ctx context.Context,name string, reqBody FlashCopyMappingRemove) error {
+func (c *Client) Rmfcmap(ctx context.Context, name string, reqBody FlashCopyMappingRemove) error {
 	if name == "" {
 		return fmt.Errorf("name is required: CMMVC5701E No object ID was specified")
 	}

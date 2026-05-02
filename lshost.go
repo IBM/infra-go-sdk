@@ -47,7 +47,7 @@ func (c *Client) Lshost(ctx context.Context) ([]Hosts, error) {
 
 // LshostByTarget retrieves details for a specific host.
 // Note: The API returns a single object for specific resource requests.
-func (c *Client) LshostByTarget(ctx context.Context,target string) (*Hosts, error) {
+func (c *Client) LshostByTarget(ctx context.Context, target string) (*Hosts, error) {
 	endpoint := fmt.Sprintf("lshost/%s", target)
 	data, err := c.post(ctx,endpoint, nil)
 	if err != nil {

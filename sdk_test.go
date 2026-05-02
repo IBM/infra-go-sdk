@@ -600,3 +600,75 @@ func TestSVCLssystemIntegration(t *testing.T) {
 		t.Fatalf("expected non-empty system identity, got %+v", systemInfo)
 	}
 }
+
+func TestContextCancellation(t *testing.T) {
+	client := newTestClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		// Simulate a slow operation
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(100 * time.Millisecond):
+			return jsonResponse(http.StatusOK, `[{"id":"1","name":"host1"}]`), nil
+		}
+	}))
+
+	// Create a context that's already cancelled
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := client.Lshost(ctx)
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("expected context cancellation error, got: %v", err)
+	}
+}
+
+func TestContextTimeout(t *testing.T) {
+	client := newTestClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		// Simulate a slow operation that takes longer than the timeout
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(200 * time.Millisecond):
+			return jsonResponse(http.StatusOK, `{"id":"1","name":"system1"}`), nil
+		}
+	}))
+
+	// Create a context with a very short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := client.Lssystem(ctx)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "deadline exceeded") {
+		t.Fatalf("expected context deadline exceeded error, got: %v", err)
+	}
+}
+
+func TestContextPropagation(t *testing.T) {
+	var receivedContext context.Context
+	client := newTestClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		receivedContext = req.Context()
+		return jsonResponse(http.StatusOK, `[]`), nil
+	}))
+
+	// Create a context with a value
+	type contextKey string
+	key := contextKey("test-key")
+	ctx := context.WithValue(context.Background(), key, "test-value")
+
+	_, _ = client.LsVdisk(ctx)
+
+	if receivedContext == nil {
+		t.Fatal("expected context to be propagated to HTTP request")
+	}
+
+	// Verify the context value was propagated
+	if val := receivedContext.Value(key); val != "test-value" {
+		t.Fatalf("expected context value to be propagated, got: %v", val)
+	}
+}

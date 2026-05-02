@@ -9,7 +9,7 @@ type FlashCopyConsistGroupID struct {
 	ID string `json:"id"`
 }
 
-func (c *Client) Prestartfcconsistgrp(ctx context.Context,reqBody FlashCopyConsistGroupID) error {
+func (c *Client) Prestartfcconsistgrp(ctx context.Context, reqBody FlashCopyConsistGroupID) error {
 	if reqBody.ID == "" {
 		return fmt.Errorf("id is required")
 	}

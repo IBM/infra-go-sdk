@@ -38,17 +38,74 @@ client.WithPort(7443)
 
 ## Authenticate
 
+All API methods require a `context.Context` parameter for timeout and cancellation support:
+
 ```go
-if err := client.Authenticate(); err != nil {
+ctx := context.Background()
+if err := client.Authenticate(ctx); err != nil {
 	log.Fatalf("auth error: %v", err)
 }
 fmt.Println("Authenticated")
 ```
 
+## Context Usage
+
+The SDK supports Go's context package for timeout and cancellation control:
+
+### Basic Usage
+```go
+ctx := context.Background()
+systemInfo, err := client.Lssystem(ctx)
+if err != nil {
+	log.Fatalf("lssystem error: %v", err)
+}
+```
+
+### With Timeout
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+hosts, err := client.Lshost(ctx)
+if err != nil {
+	log.Fatalf("lshost error: %v", err)
+}
+```
+
+### With Cancellation
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+// Cancel on interrupt signal
+go func() {
+	<-sigChan
+	cancel()
+}()
+
+vdisks, err := client.LsVdisk(ctx)
+if err != nil {
+	log.Fatalf("lsvdisk error: %v", err)
+}
+```
+
+### With Deadline
+```go
+deadline := time.Now().Add(1 * time.Minute)
+ctx, cancel := context.WithDeadline(context.Background(), deadline)
+defer cancel()
+
+ports, err := client.Lsportfc(ctx)
+if err != nil {
+	log.Fatalf("lsportfc error: %v", err)
+}
+```
+
 ## Example: list system information
 
 ```go
-systemInfo, err := client.Lssystem()
+ctx := context.Background()
+systemInfo, err := client.Lssystem(ctx)
 if err != nil {
 	log.Fatalf("lssystem error: %v", err)
 }
@@ -58,7 +115,8 @@ fmt.Printf("System: %+v\n", systemInfo)
 ## Example: list FC ports
 
 ```go
-ports, err := client.Lsportfc()
+ctx := context.Background()
+ports, err := client.Lsportfc(ctx)
 if err != nil {
 	log.Fatalf("lsportfc error: %v", err)
 }
@@ -68,8 +126,9 @@ fmt.Printf("Ports: %+v\n", ports)
 ## Example: create a FlashCopy mapping
 
 ```go
+ctx := context.Background()
 copyRate := 50
-err := client.Mkfcmap(svc.FlashCopyMapping{
+err := client.Mkfcmap(ctx, svc.FlashCopyMapping{
 	Name:        "fcmap-demo",
 	Source:      "source-vol",
 	Target:      "target-vol",
@@ -150,7 +209,8 @@ client := svc.NewClient("svc-hostname-or-ip", "username", "REDACTED_HMC_PASS<=="
     WithTLSInsecure().
     WithDebug()
 
-if err := client.Authenticate(); err != nil {
+ctx := context.Background()
+if err := client.Authenticate(ctx); err != nil {
     log.Fatal(err)
 }
 
@@ -166,7 +226,8 @@ go func() {
     client.WithDebug() // Mutates logger while other goroutines use it
 }()
 go func() {
-    client.Lssystem() // May read logger concurrently
+    ctx := context.Background()
+    client.Lssystem(ctx) // May read logger concurrently
 }()
 ```
 

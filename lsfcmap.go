@@ -32,7 +32,7 @@ type FlashCopyMappingInfo struct {
 }
 
 // Lsfcmap retrieves information about FlashCopy mappings using the lsfcmap API endpoint
-func (c *Client) Lsfcmap(ctx context.Context,name string) ([]FlashCopyMappingInfo, error) {
+func (c *Client) Lsfcmap(ctx context.Context, name string) ([]FlashCopyMappingInfo, error) {
 	endpoint := "lsfcmap"
 	if name != "" {
 		endpoint = fmt.Sprintf("lsfcmap/%s", name)

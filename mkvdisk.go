@@ -19,7 +19,7 @@ type Volume struct {
 }
 
 // Mkvdisk sends a POST request to /mkvdisk to create a volume
-func (c *Client) Mkvdisk(ctx context.Context,reqBody Volume) error {
+func (c *Client) Mkvdisk(ctx context.Context, reqBody Volume) error {
 	// Validate required fields
 	if reqBody.Name == "" || reqBody.MdiskGrp == "" || reqBody.Size <= 0 {
 		return fmt.Errorf("name, mdiskgrp, and size are required")

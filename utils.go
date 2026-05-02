@@ -6,6 +6,16 @@ import (
 	"strings"
 )
 
+// validateContext checks if the provided context is valid (not nil).
+// Returns an error if the context is nil, otherwise returns nil.
+func validateContext(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("context cannot be nil")
+	}
+	return nil
+}
+
+
 // GetHostByWWPN searches for any of the provided WWPNs in the fabric logins
 // and returns the associated host name and matching WWPN if found
 func (c *Client) GetHostByWWPN(ctx context.Context, wwpns []string) (string, string, error) {

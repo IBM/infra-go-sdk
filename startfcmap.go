@@ -11,7 +11,7 @@ type FlashCopyMappingStart struct {
 	Restore bool   `json:"restore,omitempty"`
 }
 
-func (c *Client) Startfcmap(ctx context.Context,reqBody FlashCopyMappingStart) error {
+func (c *Client) Startfcmap(ctx context.Context, reqBody FlashCopyMappingStart) error {
 	if reqBody.ID == "" {
 		return fmt.Errorf("id is required: CMMVC5701E No object ID was specified")
 	}

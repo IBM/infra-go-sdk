@@ -10,7 +10,7 @@ type FlashCopyConsistGroup struct {
 	AutoDelete bool   `json:"autodelete,omitempty"`
 }
 
-func (c *Client) Mkfcconsistgrp(ctx context.Context,reqBody FlashCopyConsistGroup) error {
+func (c *Client) Mkfcconsistgrp(ctx context.Context, reqBody FlashCopyConsistGroup) error {
 	payload := make(map[string]interface{})
 	if reqBody.Name != "" {
 		payload["name"] = reqBody.Name

@@ -11,7 +11,7 @@ type FlashCopyConsistGroupStart struct {
 	Restore bool   `json:"restore,omitempty"`
 }
 
-func (c *Client) Startfcconsistgrp(ctx context.Context,reqBody FlashCopyConsistGroupStart) error {
+func (c *Client) Startfcconsistgrp(ctx context.Context, reqBody FlashCopyConsistGroupStart) error {
 	if reqBody.ID == "" {
 		return fmt.Errorf("id is required: CMMVC5701E No object ID was specified")
 	}

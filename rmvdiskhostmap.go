@@ -7,7 +7,7 @@ import (
 
 // Rmvdiskhostmap removes the SCSI/NVMe mapping between a specific volume and a host.
 // It does NOT delete the volume or the data on it.
-func (c *Client) Rmvdiskhostmap(ctx context.Context,host string, vdisk string) error {
+func (c *Client) Rmvdiskhostmap(ctx context.Context, host string, vdisk string) error {
 	if host == "" || vdisk == "" {
 		return fmt.Errorf("host and vdisk are required, host:%s, vdisk:%s", host, vdisk)
 	}
