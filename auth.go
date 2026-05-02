@@ -12,8 +12,7 @@ import (
 )
 
 // Login performs the logon operation to the HMC REST API
-// Login performs the logon operation to the HMC REST API
-func (c *HmcRestClient) Login(username, password string, debug bool) error {
+func (c *HmcRestClient) Login(ctx context.Context, username, password string, debug bool) error {
 	// Optional: If you still want to pass 'verbose' through the function signature,
 	// you can toggle the logger level right here.
 	if debug {
@@ -38,8 +37,8 @@ func (c *HmcRestClient) Login(username, password string, debug bool) error {
 	
 	// LOOK HOW CLEAN THIS IS! No more "if verbose { ... }" blocks!
 	// We pass the URL and Username as structured key-value pairs.
-	c.Logger.Debug("Sending logon request", 
-		"url", url, 
+	c.Logger.Debug("Sending logon request",
+		"url", url,
 		"user", username,
 	)
 
@@ -50,9 +49,9 @@ func (c *HmcRestClient) Login(username, password string, debug bool) error {
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
 	req.SetBasicAuth(username, password)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(reqCtx)
 
 	c.logRawTraffic("REQUEST (PUT)", url, string(xmlData))
 
@@ -90,7 +89,7 @@ func (c *HmcRestClient) Login(username, password string, debug bool) error {
 }
 
 // Logoff performs the logoff operation from the HMC REST API
-func (c *HmcRestClient) Logoff() error {
+func (c *HmcRestClient) Logoff(ctx context.Context) error {
     if c.session == "" {
         c.Logger.Debug("No active session to log off")
         return nil // No session to log off
@@ -117,9 +116,9 @@ func (c *HmcRestClient) Logoff() error {
     // ✨ THE FIX #2: Tell Go not to reuse this connection ✨
     req.Close = true
 
-    ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+    reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
     defer cancel()
-    req = req.WithContext(ctx)
+    req = req.WithContext(reqCtx)
 
     c.logRawTraffic("REQUEST (DELETE)", url, "")
 

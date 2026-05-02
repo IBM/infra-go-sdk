@@ -12,7 +12,7 @@ import (
 )
 
 // FetchJobResponse retrieves the full job response and returns it as a structured JobResponse
-func (c *HmcRestClient) FetchJobResponse(jobID string, debug bool) (*JobResponse, error) {
+func (c *HmcRestClient) FetchJobResponse(ctx context.Context, jobID string, debug bool) (*JobResponse, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
 	if debug {
 		c.Logger.Debug("Fetching job response", "jobID", jobID, "url", url)
@@ -25,9 +25,9 @@ func (c *HmcRestClient) FetchJobResponse(jobID string, debug bool) (*JobResponse
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.web+xml; type=JobResponse")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(reqCtx)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -388,7 +388,7 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 //   - error: Error if the deletion fails, nil on success
 //
 // Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-jobs
-func (c *HmcRestClient) DeleteJob(jobID string, template bool, debug bool) error {
+func (c *HmcRestClient) DeleteJob(ctx context.Context, jobID string, template bool, debug bool) error {
 	// Construct URL based on template flag
 	var url string
 	if template {
@@ -411,9 +411,9 @@ func (c *HmcRestClient) DeleteJob(jobID string, template bool, debug bool) error
 	req.Header.Set("X-API-Session", c.session)
 
 	// Set up timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(reqCtx)
 
 	c.logRawTraffic("REQUEST (DELETE)", url, "")
 

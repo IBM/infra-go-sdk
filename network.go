@@ -15,7 +15,7 @@ import (
 )
 
 // GetVirtualSwitchQuickAll retrieves a JSON array of all Virtual Switches on a Managed System.
-func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, debug bool) ([]VirtualSwitchQuick, error) {
+func (c *HmcRestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID string, debug bool) ([]VirtualSwitchQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/quick/All", c.hmcIP, sysUUID)
 
 	if debug {
@@ -28,10 +28,9 @@ func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, debug bool) ([]
 	}
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/json")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -71,7 +70,7 @@ func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, debug bool) ([]
 }
 
 // GetVirtualSwitchQuick retrieves JSON details for a specific Virtual Switch.
-func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, debug bool) (*VirtualSwitchQuick, error) {
+func (c *HmcRestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchUUID string, debug bool) (*VirtualSwitchQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s/quick", c.hmcIP, sysUUID, switchUUID)
 
 	if debug {
@@ -85,9 +84,9 @@ func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, debug 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/json")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -130,7 +129,7 @@ func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, debug 
 }
 
 // GetVirtualSwitches retrieves the comprehensive XML feed of Virtual Switches on a Managed System.
-func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, debug bool) ([]VirtualSwitch, error) {
+func (c *HmcRestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, debug bool) ([]VirtualSwitch, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch", c.hmcIP, sysUUID)
 
 	if debug {
@@ -144,9 +143,9 @@ func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, debug bool) ([]Virtua
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -215,7 +214,7 @@ func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, debug bool) ([]Virtua
 }
 
 // GetClientNetworkAdapters retrieves all ClientNetworkAdapter details for a partition as parsed Go structs.
-func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, debug bool) ([]ClientNetworkAdapter, error) {
+func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, lparUUID string, debug bool) ([]ClientNetworkAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
 	
 	if debug {
@@ -229,9 +228,9 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, de
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -315,7 +314,7 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, de
 //   - error: Error if the operation fails
 //
 // Reference: HMC REST API - GetNetworkBootDevices job operation
-func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
+func (c *HmcRestClient) GetNetworkBootDevices(ctx context.Context, lparUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/GetNetworkBootDevices", c.hmcIP, lparUUID)
 
 	if debug {
@@ -349,9 +348,9 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, debu
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
 	req.Header.Set("Accept", "*/*")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
@@ -391,7 +390,7 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, debu
 	}
 
 	// Wait for job completion
-	jobResp, err := c.FetchJobStatus(context.Background(), jobID, false, 5, debug)
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, 5, debug)
 	if err != nil {
 		return nil, fmt.Errorf("GetNetworkBootDevices job failed: %v", err)
 	}
@@ -466,7 +465,7 @@ func (c *HmcRestClient) GetNetworkBootDevices(lparUUID, profileUUID string, debu
 
 // CreateClientNetworkAdapter adds a new Virtual Ethernet Adapter to an LPAR and connects it to a Virtual Switch.
 // Returns the complete ClientNetworkAdapter structure with all details.
-func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID string, vlanID int, debug bool) (*ClientNetworkAdapter, error) {
+func (c *HmcRestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID, lparUUID, vswitchUUID string, vlanID int, debug bool) (*ClientNetworkAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, lparUUID)
 
 	if debug {
@@ -495,9 +494,9 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUI
 	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=ClientNetworkAdapter")
 	httpReq.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	httpReq = httpReq.WithContext(ctx)
+	httpReq = httpReq.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
@@ -563,7 +562,7 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUI
 }
 
 // DeleteClientNetworkAdapter removes a specific Virtual Ethernet Adapter from an LPAR.
-func (c *HmcRestClient) DeleteClientNetworkAdapter(lparUUID, adapterUUID string, debug bool) error {
+func (c *HmcRestClient) DeleteClientNetworkAdapter(ctx context.Context, lparUUID, adapterUUID string, debug bool) error {
 	// The specific endpoint for the adapter we want to delete
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter/%s", c.hmcIP, lparUUID, adapterUUID)
 
@@ -580,9 +579,9 @@ func (c *HmcRestClient) DeleteClientNetworkAdapter(lparUUID, adapterUUID string,
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (DELETE)", url, "")
 
