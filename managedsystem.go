@@ -262,8 +262,11 @@ func (c *HmcRestClient) GetManagedSystems(debug bool) (*etree.Element, error) {
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Read the response body
@@ -385,8 +388,11 @@ func (c *HmcRestClient) GetManagedSystem(systemUUID string, debug bool) (*Manage
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// 1. Strip the namespaces using the existing helper to make unmarshaling clean
@@ -460,8 +466,11 @@ func (c *HmcRestClient) CliRunner(cmdString string, debug bool) (string, error) 
 	c.logRawTraffic("RESPONSE", mcURL, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Failed to get Management Console", "status", resp.StatusCode, "body", string(body))
-		return "", fmt.Errorf("failed to get Management Console (HTTP %d): %s", resp.StatusCode, string(body))
+		c.Logger.Error("Failed to get Management Console", "status", resp.StatusCode)
+		if debug {
+			return "", fmt.Errorf("failed to get Management Console (HTTP %d): %s", resp.StatusCode, string(body))
+		}
+		return "", fmt.Errorf("failed to get Management Console (HTTP %d). Enable debug mode to see full response", resp.StatusCode)
 	}
 
 	mcDoc, err := xmlStripNamespace(body)

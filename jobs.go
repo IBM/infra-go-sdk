@@ -444,8 +444,11 @@ func (c *HmcRestClient) DeleteJob(jobID string, template bool, debug bool) error
 	// DELETE typically returns 204 No Content on success, but may also return 200 OK
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		if len(body) > 0 {
-			c.Logger.Error("Failed to delete job", "status", resp.Status, "body", string(body))
-			return fmt.Errorf("failed to delete job (status %s): %s", resp.Status, string(body))
+			c.Logger.Error("Failed to delete job", "status", resp.Status)
+			if debug {
+				return fmt.Errorf("failed to delete job (status %s): %s", resp.Status, string(body))
+			}
+			return fmt.Errorf("failed to delete job (status %s). Enable debug mode to see full response", resp.Status)
 		}
 		c.Logger.Error("Failed to delete job", "status", resp.Status)
 		return fmt.Errorf("failed to delete job with status: %s", resp.Status)

@@ -50,8 +50,11 @@ func (c *HmcRestClient) GetVirtualSwitchQuickAll(sysUUID string, debug bool) ([]
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Failed to fetch Virtual Switches Quick/All", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("failed to fetch Virtual Switches Quick/All: %s - %s", resp.Status, string(body))
+		c.Logger.Error("Failed to fetch Virtual Switches Quick/All", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("failed to fetch Virtual Switches Quick/All: %s - %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("failed to fetch Virtual Switches Quick/All: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	var switches []VirtualSwitchQuick
@@ -103,8 +106,11 @@ func (c *HmcRestClient) GetVirtualSwitchQuick(sysUUID, switchUUID string, debug 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Failed to fetch Virtual Switch Quick", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("failed to fetch Virtual Switch Quick: %s - %s", resp.Status, string(body))
+		c.Logger.Error("Failed to fetch Virtual Switch Quick", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("failed to fetch Virtual Switch Quick: %s - %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("failed to fetch Virtual Switch Quick: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	var vSwitch VirtualSwitchQuick
@@ -159,8 +165,11 @@ func (c *HmcRestClient) GetVirtualSwitches(sysUUID string, debug bool) ([]Virtua
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Failed to fetch Virtual Switches XML", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("failed to fetch Virtual Switches XML: %s - %s", resp.Status, string(body))
+		c.Logger.Error("Failed to fetch Virtual Switches XML", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("failed to fetch Virtual Switches XML: %s - %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("failed to fetch Virtual Switches XML: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)
@@ -248,8 +257,11 @@ func (c *HmcRestClient) GetClientNetworkAdapters(systemUUID, lparUUID string, de
 			}
 			return []ClientNetworkAdapter{}, nil
 		}
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Parse XML response and strip namespaces
@@ -506,7 +518,10 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUI
 	
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		c.Logger.Error("Adapter creation failed", "status", resp.Status)
-		return nil, fmt.Errorf("Adapter creation failed (%s): %s", resp.Status, string(body))
+		if debug {
+			return nil, fmt.Errorf("Adapter creation failed (%s): %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("Adapter creation failed (%s). Enable debug mode to see full response", resp.Status)
 	}
 
 	// Parse the XML response and strip namespaces
@@ -584,8 +599,11 @@ func (c *HmcRestClient) DeleteClientNetworkAdapter(lparUUID, adapterUUID string,
 	
 	// A successful DELETE operation typically returns 200 OK or 204 No Content
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		c.Logger.Error("Failed to delete adapter", "status", resp.Status, "body", string(body))
-		return fmt.Errorf("failed to delete adapter (%s): %s", resp.Status, string(body))
+		c.Logger.Error("Failed to delete adapter", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("failed to delete adapter (%s): %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("failed to delete adapter (%s). Enable debug mode to see full response", resp.Status)
 	}
 
 	if debug {

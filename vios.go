@@ -92,7 +92,10 @@ func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName 
 	// Check for non-success status codes
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusCreated {
 		c.Logger.Error("ConfigDevice job submission failed", "status", resp.Status)
-		return fmt.Errorf("ConfigDevice job submission failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return fmt.Errorf("ConfigDevice job submission failed with status %s: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("ConfigDevice job submission failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Strip namespaces from the response XML
@@ -479,7 +482,10 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, debug bool
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("RemoveDevice failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return fmt.Errorf("RemoveDevice failed with status %s: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("RemoveDevice failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, _ := xmlStripNamespace(body)
@@ -553,7 +559,10 @@ func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, debug bool) ([]Vi
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// 1. Strip XML namespaces to prevent Unmarshal tag conflicts
@@ -627,7 +636,10 @@ func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, debug bool) (*Virtua
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Strip XML namespaces
@@ -699,7 +711,10 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapters(viosUUID string, debug bool
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Strip XML namespaces to make path searching easier with etree
@@ -802,7 +817,10 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapter(viosUUID, adapterUUID string
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)
@@ -880,7 +898,10 @@ func (c *HmcRestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID str
 
 	// Accept both 200 OK and 204 No Content as successful deletions
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("failed to delete VirtualSCSIServerAdapter. Status: %s, Response: %s", resp.Status, string(body))
+		if debug {
+			return fmt.Errorf("failed to delete VirtualSCSIServerAdapter. Status: %s, Response: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("failed to delete VirtualSCSIServerAdapter. Status: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	return nil
@@ -921,7 +942,10 @@ func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, debug bool) ([]Virt
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)
@@ -998,7 +1022,10 @@ func (c *HmcRestClient) GetVolumeGroups(viosUUID string, debug bool) ([]VolumeGr
     c.logRawTraffic("RESPONSE", url, string(body))
 
     if resp.StatusCode != http.StatusOK {
-        return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+        if debug {
+            return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+        }
+        return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
     }
 
     doc, err := xmlStripNamespace(body)
@@ -1078,7 +1105,10 @@ func (c *HmcRestClient) GetVolumeGroup(viosUUID, vgUUID string, debug bool) (*Vo
     c.logRawTraffic("RESPONSE", url, string(body))
 
     if resp.StatusCode != http.StatusOK {
-        return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+        if debug {
+            return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+        }
+        return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
     }
 
     doc, err := xmlStripNamespace(body)
@@ -1185,7 +1215,10 @@ func (c *HmcRestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolum
 
 	// 5. Check for Success
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("CreateVolumeGroup failed with status %s: %s", resp.Status, string(body))
+		if debug {
+			return fmt.Errorf("CreateVolumeGroup failed with status %s: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("CreateVolumeGroup failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// 6. Monitor the Job (If the HMC kicked off an asynchronous job)
@@ -1898,7 +1931,10 @@ func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 	c.logRawTraffic("RESPONSE", url, string(rawXML))
 
 	if getResp.StatusCode != 200 {
-		return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		if debug {
+			return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		}
+		return "", fmt.Errorf("GET failed (HTTP %d). Enable debug mode to see full XML response", getResp.StatusCode)
 	}
 
 	// 2. Load the pristine XML into etree
@@ -2026,7 +2062,10 @@ func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 			return "SUCCESS_WITH_RMC_WARNING", nil
 		}
 		// Hard fail on genuine errors
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		if debug {
+			return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		}
+		return "", fmt.Errorf("POST failed (%s). Enable debug mode to see full XML response", postResp.Status)
 	}
 
 	// 8. Wait for background job to finish updating the Hypervisor
@@ -2076,7 +2115,10 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 
 	rawXML, _ := io.ReadAll(getResp.Body)
 	if getResp.StatusCode != 200 {
-		return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		if debug {
+			return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		}
+		return "", fmt.Errorf("GET failed (HTTP %d). Enable debug mode to see full XML response", getResp.StatusCode)
 	}
 
 	// 2. Load the pristine XML into etree
@@ -2196,7 +2238,10 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 			return "SUCCESS_WITH_RMC_WARNING", nil
 		}
 		// Hard fail on genuine errors
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		if debug {
+			return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		}
+		return "", fmt.Errorf("POST failed (%s). Enable debug mode to see full XML response", postResp.Status)
 	}
 
 	// 8. Wait for background job to finish updating the Hypervisor
@@ -2295,7 +2340,11 @@ func (c *HmcRestClient) AddVirtualOpticalMedia(viosUUID string, mediaFiles map[s
 		}
 
 		if resp.StatusCode >= 400 {
-			results[mediaName] = fmt.Errorf("AddOpticalMedia job failed with status %s: %s", resp.Status, string(body))
+			if debug {
+				results[mediaName] = fmt.Errorf("AddOpticalMedia job failed with status %s: %s", resp.Status, string(body))
+			} else {
+				results[mediaName] = fmt.Errorf("AddOpticalMedia job failed with status %s. Enable debug mode to see full response", resp.Status)
+			}
 			continue
 		}
 
@@ -2449,7 +2498,10 @@ func (c *HmcRestClient) CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 		if strings.Contains(string(body), "HSCL2957") || strings.Contains(string(body), "HSCL294D") {
 			return "SUCCESS_WITH_RMC_WARNING", nil
 		}
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
+		if debug {
+			return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
+		}
+		return "", fmt.Errorf("POST failed (%s). Enable debug mode to see full response", postResp.Status)
 	}
 
 	return "SUCCESS", nil
@@ -2492,7 +2544,10 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 	c.logRawTraffic("RESPONSE", url, string(rawXML))
 
 	if getResp.StatusCode != 200 {
-		return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		if debug {
+			return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		}
+		return "", fmt.Errorf("GET failed (HTTP %d). Enable debug mode to see full XML response", getResp.StatusCode)
 	}
 
 	// 2. Load the pristine XML into etree
@@ -2620,7 +2675,10 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 			return "SUCCESS_WITH_RMC_WARNING", nil
 		}
 		// Hard fail on genuine errors (e.g., HTTP 500, Bad Request)
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		if debug {
+			return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		}
+		return "", fmt.Errorf("POST failed (%s). Enable debug mode to see full XML response", postResp.Status)
 	}
 
 	// 10. Wait for HMC Job Completion (Updates the Hypervisor)
@@ -2675,7 +2733,10 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 	c.logRawTraffic("RESPONSE", url, string(rawXML))
 
 	if getResp.StatusCode != 200 {
-		return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		if debug {
+			return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		}
+		return "", fmt.Errorf("GET failed (HTTP %d). Enable debug mode to see full XML response", getResp.StatusCode)
 	}
 
 	// 2. Load the pristine XML into etree
@@ -2794,7 +2855,10 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 			return "SUCCESS_WITH_RMC_WARNING", nil
 		}
 		// Hard fail on genuine errors (e.g., HTTP 500, Bad Request)
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		if debug {
+			return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		}
+		return "", fmt.Errorf("POST failed (%s). Enable debug mode to see full XML response", postResp.Status)
 	}
 
 	// 10. Wait for HMC Job Completion (Updates the Hypervisor)
@@ -2859,7 +2923,10 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 
 	rawXML, _ := io.ReadAll(getResp.Body)
 	if getResp.StatusCode != 200 {
-		return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		if debug {
+			return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		}
+		return "", fmt.Errorf("GET failed (HTTP %d). Enable debug mode to see full XML response", getResp.StatusCode)
 	}
 
 	// 2. Load the pristine XML into etree
@@ -2966,7 +3033,10 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 			return "SUCCESS_WITH_RMC_WARNING", nil
 		}
 		// Hard fail on genuine errors
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		if debug {
+			return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		}
+		return "", fmt.Errorf("POST failed (%s). Enable debug mode to see full XML response", postResp.Status)
 	}
 
 	// 10. Wait for HMC Job Completion
@@ -3018,7 +3088,10 @@ func (c *HmcRestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 	c.logRawTraffic("RESPONSE", url, string(rawXML))
 
 	if getResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		if debug {
+			return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		}
+		return "", fmt.Errorf("GET failed (HTTP %d). Enable debug mode to see full XML response", getResp.StatusCode)
 	}
 
 	// 2. Load the pristine XML into etree
@@ -3127,7 +3200,10 @@ func (c *HmcRestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 			return "SUCCESS_WITH_RMC_WARNING", nil
 		}
 		// Hard fail on genuine errors (e.g., schema validation failures)
-		return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		if debug {
+			return "", fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+		}
+		return "", fmt.Errorf("POST failed (%s). Enable debug mode to see full XML response", postResp.Status)
 	}
 
 	// 7. Check for Background Job
@@ -3170,7 +3246,10 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 	c.logRawTraffic("RESPONSE", url, string(rawXML))
 
 	if getResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		if debug {
+			return "", fmt.Errorf("GET failed (HTTP %d): %s", getResp.StatusCode, string(rawXML))
+		}
+		return "", fmt.Errorf("GET failed (HTTP %d). Enable debug mode to see full XML response", getResp.StatusCode)
 	}
 
 	// 2. Load the pristine XML into etree
@@ -3548,7 +3627,10 @@ func (c *HmcRestClient) CreateVirtualSCSIServerAdapter(viosUUID string, clientLp
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("vSCSI Server Adapter creation failed (%s): %s", resp.Status, string(body))
+		if debug {
+			return "", fmt.Errorf("vSCSI Server Adapter creation failed (%s): %s", resp.Status, string(body))
+		}
+		return "", fmt.Errorf("vSCSI Server Adapter creation failed (%s). Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)
@@ -3592,7 +3674,10 @@ func (c *HmcRestClient) GetRawViosXML(viosUUID string, group string, debug bool)
 	}
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("failed to fetch raw XML (HTTP %d): %s", resp.StatusCode, string(body))
+		if debug {
+			return "", fmt.Errorf("failed to fetch raw XML (HTTP %d): %s", resp.StatusCode, string(body))
+		}
+		return "", fmt.Errorf("failed to fetch raw XML (HTTP %d). Enable debug mode to see full response", resp.StatusCode)
 	}
 
 	return string(body), nil

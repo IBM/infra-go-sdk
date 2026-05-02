@@ -828,7 +828,10 @@ func (c *HmcRestClient) DeleteHMCResource(resourceURL string, debug bool) error 
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("failed to delete resource. Status: %s, Response: %s", resp.Status, string(body))
+		if debug {
+			return fmt.Errorf("failed to delete resource. Status: %s, Response: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("failed to delete resource. Status: %s. Enable debug mode to see full response", resp.Status)
 	}
 	return nil
 }

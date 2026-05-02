@@ -486,7 +486,10 @@ func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("request failed with status: %d, body: %s", resp.StatusCode, string(body))
+		if debug {
+			return fmt.Errorf("request failed with status: %d, body: %s", resp.StatusCode, string(body))
+		}
+		return fmt.Errorf("request failed with status: %d. Enable debug mode to see full response", resp.StatusCode)
 	}
 
 	return nil

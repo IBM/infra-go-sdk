@@ -317,8 +317,11 @@ func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, debug bo
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		c.Logger.Error("Request failed", "status", resp.StatusCode)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %d. Enable debug mode to see full response", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -460,8 +463,11 @@ func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, debug bo
 		if resp.StatusCode == http.StatusNoContent {
 			return nil, nil // No partitions found
 		}
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	var lparList []LogicalPartitionQuick
@@ -533,8 +539,11 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, debug bool)
 				return fmt.Errorf("delete failed: %s, status: %s", errorMsgs[0].Text(), resp.Status)
 			}
 		}
-		c.Logger.Error("Delete failed", "status", resp.Status, "body", string(body))
-		return fmt.Errorf("delete failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("Delete failed", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("delete failed with status %s: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("delete failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	if debug {
@@ -579,8 +588,11 @@ func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, debug bool) (
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("failed: %s - %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("failed: %s - %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("failed: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)
@@ -691,8 +703,11 @@ func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparReq
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		c.Logger.Error("UOM creation failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("UOM creation failed (%s): %s", resp.Status, string(body))
+		c.Logger.Error("UOM creation failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("UOM creation failed (%s): %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("UOM creation failed (%s). Enable debug mode to see full response", resp.Status)
 	}
 
 	if debug {
@@ -780,8 +795,11 @@ func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		c.Logger.Error("vSCSI Adapter creation failed", "status", resp.Status, "body", string(body))
-		return "", fmt.Errorf("vSCSI Adapter creation failed (%s): %s", resp.Status, string(body))
+		c.Logger.Error("vSCSI Adapter creation failed", "status", resp.Status)
+		if debug {
+			return "", fmt.Errorf("vSCSI Adapter creation failed (%s): %s", resp.Status, string(body))
+		}
+		return "", fmt.Errorf("vSCSI Adapter creation failed (%s). Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)
@@ -840,8 +858,11 @@ func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, debug bool)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		c.Logger.Error("Request failed", "status", resp.StatusCode)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %d. Enable debug mode to see full response", resp.StatusCode)
 	}
 
 	// 1. Strip the namespaces using the existing helper to make unmarshaling clean
@@ -1186,8 +1207,11 @@ func (c *HmcRestClient) GetAllLogicalPartitionsInHmc(debug bool) ([]LogicalParti
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		c.Logger.Error("Request failed", "status", resp.StatusCode)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %d. Enable debug mode to see full response", resp.StatusCode)
 	}
 
 	// 1. Strip namespaces
@@ -1281,8 +1305,11 @@ func (c *HmcRestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return "", fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return "", fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return "", fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// The HMC often returns single properties wrapped in JSON quotes (e.g., "running").
@@ -1336,8 +1363,11 @@ func (c *HmcRestClient) SearchLogicalPartitions(propertyName, propertyValue stri
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		c.Logger.Error("Request failed", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		c.Logger.Error("Request failed", "status", resp.StatusCode)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %d. Enable debug mode to see full response", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -1520,8 +1550,11 @@ func (c *HmcRestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		c.Logger.Error("vFC Adapter creation failed", "status", resp.Status, "body", string(body))
-		return "", fmt.Errorf("vFC Adapter creation failed (%s):\n%s", resp.Status, string(body))
+		c.Logger.Error("vFC Adapter creation failed", "status", resp.Status)
+		if debug {
+			return "", fmt.Errorf("vFC Adapter creation failed (%s):\n%s", resp.Status, string(body))
+		}
+		return "", fmt.Errorf("vFC Adapter creation failed (%s). Enable debug mode to see full response", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)

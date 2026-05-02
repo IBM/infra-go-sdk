@@ -54,8 +54,11 @@ func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, debug 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Strip namespaces from XML
@@ -142,8 +145,11 @@ func (c *HmcRestClient) GetLogicalPartitionProfile(partitionUUID string, profile
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Strip namespaces from XML
@@ -224,8 +230,11 @@ func (c *HmcRestClient) DeleteLogicalPartitionProfile(partitionUUID string, prof
 
 	// DELETE typically returns 204 No Content on success, but may also return 200
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	if debug {
@@ -365,8 +374,11 @@ func (c *HmcRestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]Par
 
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(body))
-		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+		c.Logger.Error("Request failed", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status: %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// Parse JSON response
@@ -448,8 +460,11 @@ func (c *HmcRestClient) SaveCurrentLparConfig(lparUUID, profileName string, forc
 
 	// 6. Check for non-success status codes (Usually 200, 201, or 202 for Jobs)
 	if resp.StatusCode >= 400 {
-		c.Logger.Error("SaveCurrentConfig job submission failed", "status", resp.Status, "body", string(body))
-		return fmt.Errorf("SaveCurrentConfig job submission failed with status %s: %s", resp.Status, string(body))
+		c.Logger.Error("SaveCurrentConfig job submission failed", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("SaveCurrentConfig job submission failed with status %s: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("SaveCurrentConfig job submission failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
 	// 7. Strip namespaces to find the JobID
