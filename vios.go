@@ -152,7 +152,7 @@ func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName 
 }
 
 // GetVirtualIOServersQuick retrieves the exhaustive quick list of Virtual I/O Servers for a given managed system UUID.
-func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, debug bool) ([]VIOSQuick, error) {
+func (c *HmcRestClient) GetVirtualIOServersQuick(ctx context.Context, systemUUID string, debug bool) ([]VIOSQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer/quick/All", c.hmcIP, systemUUID)
 	
 	if debug {
@@ -168,9 +168,9 @@ func (c *HmcRestClient) GetVirtualIOServersQuick(systemUUID string, debug bool) 
 	req.Header.Set("Accept", "application/json")
 
 	// Set a timeout of 300 seconds
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -602,7 +602,7 @@ func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, debug bool) ([]Vi
 	return viosList, nil
 }
 // GetVirtualIOServer retrieves detailed information for a specific Virtual I/O Server using its UUID.
-func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, debug bool) (*VirtualIOServerDetailed, error) {
+func (c *HmcRestClient) GetVirtualIOServer(ctx context.Context, viosUUID string, debug bool) (*VirtualIOServerDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
 	if debug {
 		c.Logger.Debug("Fetching VIOS details", "viosUUID", viosUUID, "url", url)
@@ -616,9 +616,9 @@ func (c *HmcRestClient) GetVirtualIOServer(viosUUID string, debug bool) (*Virtua
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -908,7 +908,7 @@ func (c *HmcRestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID str
 }
 
 // GetViosSCSIMappings retrieves and fully parses all VSCSI mappings for a specific VIOS.
-func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, debug bool) ([]VirtualSCSIMapping, error) {
+func (c *HmcRestClient) GetViosSCSIMappings(ctx context.Context, viosUUID string, debug bool) ([]VirtualSCSIMapping, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
 
 	if debug {
@@ -988,7 +988,7 @@ func (c *HmcRestClient) GetViosSCSIMappings(viosUUID string, debug bool) ([]Virt
 // =====================================================================
 
 // GetVolumeGroups retrieves a list of all Volume Groups configured on a specific VIOS.
-func (c *HmcRestClient) GetVolumeGroups(viosUUID string, debug bool) ([]VolumeGroup, error) {
+func (c *HmcRestClient) GetVolumeGroups(ctx context.Context, viosUUID string, debug bool) ([]VolumeGroup, error) {
     url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup", c.hmcIP, viosUUID)
 
     if debug {
@@ -1002,9 +1002,9 @@ func (c *HmcRestClient) GetVolumeGroups(viosUUID string, debug bool) ([]VolumeGr
     req.Header.Set("X-API-Session", c.session)
     req.Header.Set("Accept", "application/atom+xml")
 
-    ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+    ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
     defer cancel()
-    req = req.WithContext(ctx)
+    req = req.WithContext(ctxWithTimeout)
 
     c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -1249,7 +1249,7 @@ func (c *HmcRestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolum
 
 // CreateVirtualDisk safely creates a Logical Volume (Virtual Disk) inside a standard Volume Group.
 // It verifies the host Volume Group has enough free space and checks for naming collisions before executing.
-func (c *HmcRestClient) CreateVirtualDisk(sysName, viosUUID, viosName, vgName, diskName string, capacityMB int, debug bool) error {
+func (c *HmcRestClient) CreateVirtualDisk(ctx context.Context, sysName, viosUUID, viosName, vgName, diskName string, capacityMB int, debug bool) error {
 	requiredGB := float64(capacityMB) / 1024.0
 
 	if debug {
@@ -1257,7 +1257,7 @@ func (c *HmcRestClient) CreateVirtualDisk(sysName, viosUUID, viosName, vgName, d
 	}
 
 	// 1. Fetch Volume Groups to verify capacity and check for naming collisions
-	vgList, err := c.GetVolumeGroups(viosUUID, debug)
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
 	}
@@ -1307,7 +1307,7 @@ func (c *HmcRestClient) CreateVirtualDisk(sysName, viosUUID, viosName, vgName, d
 	// Syntax: mklv -lv <diskName> <vgName> <Size>M
 	mklvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mklv -lv %s %s %dM"`, sysName, viosName, diskName, vgName, capacityMB)
 
-	output, err := c.CliRunner(mklvCmd, debug)
+	output, err := c.CliRunner(ctx, mklvCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to create Virtual Disk via mklv: %v\nOutput: %s", err, output)
 	}
@@ -1325,7 +1325,7 @@ func (c *HmcRestClient) CreateVirtualDisk(sysName, viosUUID, viosName, vgName, d
 
 // DeleteVirtualDisk safely removes a Logical Volume (Virtual Disk) from a VIOS.
 // It uses the native VIOS rmlv command with the -f flag to bypass confirmation prompts.
-func (c *HmcRestClient) DeleteVirtualDisk(sysName, viosName, diskName string, debug bool) error {
+func (c *HmcRestClient) DeleteVirtualDisk(ctx context.Context, sysName, viosName, diskName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Safely deleting Virtual Disk via CLI", "diskName", diskName, "viosName", viosName)
 	}
@@ -1338,7 +1338,7 @@ func (c *HmcRestClient) DeleteVirtualDisk(sysName, viosName, diskName string, de
 		c.Logger.Debug("Executing", "command", rmlvCmd)
 	}
 
-	output, err := c.CliRunner(rmlvCmd, debug)
+	output, err := c.CliRunner(ctx, rmlvCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to delete Virtual Disk via rmlv: %v\nOutput: %s", err, output)
 	}
@@ -1356,7 +1356,7 @@ func (c *HmcRestClient) DeleteVirtualDisk(sysName, viosName, diskName string, de
 
 // ExtendVirtualDisk safely increases the size of an existing Logical Volume (Virtual Disk).
 // It automatically queries the HMC to verify the host Volume Group has enough free space before executing.
-func (c *HmcRestClient) ExtendVirtualDisk(sysName, viosUUID, viosName, diskName string, additionalMB int, debug bool) error {
+func (c *HmcRestClient) ExtendVirtualDisk(ctx context.Context, sysName, viosUUID, viosName, diskName string, additionalMB int, debug bool) error {
 	requiredGB := float64(additionalMB) / 1024.0
 
 	if debug {
@@ -1364,7 +1364,7 @@ func (c *HmcRestClient) ExtendVirtualDisk(sysName, viosUUID, viosName, diskName 
 	}
 
 	// 1. Fetch Volume Groups to find the disk and check capacity
-	vgList, err := c.GetVolumeGroups(viosUUID, debug)
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve Volume Groups for capacity check: %v", err)
 	}
@@ -1407,7 +1407,7 @@ func (c *HmcRestClient) ExtendVirtualDisk(sysName, viosUUID, viosName, diskName 
 
 	extendlvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "extendlv %s %dM"`, sysName, viosName, diskName, additionalMB)
 	
-	output, err := c.CliRunner(extendlvCmd, debug)
+	output, err := c.CliRunner(ctx, extendlvCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to extend Virtual Disk via extendlv: %v\nOutput: %s", err, output)
 	}
@@ -1426,7 +1426,7 @@ func (c *HmcRestClient) ExtendVirtualDisk(sysName, viosUUID, viosName, diskName 
 // If sourceFile is provided, it imports an existing ISO. 
 // If nfsLink is true (only valid with sourceFile), it links to the file instead of copying it.
 // If readOnly is true, the media is created with the -ro flag to prevent accidental overwrites.
-func (c *HmcRestClient) CreateVirtualOpticalMedia(sysName, viosUUID, viosName, mediaName, sourceFile string, sizeMB int, readOnly, nfsLink, debug bool) error {
+func (c *HmcRestClient) CreateVirtualOpticalMedia(ctx context.Context, sysName, viosUUID, viosName, mediaName, sourceFile string, sizeMB int, readOnly, nfsLink, debug bool) error {
 	if nfsLink && sourceFile == "" {
 		return fmt.Errorf("ABORT: The -nfslink flag can only be used when providing a sourceFile")
 	}
@@ -1436,7 +1436,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMedia(sysName, viosUUID, viosName, m
 	}
 
 	// 1. Fetch Volume Groups to check for naming collisions in the Media Repository
-	vgList, err := c.GetVolumeGroups(viosUUID, debug)
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
 	}
@@ -1476,7 +1476,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMedia(sysName, viosUUID, viosName, m
 	}
 
 	// 3. Execute the creation/import via CLI
-	output, err := c.CliRunner(mkvoptCmd, debug)
+	output, err := c.CliRunner(ctx, mkvoptCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to create/import Virtual Optical Media: %v\nOutput: %s", err, output)
 	}
@@ -1490,7 +1490,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMedia(sysName, viosUUID, viosName, m
 
 // DeleteVirtualOpticalMedia safely removes a Virtual Optical Media (ISO) from a VIOS Media Repository.
 // It uses the native VIOS rmvopt command. Note: The media must be unloaded/unmapped from all LPARs before it can be deleted.
-func (c *HmcRestClient) DeleteVirtualOpticalMedia(sysName, viosName, mediaName string, debug bool) error {
+func (c *HmcRestClient) DeleteVirtualOpticalMedia(ctx context.Context, sysName, viosName, mediaName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Safely deleting Virtual Optical Media via CLI", "mediaName", mediaName, "viosName", viosName)
 	}
@@ -1502,7 +1502,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMedia(sysName, viosName, mediaName s
 		c.Logger.Debug("Executing", "command", rmvoptCmd)
 	}
 
-	output, err := c.CliRunner(rmvoptCmd, debug)
+	output, err := c.CliRunner(ctx, rmvoptCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to delete Virtual Optical Media via rmvopt: %v\nOutput: %s", err, output)
 	}
@@ -1516,7 +1516,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMedia(sysName, viosName, mediaName s
 
 // GetVirtualOpticalMedias retrieves a list of all Virtual Optical Media (ISO files) 
 // currently physically present in the VIOS Media Repository using the native VIOS CLI (lsrep).
-func (c *HmcRestClient) GetVirtualOpticalMedias(sysName, viosName string, debug bool) ([]VirtualOpticalMedia, error) {
+func (c *HmcRestClient) GetVirtualOpticalMedias(ctx context.Context, sysName, viosName string, debug bool) ([]VirtualOpticalMedia, error) {
 	if debug {
 		c.Logger.Debug("Fetching Virtual Optical Media from repository via CLI", "viosName", viosName, "sysName", sysName)
 	}
@@ -1524,7 +1524,7 @@ func (c *HmcRestClient) GetVirtualOpticalMedias(sysName, viosName string, debug 
 	// Syntax: lsrep
 	lsrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lsrep"`, sysName, viosName)
 	
-	output, err := c.CliRunner(lsrepCmd, debug)
+	output, err := c.CliRunner(ctx, lsrepCmd, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list media repository via lsrep: %v\nOutput: %s", err, output)
 	}
@@ -1597,16 +1597,16 @@ func (c *HmcRestClient) GetVirtualOpticalMedias(sysName, viosName string, debug 
 	return opticalMediaList, nil
 }
 
-// GetVirtualOpticalMedia retrieves the details of a specific Virtual Optical Media (ISO) 
+// GetVirtualOpticalMedia retrieves the details of a specific Virtual Optical Media (ISO)
 // by searching the physical VIOS media repository via the CLI.
 // Returns an error if the specified media is not found.
-func (c *HmcRestClient) GetVirtualOpticalMedia(sysName, viosName, mediaName string, debug bool) (*VirtualOpticalMedia, error) {
+func (c *HmcRestClient) GetVirtualOpticalMedia(ctx context.Context, sysName, viosName, mediaName string, debug bool) (*VirtualOpticalMedia, error) {
 	if debug {
 		c.Logger.Debug("Fetching specific Virtual Optical Media via CLI", "mediaName", mediaName, "viosName", viosName)
 	}
 
 	// 1. Fetch the full list of media
-	mediaList, err := c.GetVirtualOpticalMedias(sysName, viosName, debug)
+	mediaList, err := c.GetVirtualOpticalMedias(ctx, sysName, viosName, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch media list from repository: %w", err)
 	}
@@ -1633,7 +1633,7 @@ func (c *HmcRestClient) GetVirtualOpticalMedia(sysName, viosName, mediaName stri
 }
 
 // LoadVirtualOpticalMedia loads a virtual optical media (ISO) into an existing Virtual Target Device (VTD) on the VIOS.
-func (c *HmcRestClient) LoadVirtualOpticalMedia(sysName, viosName, vtdName, mediaName string, debug bool) error {
+func (c *HmcRestClient) LoadVirtualOpticalMedia(ctx context.Context, sysName, viosName, vtdName, mediaName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Loading Virtual Optical Media into VTD via CLI", "mediaName", mediaName, "vtdName", vtdName, "viosName", viosName)
 	}
@@ -1645,7 +1645,7 @@ func (c *HmcRestClient) LoadVirtualOpticalMedia(sysName, viosName, vtdName, medi
 		c.Logger.Debug("Executing", "command", loadoptCmd)
 	}
 
-	output, err := c.CliRunner(loadoptCmd, debug)
+	output, err := c.CliRunner(ctx, loadoptCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to load Virtual Optical Media via loadopt: %v\nOutput: %s", err, output)
 	}
@@ -1658,7 +1658,7 @@ func (c *HmcRestClient) LoadVirtualOpticalMedia(sysName, viosName, vtdName, medi
 }
 
 // UnloadVirtualOpticalMedia unloads a virtual optical media (ISO) from a Virtual Target Device (VTD) on the VIOS.
-func (c *HmcRestClient) UnloadVirtualOpticalMedia(sysName, viosName, vtdName string, debug bool) error {
+func (c *HmcRestClient) UnloadVirtualOpticalMedia(ctx context.Context, sysName, viosName, vtdName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Unloading Virtual Optical Media from VTD via CLI", "vtdName", vtdName, "viosName", viosName)
 	}
@@ -1670,7 +1670,7 @@ func (c *HmcRestClient) UnloadVirtualOpticalMedia(sysName, viosName, vtdName str
 		c.Logger.Debug("Executing", "command", unloadoptCmd)
 	}
 
-	output, err := c.CliRunner(unloadoptCmd, debug)
+	output, err := c.CliRunner(ctx, unloadoptCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to unload Virtual Optical Media via unloadopt: %v\nOutput: %s", err, output)
 	}
@@ -1688,7 +1688,7 @@ func (c *HmcRestClient) UnloadVirtualOpticalMedia(sysName, viosName, vtdName str
 
 // CreateMediaRepository safely creates the Virtual Media Repository on a VIOS.
 // It verifies that no repository currently exists on the VIOS, and that the target VG has enough space.
-func (c *HmcRestClient) CreateMediaRepository(sysName, viosUUID, viosName, vgName string, sizeMB int, debug bool) error {
+func (c *HmcRestClient) CreateMediaRepository(ctx context.Context, sysName, viosUUID, viosName, vgName string, sizeMB int, debug bool) error {
 	requiredGB := float64(sizeMB) / 1024.0
 
 	if debug {
@@ -1696,7 +1696,7 @@ func (c *HmcRestClient) CreateMediaRepository(sysName, viosUUID, viosName, vgNam
 	}
 
 	// 1. Fetch Volume Groups to check for existing repositories and verify capacity
-	vgList, err := c.GetVolumeGroups(viosUUID, debug)
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
 	}
@@ -1744,7 +1744,7 @@ func (c *HmcRestClient) CreateMediaRepository(sysName, viosUUID, viosName, vgNam
 	// Syntax: mkrep -sp <vgName> -size <sizeMB>M
 	mkrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mkrep -sp %s -size %dM"`, sysName, viosName, vgName, sizeMB)
 
-	output, err := c.CliRunner(mkrepCmd, debug)
+	output, err := c.CliRunner(ctx, mkrepCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to create Media Repository via mkrep: %v\nOutput: %s", err, output)
 	}
@@ -1762,13 +1762,13 @@ func (c *HmcRestClient) CreateMediaRepository(sysName, viosUUID, viosName, vgNam
 
 // DeleteMediaRepository removes the Virtual Media Repository from a VIOS.
 // It verifies the repo exists, checks for media if force is false, and warns if force is true.
-func (c *HmcRestClient) DeleteMediaRepository(sysName, viosUUID, viosName, repoName string, force, debug bool) error {
+func (c *HmcRestClient) DeleteMediaRepository(ctx context.Context, sysName, viosUUID, viosName, repoName string, force, debug bool) error {
 	if debug {
 		c.Logger.Debug("Pre-flight check: Looking for Media Repository", "repoName", repoName, "viosName", viosName)
 	}
 
 	// 1. Fetch Volume Groups to find the existing repository
-	vgList, err := c.GetVolumeGroups(viosUUID, debug)
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
 	}
@@ -1813,7 +1813,7 @@ func (c *HmcRestClient) DeleteMediaRepository(sysName, viosUUID, viosName, repoN
 
 	rmrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmrep%s"`, sysName, viosName, forceFlag)
 	
-	output, err := c.CliRunner(rmrepCmd, debug)
+	output, err := c.CliRunner(ctx, rmrepCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to delete Media Repository via CLI: %v\nOutput: %s", err, output)
 	}
@@ -1831,7 +1831,7 @@ func (c *HmcRestClient) DeleteMediaRepository(sysName, viosUUID, viosName, repoN
 // ChangeMediaRepository increases the size of the Virtual Media Repository.
 // additionalMB is the amount of NEW space to add (incremental).
 // It identifies the hosting Volume Group and verifies free space before executing.
-func (c *HmcRestClient) ChangeMediaRepository(sysName, viosUUID, viosName string, additionalMB int, debug bool) error {
+func (c *HmcRestClient) ChangeMediaRepository(ctx context.Context, sysName, viosUUID, viosName string, additionalMB int, debug bool) error {
 	requiredGB := float64(additionalMB) / 1024.0
 
 	if debug {
@@ -1839,7 +1839,7 @@ func (c *HmcRestClient) ChangeMediaRepository(sysName, viosUUID, viosName string
 	}
 
 	// 1. Fetch Volume Groups to find the repository's location
-	vgList, err := c.GetVolumeGroups(viosUUID, debug)
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve Volume Groups for pre-flight check: %v", err)
 	}
@@ -1880,7 +1880,7 @@ func (c *HmcRestClient) ChangeMediaRepository(sysName, viosUUID, viosName string
 	// Syntax: chrep -size <Size>M
 	chrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "chrep -size %dM"`, sysName, viosName, additionalMB)
 	
-	output, err := c.CliRunner(chrepCmd, debug)
+	output, err := c.CliRunner(ctx, chrepCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to extend Media Repository via chrep: %v\nOutput: %s", err, output)
 	}
@@ -2263,7 +2263,7 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 // mediaFiles is a map where keys are media names and values are file paths.
 // Returns a map of results for each media (nil for success, error for failure).
 // Note: This requires HMC V10.3.1061.0 or later.
-func (c *HmcRestClient) AddVirtualOpticalMedia(viosUUID string, mediaFiles map[string]string, debug bool) (map[string]error, error) {
+func (c *HmcRestClient) AddVirtualOpticalMedia(ctx context.Context, viosUUID string, mediaFiles map[string]string, debug bool) (map[string]error, error) {
 	if len(mediaFiles) == 0 {
 		return nil, fmt.Errorf("at least one media file is required")
 	}
@@ -2397,7 +2397,7 @@ func (c *HmcRestClient) AddVirtualOpticalMedia(viosUUID string, mediaFiles map[s
 }
 // CreateVirtualOpticalMapsAuto maps ISOs using the HMC's auto-slot assignment.
 // It is fully idempotent and safely skips already-mapped media.
-func (c *HmcRestClient) CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
+func (c *HmcRestClient) CreateVirtualOpticalMaps(ctx context.Context, sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(mediaNames)
 	mediaNames = deduplicateAndClean(mediaNames)
@@ -2410,7 +2410,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 
 	// 1. Fetch pristine VIOS XML
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
-	doc, err := c.fetchAndParseHMCXML(url, debug) // Assuming you have this helper from your SDK
+	doc, err := c.fetchAndParseHMCXML(ctx, url, debug) // Assuming you have this helper from your SDK
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch pristine XML: %v", err)
 	}
@@ -2890,7 +2890,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 //
 // Note: Strict HTTP error checking is disabled (Option 2 behavior).
 // DeleteVirtualOpticalMaps removes multiple virtual optical media mappings from a VIOS to an LPAR in a single operation.
-func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
+func (c *HmcRestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(mediaNames)
 	mediaNames = deduplicateAndClean(mediaNames)
@@ -2914,6 +2914,10 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 	}
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+	
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	getReq = getReq.WithContext(ctxWithTimeout)
 
 	getResp, err := c.client.Do(getReq)
 	if err != nil {
@@ -3013,6 +3017,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID str
 	postReq.Header.Set("X-API-Session", c.session)
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
 	postReq.Header.Set("Accept", "application/atom+xml")
+	postReq = postReq.WithContext(ctxWithTimeout)
 
 	postResp, err := c.client.Do(postReq)
 	if err != nil {
@@ -3371,7 +3376,7 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 
 // GetVirtualFibreChannelMappingsForLPAR fetches NPIV mappings for a specific LPAR on a VIOS,
 // unmarshaling the data directly into your native VirtualFibreChannelMapping structs.
-func (c *HmcRestClient) GetVirtualFibreChannelMaps(viosUUID, lparUUID string, debug bool) ([]VirtualFibreChannelMapping, error) {
+func (c *HmcRestClient) GetVirtualFibreChannelMaps(ctx context.Context, viosUUID, lparUUID string, debug bool) ([]VirtualFibreChannelMapping, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosFCMapping", c.hmcIP, viosUUID)
 
 	if debug {
@@ -3379,7 +3384,7 @@ func (c *HmcRestClient) GetVirtualFibreChannelMaps(viosUUID, lparUUID string, de
 	}
 
 	// Fetch and strip namespaces
-	doc, err := c.fetchAndParseHMCXML(url, debug)
+	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch VIOS vFC mappings: %v", err)
 	}
@@ -3425,7 +3430,7 @@ func (c *HmcRestClient) GetVirtualFibreChannelMaps(viosUUID, lparUUID string, de
 // GetPhysicalFibreChannelPorts slices through the VIOS hardware topology using XPath to return all physical FC ports.
 // This approach is highly resilient to IBM schema changes and memory efficient.
 // It dynamically maps the hardware elements directly into the existing 'Port' struct.
-func (c *HmcRestClient) GetPhysicalFibreChannelPorts(viosUUID string, debug bool) ([]Port, error) {
+func (c *HmcRestClient) GetPhysicalFibreChannelPorts(ctx context.Context, viosUUID string, debug bool) ([]Port, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
 
 	if debug {
@@ -3433,7 +3438,7 @@ func (c *HmcRestClient) GetPhysicalFibreChannelPorts(viosUUID string, debug bool
 	}
 
 	// Fetch and parse the XML into an etree Document (namespaces safely stripped)
-	doc, err := c.fetchAndParseHMCXML(url, debug)
+	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch VIOS configuration: %v", err)
 	}
@@ -3483,7 +3488,7 @@ func (c *HmcRestClient) GetPhysicalFibreChannelPorts(viosUUID string, debug bool
 
 // AcquireVIOSMountLock creates a lock file on VIOS to serialize /mnt access
 // Uses only commands allowed in padmin restricted shell (echo, test, rm)
-func (c *HmcRestClient) AcquireVIOSMountLock(systemName, viosName string, timeoutSeconds int, debug bool) error {
+func (c *HmcRestClient) AcquireVIOSMountLock(ctx context.Context, systemName, viosName string, timeoutSeconds int, debug bool) error {
 	lockFile := "/home/padmin/mnt.lock"
 	checkInterval := 5 * time.Second
 	maxRetries := timeoutSeconds / 5
@@ -3498,14 +3503,14 @@ func (c *HmcRestClient) AcquireVIOSMountLock(systemName, viosName string, timeou
 		// Check if lock exists using 'test' command (allowed in restricted shell)
 		checkCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "test -f %s && echo EXISTS || echo NOTFOUND"`,
 			systemName, viosName, lockFile)
-		output, err := c.CliRunner(checkCmd, debug)
+		output, err := c.CliRunner(ctx, checkCmd, debug)
 		
 		if err != nil || strings.Contains(output, "NOTFOUND") {
 			// Lock doesn't exist - try to create it atomically
 			// Use echo with PID and timestamp for debugging (echo is allowed)
 			createCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "echo powershift_\$\$_\$(date +%%s) > %s"`,
 				systemName, viosName, lockFile)
-			_, err := c.CliRunner(createCmd, debug)
+			_, err := c.CliRunner(ctx, createCmd, debug)
 			
 			if err == nil {
 				if debug {
@@ -3535,12 +3540,12 @@ func (c *HmcRestClient) AcquireVIOSMountLock(systemName, viosName string, timeou
 }
 
 // ReleaseVIOSMountLock removes the lock file from VIOS
-func (c *HmcRestClient) ReleaseVIOSMountLock(systemName, viosName string, debug bool) error {
+func (c *HmcRestClient) ReleaseVIOSMountLock(ctx context.Context, systemName, viosName string, debug bool) error {
 	lockFile := "/home/padmin/mnt.lock"
 	
 	// Use 'rm' which is allowed in restricted shell
 	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rm -f %s"`, systemName, viosName, lockFile)
-	_, err := c.CliRunner(cmd, debug)
+	_, err := c.CliRunner(ctx, cmd, debug)
 	
 	if err != nil {
 		c.Logger.Warn("Failed to release VIOS mount lock", "vios", viosName, "error", err)
@@ -3558,13 +3563,13 @@ type MediaRepositoryInfo struct {
 	FreeMB int
 }
 // GetMediaRepositoryInfo parses the VIOS lsrep command to extract exact capacity and free space
-func (c *HmcRestClient) GetMediaRepositoryInfo(sysName, viosName string, debug bool) (*MediaRepositoryInfo, error) {
+func (c *HmcRestClient) GetMediaRepositoryInfo(ctx context.Context, sysName, viosName string, debug bool) (*MediaRepositoryInfo, error) {
 	if debug {
 		c.Logger.Debug("Fetching Media Repository capacity via CLI", "viosName", viosName)
 	}
 
 	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lsrep"`, sysName, viosName)
-	output, err := c.CliRunner(cmd, debug)
+	output, err := c.CliRunner(ctx, cmd, debug)
 	if err != nil {
 		// If lsrep fails, the repository likely doesn't exist
 		return nil, fmt.Errorf("failed to run lsrep (repository may not exist): %w", err)

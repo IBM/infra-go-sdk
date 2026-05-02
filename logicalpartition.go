@@ -422,7 +422,7 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, debug boo
 }
 
 // GetLogicalPartitionsQuickAll retrieves the quick list of logical partitions for a system
-func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, debug bool) ([]LogicalPartitionQuick, error) {
+func (c *HmcRestClient) GetLogicalPartitionsQuickAll(ctx context.Context, systemUUID string, debug bool) ([]LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
 	if debug {
 		c.Logger.Debug("Fetching quick logical partitions", "systemUUID", systemUUID, "url", url)
@@ -435,9 +435,9 @@ func (c *HmcRestClient) GetLogicalPartitionsQuickAll(systemUUID string, debug bo
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/json")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(timeoutCtx)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -820,7 +820,7 @@ func (c *HmcRestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, 
 }
 
 // GetLogicalPartitionDetailed fetches the exhaustive XML details of a specific logical partition by its UUID.
-func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, debug bool) (*LogicalPartitionDetailed, error) {
+func (c *HmcRestClient) GetLogicalPartitionDetailed(ctx context.Context, lparUUID string, debug bool) (*LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 	if debug {
 		c.Logger.Debug("Fetching exhaustive logical partition details", "lparUUID", lparUUID, "url", url)
@@ -833,9 +833,9 @@ func (c *HmcRestClient) GetLogicalPartitionDetailed(lparUUID string, debug bool)
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -1659,7 +1659,7 @@ func (c *HmcRestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, de
 }
 // SetPartitionBootString updates the LPAR's PendingBootString (e.g., "cd/dvd-all") 
 // to force a specific boot device priority on the next power-on.
-func (c *HmcRestClient) SetPartitionBootString(lparUUID, bootString string, debug bool) error {
+func (c *HmcRestClient) SetPartitionBootString(ctx context.Context, lparUUID, bootString string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 
 	if debug {
@@ -1673,6 +1673,10 @@ func (c *HmcRestClient) SetPartitionBootString(lparUUID, bootString string, debu
 	}
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	getReq = getReq.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -1723,6 +1727,7 @@ func (c *HmcRestClient) SetPartitionBootString(lparUUID, bootString string, debu
 	postReq.Header.Set("X-API-Session", c.session)
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
 	postReq.Header.Set("Accept", "application/atom+xml")
+	postReq = postReq.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (POST)", url, postXML)
 
@@ -1743,7 +1748,7 @@ func (c *HmcRestClient) SetPartitionBootString(lparUUID, bootString string, debu
 }
 
 // GetDedicatedVirtualNICs fetches the detailed configurations of all Dedicated vNICs attached to an LPAR.
-func (c *HmcRestClient) GetDedicatedVirtualNICs(lparUUID string, debug bool) ([]VirtualNICDedicated, error) {
+func (c *HmcRestClient) GetDedicatedVirtualNICs(ctx context.Context, lparUUID string, debug bool) ([]VirtualNICDedicated, error) {
 	// Query the Dedicated Virtual NIC child collection
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualNICDedicated", c.hmcIP, lparUUID)
 
@@ -1752,7 +1757,7 @@ func (c *HmcRestClient) GetDedicatedVirtualNICs(lparUUID string, debug bool) ([]
 	}
 
 	// 1. Fetch and strip namespaces into an etree Document
-	doc, err := c.fetchAndParseHMCXML(url, debug)
+	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch VirtualNICDedicated collection: %v", err)
 	}
@@ -1785,7 +1790,7 @@ func (c *HmcRestClient) GetDedicatedVirtualNICs(lparUUID string, debug bool) ([]
 	return vnics, nil
 }
 // GetSRIOVLogicalPorts fetches all SR-IOV Ethernet Logical Ports provisioned to a specific Logical Partition.
-func (c *HmcRestClient) GetSRIOVLogicalPorts(lparUUID string, debug bool) ([]SRIOVLogicalPort, error) {
+func (c *HmcRestClient) GetSRIOVLogicalPorts(ctx context.Context, lparUUID string, debug bool) ([]SRIOVLogicalPort, error) {
 	// Query the child collection directly for this LPAR
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/SRIOVEthernetLogicalPort", c.hmcIP, lparUUID)
 
@@ -1794,7 +1799,7 @@ func (c *HmcRestClient) GetSRIOVLogicalPorts(lparUUID string, debug bool) ([]SRI
 	}
 
 	// 1. Fetch and strip namespaces into an etree Document
-	doc, err := c.fetchAndParseHMCXML(url, debug)
+	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch SR-IOV Logical Ports: %v", err)
 	}
@@ -1913,7 +1918,7 @@ func (c *HmcRestClient) CreateSRIOVLogicalPort(lparUUID string, adapterID string
 
 // DeleteSRIOVLogicalPorts intelligently removes one or more SR-IOV Ethernet Logical Ports.
 // It accepts a list of targets which can be either the LogicalPortID or the LocationCode.
-func (c *HmcRestClient) DeleteSRIOVLogicalPorts(lparUUID string, targets []string, debug bool) error {
+func (c *HmcRestClient) DeleteSRIOVLogicalPorts(ctx context.Context, lparUUID string, targets []string, debug bool) error {
 	if len(targets) == 0 {
 		return nil // Nothing to delete
 	}
@@ -1923,7 +1928,7 @@ func (c *HmcRestClient) DeleteSRIOVLogicalPorts(lparUUID string, targets []strin
 	}
 
 	// 1. Fetch current ports on the LPAR so we can resolve IDs/Locations to UUIDs
-	currentPorts, err := c.GetSRIOVLogicalPorts(lparUUID, debug)
+	currentPorts, err := c.GetSRIOVLogicalPorts(ctx, lparUUID, debug)
 	if err != nil {
 		return fmt.Errorf("failed to fetch current SR-IOV logical ports for resolution: %v", err)
 	}

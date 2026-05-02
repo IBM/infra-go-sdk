@@ -15,7 +15,7 @@ import (
 
 // GetLogicalPartitionProfiles retrieves the logical partition profiles for a specific partition by UUID.
 // Returns structured profile data using the same pattern as GetAllLogicalPartitionsInHmc.
-func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, debug bool) ([]LogicalPartitionProfile, error) {
+func (c *HmcRestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionUUID string, debug bool) ([]LogicalPartitionProfile, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile", c.hmcIP, partitionUUID)
 	if debug {
 		c.Logger.Debug("Fetching logical partition profiles", "partitionUUID", partitionUUID, "url", url)
@@ -28,9 +28,9 @@ func (c *HmcRestClient) GetLogicalPartitionProfiles(partitionUUID string, debug 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -397,7 +397,7 @@ func (c *HmcRestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]Par
 
 // SaveCurrentLparConfig saves the current active configuration of a Logical Partition to a profile.
 // If force is true, it will overwrite an existing profile with the same name.
-func (c *HmcRestClient) SaveCurrentLparConfig(lparUUID, profileName string, force, debug bool) error {
+func (c *HmcRestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, profileName string, force, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/SaveCurrentConfig", c.hmcIP, lparUUID)
 	
 	if debug {
@@ -433,9 +433,9 @@ func (c *HmcRestClient) SaveCurrentLparConfig(lparUUID, profileName string, forc
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
 	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (PUT)", url, payload)
 

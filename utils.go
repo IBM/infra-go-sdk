@@ -37,12 +37,12 @@ type VolumeConfig struct {
 }
 
 // GetViosID retrieves the UUID of a Virtual I/O Server by its name using the provided rest client
-func GetViosID(restClient *HmcRestClient, systemUUID, viosName string, debug bool) (string, error) {
+func GetViosID(ctx context.Context, restClient *HmcRestClient, systemUUID, viosName string, debug bool) (string, error) {
 	if debug {
 		restClient.Logger.Debug("Retrieving VIOS UUID by name", "viosName", viosName, "systemUUID", systemUUID)
 	}
 
-	viosList, err := restClient.GetVirtualIOServersQuick(systemUUID, debug)
+	viosList, err := restClient.GetVirtualIOServersQuick(ctx, systemUUID, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to get VIOSes: %v", err)
 	}
@@ -480,12 +480,12 @@ func (c *HmcRestClient) UpdateVirtualNWSettingsToDom(templateXML *etree.Element,
 }
 
 // GetLogicalPartition retrieves the details of a logical partition by name or UUID
-func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partitionUUID string, debug bool) (string, *etree.Element, error) {
+func (c *HmcRestClient) GetLogicalPartition(ctx context.Context, systemUUID, partitionName, partitionUUID string, debug bool) (string, *etree.Element, error) {
 	var lparUUID string
 
 	// If partitionUUID is not provided, find it using partitionName
 	if partitionUUID == "" && partitionName != "" {
-		lparList, err := c.GetLogicalPartitionsQuickAll(systemUUID, debug)
+		lparList, err := c.GetLogicalPartitionsQuickAll(ctx, systemUUID, debug)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to fetch logical partitions: %v", err)
 		}
@@ -531,9 +531,9 @@ func (c *HmcRestClient) GetLogicalPartition(systemUUID, partitionName, partition
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
+	req = req.WithContext(ctxWithTimeout)
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
@@ -621,7 +621,7 @@ func textOrEmpty(elem *etree.Element) string {
 
 
 // fetchAndParseHMCXML is a private helper to reuse standard HTTP and XML stripping logic
-func (c *HmcRestClient) fetchAndParseHMCXML(url string, debug bool) (*etree.Document, error) {
+func (c *HmcRestClient) fetchAndParseHMCXML(ctx context.Context, url string, debug bool) (*etree.Document, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -629,12 +629,12 @@ func (c *HmcRestClient) fetchAndParseHMCXML(url string, debug bool) (*etree.Docu
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
-	resp, err := c.client.Do(req.WithContext(ctx))
+	resp, err := c.client.Do(req.WithContext(timeoutCtx))
 	if err != nil {
 		return nil, err
 	}
@@ -651,7 +651,7 @@ func (c *HmcRestClient) fetchAndParseHMCXML(url string, debug bool) (*etree.Docu
 	return xmlStripNamespace(body)
 }
 // GetAttachedVolumes traces vSCSI mappings on all VIOSes to find backing storage for an LPAR
-func (c *HmcRestClient) GetAttachedVolumes(systemUUID, lparUUID string, debug bool) ([]StorageMap, error) {
+func (c *HmcRestClient) GetAttachedVolumes(ctx context.Context, systemUUID, lparUUID string, debug bool) ([]StorageMap, error) {
 	var attachedStorage []StorageMap
 
 	if debug {
@@ -660,7 +660,7 @@ func (c *HmcRestClient) GetAttachedVolumes(systemUUID, lparUUID string, debug bo
 
 	// 1. Fetch the list of ALL VIOSes on the Managed System
 	viosListURL := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
-	viosListDoc, err := c.fetchAndParseHMCXML(viosListURL, debug)
+	viosListDoc, err := c.fetchAndParseHMCXML(ctx, viosListURL, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch VIOS list: %v", err)
 	}
@@ -693,7 +693,7 @@ func (c *HmcRestClient) GetAttachedVolumes(systemUUID, lparUUID string, debug bo
 
 		// 3. Query the VIOS with ViosSCSIMapping group
 		mappingsURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
-		mappingsDoc, err := c.fetchAndParseHMCXML(mappingsURL, debug)
+		mappingsDoc, err := c.fetchAndParseHMCXML(ctx, mappingsURL, debug)
 		if err != nil {
 			continue
 		}
@@ -758,7 +758,7 @@ func (c *HmcRestClient) GetAttachedVolumes(systemUUID, lparUUID string, debug bo
 					} else {
 						// Fallback to fetch UDID from the Storage group
 						pvURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosStorage", c.hmcIP, viosUUID)
-						viosStorageDoc, _ := c.fetchAndParseHMCXML(pvURL, false)
+						viosStorageDoc, _ := c.fetchAndParseHMCXML(ctx, pvURL, false)
 						if viosStorageDoc != nil {
 							pvs := viosStorageDoc.FindElements(".//*[local-name()='PhysicalVolume']")
 							for _, pv := range pvs {
@@ -838,13 +838,13 @@ func (c *HmcRestClient) DeleteHMCResource(resourceURL string, debug bool) error 
 
 // GetLogicalPartitionByName resolves a logical partition name to its full Quick details and UUID on a specific Managed System.
 // It uses the quick (JSON) endpoint for high performance.
-func (c *HmcRestClient) GetLogicalPartitionByName(systemUUID, partitionName string, debug bool) (*LogicalPartitionQuick, string, error) {
+func (c *HmcRestClient) GetLogicalPartitionByName(ctx context.Context, systemUUID, partitionName string, debug bool) (*LogicalPartitionQuick, string, error) {
 	if debug {
 		c.Logger.Debug("Resolving LPAR name to UUID on system", "partitionName", partitionName, "systemUUID", systemUUID)
 	}
 
-	// Fetch all partitions using the lightweight JSON endpoint 
-	lpars, err := c.GetLogicalPartitionsQuickAll(systemUUID, debug)
+	// Fetch all partitions using the lightweight JSON endpoint
+	lpars, err := c.GetLogicalPartitionsQuickAll(ctx, systemUUID, debug)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to retrieve logical partitions: %v", err)
 	}
@@ -864,15 +864,15 @@ func (c *HmcRestClient) GetLogicalPartitionByName(systemUUID, partitionName stri
 
 	return nil, "", fmt.Errorf("logical partition '%s' not found on system %s", partitionName, systemUUID)
 }
-// GetManagedSystemByNameQuick resolves a system name to its full Quick details and UUID 
+// GetManagedSystemByNameQuick resolves a system name to its full Quick details and UUID
 // by scanning the high-performance JSON inventory.
-func (c *HmcRestClient) GetManagedSystemByNameQuick(systemName string, debug bool) (*ManagedSystemQuick, string, error) {
+func (c *HmcRestClient) GetManagedSystemByNameQuick(ctx context.Context, systemName string, debug bool) (*ManagedSystemQuick, string, error) {
 	if debug {
 		c.Logger.Debug("Resolving Managed System name via Quick inventory", "systemName", systemName)
 	}
 
 	// 1. Fetch the high-performance JSON list of all systems
-	systems, err := c.GetManagedSystemQuickAll(debug)
+	systems, err := c.GetManagedSystemQuickAll(ctx, debug)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to retrieve systems inventory: %v", err)
 	}
@@ -912,13 +912,13 @@ func parseLogicalPartitionElements(elements []*etree.Element, debug bool) ([]Log
 
 
 // GetLocationCodeByMac calls GetClientNetworkAdapters and finds the matching LocationCode for a MAC address.
-func (c *HmcRestClient) GetLocationCodeByMac(sysUUID, lparUUID, targetMac string, debug bool) (string, error) {
+func (c *HmcRestClient) GetLocationCodeByMac(ctx context.Context, sysUUID, lparUUID, targetMac string, debug bool) (string, error) {
 	if debug {
 		c.Logger.Debug("Translating MAC using ClientNetworkAdapters endpoint", "targetMac", targetMac)
 	}
 
 	// 1. Fetch all adapters using your existing, robust function!
-	adapters, err := c.GetClientNetworkAdapters(sysUUID, lparUUID, debug)
+	adapters, err := c.GetClientNetworkAdapters(ctx, sysUUID, lparUUID, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve adapters for MAC translation: %v", err)
 	}
@@ -976,7 +976,7 @@ func (c *HmcRestClient) GetLocationCodeByMac(sysUUID, lparUUID, targetMac string
 //
 // Example:
 //   output, err := MountNFS(client, "sys1", "vios1", "192.168.1.100", "/export/iso", "/mnt/iso", "3", true)
-func MountNFS(restClient *HmcRestClient, sysName, viosName, nfsServer, exportPath, mountPoint, options string, debug bool) (string, error) {
+func MountNFS(ctx context.Context, restClient *HmcRestClient, sysName, viosName, nfsServer, exportPath, mountPoint, options string, debug bool) (string, error) {
 	if sysName == "" || viosName == "" || nfsServer == "" || exportPath == "" || mountPoint == "" {
 		return "", fmt.Errorf("sysName, viosName, nfsServer, exportPath, and mountPoint are required")
 	}
@@ -1000,7 +1000,7 @@ func MountNFS(restClient *HmcRestClient, sysName, viosName, nfsServer, exportPat
 		restClient.Logger.Debug("Executing NFS mount command", "cmd", cmd)
 	}
 
-	output, err := restClient.CliRunner(cmd, debug)
+	output, err := restClient.CliRunner(ctx, cmd, debug)
 	if err != nil {
 		return output, fmt.Errorf("failed to mount NFS: %v\nOutput: %s", err, output)
 	}
@@ -1024,7 +1024,7 @@ func MountNFS(restClient *HmcRestClient, sysName, viosName, nfsServer, exportPat
 //
 // Example:
 //   output, err := UnmountNFS(client, "sys1", "vios1", "/mnt/iso", true)
-func UnmountNFS(restClient *HmcRestClient, sysName, viosName, mountPoint string, debug bool) (string, error) {
+func UnmountNFS(ctx context.Context, restClient *HmcRestClient, sysName, viosName, mountPoint string, debug bool) (string, error) {
 	if sysName == "" || viosName == "" || mountPoint == "" {
 		return "", fmt.Errorf("sysName, viosName, and mountPoint are required")
 	}
@@ -1042,7 +1042,7 @@ func UnmountNFS(restClient *HmcRestClient, sysName, viosName, mountPoint string,
 		restClient.Logger.Debug("Executing NFS unmount command", "cmd", cmd)
 	}
 
-	output, err := restClient.CliRunner(cmd, debug)
+	output, err := restClient.CliRunner(ctx, cmd, debug)
 	if err != nil {
 		return output, fmt.Errorf("failed to unmount NFS: %v\nOutput: %s", err, output)
 	}
@@ -1055,7 +1055,7 @@ func UnmountNFS(restClient *HmcRestClient, sysName, viosName, mountPoint string,
 }
 
 // CloseVirtualTerminal forcefully closes an open console session on an LPAR using the HMC CLIRunner.
-func (c *HmcRestClient) CloseVirtualTerminal(sysName, lparName string, debug bool) error {
+func (c *HmcRestClient) CloseVirtualTerminal(ctx context.Context, sysName, lparName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Forcing closure of virtual terminal", "lparName", lparName, "sysName", sysName)
 	}
@@ -1064,7 +1064,7 @@ func (c *HmcRestClient) CloseVirtualTerminal(sysName, lparName string, debug boo
 	cliCmd := fmt.Sprintf("rmvterm -m %s -p %s", sysName, lparName)
 
 	// Execute it using the CLIRunner function
-	output, err := c.CliRunner(cliCmd, debug)
+	output, err := c.CliRunner(ctx, cliCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to close terminal: %v (Output: %s)", err, output)
 	}
@@ -1166,7 +1166,7 @@ func (c *HmcRestClient) CloseVirtualTerminalViaSsh(hmcIP, username, password, sy
 // 
 // Note: In PowerVM environments, multiple VIOS servers can be active simultaneously for redundancy.
 // This function returns ALL active VIOS servers, allowing the caller to choose which one to use.
-func (c *HmcRestClient) GetActiveVIOSServers(systemUUID string, viosUUIDs []string, debug bool) (map[string]*VirtualIOServerDetailed, error) {
+func (c *HmcRestClient) GetActiveVIOSServers(ctx context.Context, systemUUID string, viosUUIDs []string, debug bool) (map[string]*VirtualIOServerDetailed, error) {
 	activeVIOSServers := make(map[string]*VirtualIOServerDetailed)
 	
 	if debug {
@@ -1175,7 +1175,7 @@ func (c *HmcRestClient) GetActiveVIOSServers(systemUUID string, viosUUIDs []stri
 	
 	for _, viosUUID := range viosUUIDs {
 		// Get detailed VIOS information
-		viosDetails, err := c.GetVirtualIOServer(viosUUID, debug)
+		viosDetails, err := c.GetVirtualIOServer(ctx, viosUUID, debug)
 		if err != nil {
 			if debug {
 				c.Logger.Warn("Failed to get details for VIOS", "viosUUID", viosUUID, "error", err)
