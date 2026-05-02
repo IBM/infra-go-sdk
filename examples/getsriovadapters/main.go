@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -29,13 +30,13 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("Resolving System UUID for '%s'...\n", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
@@ -46,7 +47,7 @@ func main() {
 	fmt.Println("\n📡 Discovering SR-IOV Adapters on Managed System...")
 	fmt.Println("=========================================================================")
 
-	adapters, err := restClient.GetSRIOVAdapters(sysUUID, *verbose)
+	adapters, err := restClient.GetSRIOVAdapters(context.Background(), sysUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch SR-IOV adapters: %v", err)
 	}

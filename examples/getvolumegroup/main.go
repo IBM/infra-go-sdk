@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -29,23 +30,23 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 	fmt.Println("✅ Successfully authenticated with HMC.")
 
 	// =========================================================================
 	// 1. DYNAMIC SYSTEM & VIOS DISCOVERY
 	// =========================================================================
 	fmt.Printf("\nResolving System Name: %s...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(*sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System %s not found: %v", *sysName, err)
 	}
 
 	fmt.Println("Discovering Virtual I/O Servers...")
-	viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch VIOS instances: %v", err)
 	}
@@ -62,7 +63,7 @@ func main() {
 		fmt.Printf("===============================================================================\n")
 
 		// First, get the list of Volume Groups to discover their UUIDs
-		vgList, err := restClient.GetVolumeGroups(vios.UUID, *verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, *verbose)
 		if err != nil {
 			log.Printf("⚠️ Warning: Failed to fetch Volume Groups list for %s: %v", vios.PartitionName, err)
 			continue

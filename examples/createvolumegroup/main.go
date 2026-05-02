@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -32,22 +33,22 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// 1. DYNAMIC SYSTEM & VIOS DISCOVERY
 	// =========================================================================
 	fmt.Printf("\nResolving System Name: %s...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(*sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System %s not found: %v", *sysName, err)
 	}
 
 	fmt.Println("Discovering Virtual I/O Servers...")
-	viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
 	if err != nil || len(viosList) == 0 {
 		log.Fatalf("❌ Failed to fetch VIOS instances for system %s.", *sysName)
 	}

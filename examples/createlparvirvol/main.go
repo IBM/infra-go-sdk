@@ -46,10 +46,10 @@ func main() {
 	// 1. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("[HMC] Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	sysUUID := resolveSystemUUID(restClient, *sysName, *verbose)
 	ensureLparDoesNotExist(restClient, sysUUID, *lparName, *verbose)
@@ -107,7 +107,7 @@ func main() {
 
 		// Attach Network Adapter
 		log.Printf("[Branch 1] Resolving Virtual Switch '%s'...", *vswitchName)
-		switches, err := restClient.GetVirtualSwitchQuickAll(sysUUID, *verbose)
+		switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, *verbose)
 		if err != nil {
 			networkErrCh <- fmt.Errorf("Failed to retrieve Virtual Switches: %v", err)
 			return
@@ -126,7 +126,7 @@ func main() {
 		}
 
 		log.Printf("[Branch 1] Attaching VLAN %d to LPAR...", *vlanID)
-		adapter, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
 		if err != nil {
 			networkErrCh <- fmt.Errorf("Failed to add network adapter: %v", err)
 			return
@@ -202,7 +202,7 @@ func main() {
 	}
 
 	log.Printf("[HMC] Step 5: Saving active configuration to profile 'default_profile'...")
-	err = restClient.SaveCurrentLparConfig(finalLparUUID, "default_profile", true, *verbose)
+	err = restClient.SaveCurrentLparConfig(context.Background(), finalLparUUID, "default_profile", true, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
@@ -254,7 +254,7 @@ func main() {
 // =========================================================================
 
 func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
-	systems, err := restClient.GetManagedSystemQuickAll(verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
 	}
@@ -268,7 +268,7 @@ func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose
 }
 
 func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName string, verbose bool) {
-	_,existingUUID, err := restClient.GetLogicalPartitionByName(systemUUID, vmName, false)
+	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName, false)
 	if err == nil && existingUUID != "" {
 		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
 	}
@@ -278,7 +278,7 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 func provisionVirtualDisk(restClient *hmc.HmcRestClient, sysName, sysUUID, diskName, targetVios, targetVg string, diskSizeMB int, verbose bool) (string, string, error) {
 	requiredGB := float64(diskSizeMB) / 1024.0
 
-	viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
 	if err != nil || len(viosList) == 0 {
 		return "", "", fmt.Errorf("failed to fetch VIOS instances for system")
 	}
@@ -292,7 +292,7 @@ func provisionVirtualDisk(restClient *hmc.HmcRestClient, sysName, sysUUID, diskN
 			continue
 		}
 
-		vgList, err := restClient.GetVolumeGroups(vios.UUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
 		if err != nil { continue }
 
 		for _, vg := range vgList {
@@ -346,7 +346,7 @@ func provisionVirtualDisk(restClient *hmc.HmcRestClient, sysName, sysUUID, diskN
 	}
 
 	// Create the disk via the Smart CLI Wrapper
-	err = restClient.CreateVirtualDisk(sysName, finalViosUUID, finalViosName, finalVgName, diskName, diskSizeMB, verbose)
+	err = restClient.CreateVirtualDisk(context.Background(), sysName, finalViosUUID, finalViosName, finalVgName, diskName, diskSizeMB, verbose)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create Virtual Disk via CLI: %v", err)
 	}

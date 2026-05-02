@@ -141,16 +141,16 @@ func main() {
 		restClient.EnableVerboseLogging()
 	}
 
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		cliLogger.Fatal("HMC Logon failed", "error", err)
 	}
 	defer func() {
 		cliLogger.Info("Closing HMC Session...")
-		restClient.Logoff()
+		restClient.Logoff(context.Background())
 	}()
 
 	cliLogger.Debug("Resolving System", "system", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
 		cliLogger.Fatal("Failed to resolve Managed System", "system", sysName, "error", err)
 	}
@@ -172,7 +172,7 @@ func main() {
 	case "list":
 		cliLogger.Info("Fetching Virtual Disk Inventory", "system", sysName)
 
-		viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, verbose)
+		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
 		if err != nil || len(viosList) == 0 {
 			cliLogger.Fatal("Failed to fetch VIOS instances for system", "system", sysName)
 		}
@@ -189,7 +189,7 @@ func main() {
 				continue
 			}
 
-			vgList, err := restClient.GetVolumeGroups(vios.UUID, verbose)
+			vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
 			if err != nil {
 				continue
 			}
@@ -223,7 +223,7 @@ func main() {
 		requiredGB := float64(diskSize) / 1024.0
 
 		cliLogger.Debug("Fetching VIOS inventory for Smart Capacity Discovery...")
-		viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, verbose)
+		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
 		if err != nil || len(viosList) == 0 {
 			cliLogger.Fatal("Failed to fetch VIOS instances for system", "system", sysName)
 		}
@@ -241,7 +241,7 @@ func main() {
 			if viosName != "" && !strings.EqualFold(vios.PartitionName, viosName) {
 				continue
 			}
-			vgList, err := restClient.GetVolumeGroups(vios.UUID, verbose)
+			vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
 			if err != nil {
 				continue
 			}
@@ -272,7 +272,7 @@ func main() {
 		for _, vios := range viosList {
 			if viosName != "" && !strings.EqualFold(vios.PartitionName, viosName) { continue }
 
-			vgList, err := restClient.GetVolumeGroups(vios.UUID, verbose)
+			vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
 			if err != nil { continue }
 
 			for _, vg := range vgList {
@@ -329,7 +329,7 @@ func main() {
 
 		cliLogger.Info("Executing Virtual Disk creation via VIOS...", "disk", diskName, "size_mb", diskSize, "vg", targetVgName)
 
-		err = restClient.CreateVirtualDisk(sysName, targetViosUUID, targetViosName, targetVgName, diskName, diskSize, verbose)
+		err = restClient.CreateVirtualDisk(context.Background(), sysName, targetViosUUID, targetViosName, targetVgName, diskName, diskSize, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
@@ -348,14 +348,14 @@ func main() {
 		cliLogger.Info("Initiating Virtual Disk Extension", "disk_name", diskName, "add_size_mb", addSize, "vios", viosName)
 
 		cliLogger.Debug("Resolving VIOS UUID", "vios", viosName)
-		viosUUID, err := hmc.GetViosID(restClient, sysUUID, viosName, verbose)
+		viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, viosName, verbose)
 		if err != nil || viosUUID == "" {
 			cliLogger.Fatal("VIOS not found on system", "vios", viosName, "system", sysName)
 		}
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		cliLogger.Info("Verifying if Virtual Disk exists...")
-		vgList, err := restClient.GetVolumeGroups(viosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), viosUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to fetch Volume Groups to verify disk existence", "error", err)
 		}
@@ -377,7 +377,7 @@ func main() {
 
 		cliLogger.Info("Extending Virtual Disk", "disk", diskName, "vios", viosName, "add_mb", addSize)
 
-		err = restClient.ExtendVirtualDisk(sysName, viosUUID, viosName, diskName, addSize, verbose)
+		err = restClient.ExtendVirtualDisk(context.Background(), sysName, viosUUID, viosName, diskName, addSize, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
@@ -396,14 +396,14 @@ func main() {
 		cliLogger.Warn("Initiating Virtual Disk Deletion", "disk_name", diskName, "vios", viosName)
 
 		cliLogger.Debug("Resolving VIOS UUID", "vios", viosName)
-		viosUUID, err := hmc.GetViosID(restClient, sysUUID, viosName, verbose)
+		viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, viosName, verbose)
 		if err != nil || viosUUID == "" {
 			cliLogger.Fatal("VIOS not found on system", "vios", viosName, "system", sysName)
 		}
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		cliLogger.Info("Verifying if Virtual Disk exists...")
-		vgList, err := restClient.GetVolumeGroups(viosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), viosUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to fetch Volume Groups to verify disk existence", "error", err)
 		}
@@ -429,7 +429,7 @@ func main() {
 
 		cliLogger.Warn("Attempting to permanently delete Virtual Disk", "disk", diskName, "vios", viosName)
 
-		err = restClient.DeleteVirtualDisk(sysName, viosName, diskName, verbose)
+		err = restClient.DeleteVirtualDisk(context.Background(), sysName, viosName, diskName, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")

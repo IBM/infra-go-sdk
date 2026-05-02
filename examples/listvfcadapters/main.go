@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -44,21 +45,21 @@ func main() {
 		restClient.EnableVerboseLogging()
 	}
 
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		cliLogger.Fatal("HMC Logon failed", "error", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// Resolve System Name -> UUID
 	cliLogger.Debug("Resolving System", "system", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		cliLogger.Fatal("Failed to resolve System", "error", err)
 	}
 
 	// Resolve LPAR Name -> UUID
 	cliLogger.Debug("Resolving LPAR", "lpar", *lparName)
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		cliLogger.Fatal("Failed to resolve LPAR", "error", err)
 	}

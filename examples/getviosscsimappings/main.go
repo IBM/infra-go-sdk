@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -46,17 +47,17 @@ func main() {
 	// STEP 1: Login to HMC
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*hmcUser, *hmcPass, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *hmcUser, *hmcPass, *verbose); err != nil {
 		log.Fatalf("HMC Login failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("✓ Successfully logged into HMC at %s\n", *hmcIP)
 
 	// =========================================================================
 	// STEP 2: Get Managed System UUID
 	// =========================================================================
-	systemUUID, system, err := restClient.GetManagedSystemByName(*sysName, *verbose)
+	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
 	if err != nil {
 		log.Fatalf("Failed to get managed system: %v", err)
 	}
@@ -104,7 +105,7 @@ func main() {
 		fmt.Printf("\n📋 Fetching SCSI mappings for VIOS '%s' (State: %s)...\n",
 			vios.PartitionName, vios.PartitionState)
 
-		mappings, err := restClient.GetViosSCSIMappings(vios.PartitionUUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMappings(context.Background(), vios.PartitionUUID, *verbose)
 		
 		result := viosMappingResult{
 			ViosName:  vios.PartitionName,

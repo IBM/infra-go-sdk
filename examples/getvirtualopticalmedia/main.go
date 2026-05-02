@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -39,10 +40,10 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *debug); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *debug); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	fmt.Println("=========================================================================")
 	fmt.Printf(" 💿 Virtual Optical Media Repository Test: %s\n", *viosName)
@@ -53,7 +54,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n[Test 1] Fetching ALL Virtual Optical Media...\n")
 	
-	allMedia, err := restClient.GetVirtualOpticalMedias(*sysName, *viosName, *debug)
+	allMedia, err := restClient.GetVirtualOpticalMedias(context.Background(), *sysName, *viosName, *debug)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch all media: %v", err)
 	}
@@ -77,7 +78,7 @@ func main() {
 	if *mediaName != "" {
 		fmt.Printf("\n[Test 2] Querying specific media '%s'...\n", *mediaName)
 		
-		media, err := restClient.GetVirtualOpticalMedia(*sysName, *viosName, *mediaName, *debug)
+		media, err := restClient.GetVirtualOpticalMedia(context.Background(), *sysName, *viosName, *mediaName, *debug)
 		if err != nil {
 			fmt.Printf("   ⚠️  Media not found or error occurred: %v\n", err)
 		} else {
@@ -91,7 +92,7 @@ func main() {
 			if *deleteMedia {
 				fmt.Printf("\n[Test 3] Deleting media '%s'...\n", *mediaName)
 				
-				err := restClient.DeleteVirtualOpticalMedia(*sysName, *viosName, *mediaName, *debug)
+				err := restClient.DeleteVirtualOpticalMedia(context.Background(), *sysName, *viosName, *mediaName, *debug)
 				if err != nil {
 					log.Fatalf("   ❌ Failed to delete media: %v", err)
 				}

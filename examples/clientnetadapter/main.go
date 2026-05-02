@@ -121,22 +121,22 @@ func main() {
 		restClient.EnableVerboseLogging()
 	}
 
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		cliLogger.Fatal("HMC Logon failed", "error", err)
 	}
 	defer func() {
 		cliLogger.Info("Closing HMC Session...")
-		restClient.Logoff()
+		restClient.Logoff(context.Background())
 	}()
 
 	cliLogger.Debug("Resolving System", "system", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
 		cliLogger.Fatal("Failed to resolve Managed System", "system", sysName, "error", err)
 	}
 
 	cliLogger.Debug("Resolving LPAR", "lpar", lparName)
-	lparDetails, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, lparName, verbose)
+	lparDetails, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName, verbose)
 	if err != nil || lparUUID == "" {
 		cliLogger.Fatal("Failed to resolve LPAR Name", "lpar", lparName, "error", err)
 	}
@@ -159,7 +159,7 @@ func main() {
 	case "list":
 		cliLogger.Info("Fetching Virtual Ethernet Adapters", "lpar", lparName)
 
-		adapters, err := restClient.GetClientNetworkAdapters(sysUUID, lparUUID, verbose)
+		adapters, err := restClient.GetClientNetworkAdapters(context.Background(), sysUUID, lparUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to retrieve client network adapters", "error", err)
 		}
@@ -189,7 +189,7 @@ func main() {
 	// -------------------------------------------------------------------------
 	case "create":
 		cliLogger.Info("Resolving Target Virtual Switch", "vswitch", vswitchName)
-		vswitches, err := restClient.GetVirtualSwitchQuickAll(sysUUID, verbose)
+		vswitches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to get Virtual Switches", "error", err)
 		}
@@ -208,7 +208,7 @@ func main() {
 
 		cliLogger.Info("Provisioning new Virtual Ethernet Adapter", "vlan", vlanID, "vswitch", vswitchName)
 
-		adapter, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, vlanID, verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, vlanID, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
@@ -232,7 +232,7 @@ func main() {
 	case "delete":
 		cliLogger.Info("Deleting Virtual Ethernet Adapter", "adapter_uuid", adapterUUID)
 
-		err := restClient.DeleteClientNetworkAdapter(lparUUID, adapterUUID, verbose)
+		err := restClient.DeleteClientNetworkAdapter(context.Background(), lparUUID, adapterUUID, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")

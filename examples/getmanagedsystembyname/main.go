@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -19,15 +20,15 @@ func main() {
 	flag.Parse()
 
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("Searching for Managed System: %s...\n", *targetName)
 	
 	// Use the upgraded function that returns the UUID and our comprehensive struct
-	uuid, detailedSystem, err := restClient.GetManagedSystemByName(*targetName, *verbose)
+	uuid, detailedSystem, err := restClient.GetManagedSystemByName(context.Background(), *targetName, *verbose)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}

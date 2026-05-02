@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -9,10 +10,10 @@ import (
 
 func main() {
 	client := hmc.NewHmcRestClient("192.0.2.1")
-	if err := client.Login("REDACTED_HMC_USER<==", "REDACTED_HMC_PASS<==", true); err != nil {
+	if err := client.Login(context.Background(), "REDACTED_HMC_USER<==", "REDACTED_HMC_PASS<==", true); err != nil {
 		log.Fatalf("Login failed: %v", err)
 	}
-	defer client.Logoff()
+	defer client.Logoff(context.Background())
 
 	lparUUID := "48FFBFB4-2DB8-448E-A33C-2C5A86D9CE17"
 	viosID := 1      // Target VIOS ID

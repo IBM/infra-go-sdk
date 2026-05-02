@@ -125,22 +125,22 @@ func main() {
 		restClient.EnableVerboseLogging()
 	}
 
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		cliLogger.Fatal("HMC Logon failed", "error", err)
 	}
 	defer func() {
 		cliLogger.Info("Closing HMC Session...")
-		restClient.Logoff()
+		restClient.Logoff(context.Background())
 	}()
 
 	cliLogger.Debug("Resolving System", "system", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
 		cliLogger.Fatal("System not found", "system", sysName, "error", err)
 	}
 
 	cliLogger.Debug("Fetching detailed hardware inventory")
-	detailedSystem, err := restClient.GetManagedSystem(sysUUID, verbose)
+	detailedSystem, err := restClient.GetManagedSystem(context.Background(), sysUUID, verbose)
 	if err != nil {
 		cliLogger.Fatal("Failed to fetch detailed system info", "error", err)
 	}
@@ -152,7 +152,7 @@ func main() {
 	if lparName != "" {
 		cliLogger.Debug("Resolving LPAR", "lpar", lparName)
 		var resolvedLparUUID string
-		lparObj, resolvedLparUUID, err = restClient.GetLogicalPartitionByName(sysUUID, lparName, verbose)
+		lparObj, resolvedLparUUID, err = restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName, verbose)
 		if err != nil || resolvedLparUUID == "" {
 			cliLogger.Fatal("LPAR not found", "lpar", lparName)
 		}
@@ -338,7 +338,7 @@ func main() {
 	// =========================================================================
 	if len(processed) > 0 {
 		cliLogger.Info("Saving active configuration to LPAR profile", "profile", lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(lparUUID, lparProfile, forceSave, verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, lparProfile, forceSave, verbose)
 		if saveErr != nil {
 			cliLogger.Warn("Physical adapters modified dynamically, but failed to save LPAR profile", "error", saveErr)
 		} else {
@@ -384,7 +384,7 @@ func main() {
 		cliLogger.Info("Restoring original LPAR power state...", "lpar", lparName)
 
 		// Get LPAR detailed info to accurately extract the saved profile UUID
-		lparDetailed, err := restClient.GetLogicalPartitionDetailed(lparUUID, verbose)
+		lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to retrieve LPAR details for Power On", "error", err)
 		}

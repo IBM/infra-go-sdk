@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -57,14 +58,14 @@ func main() {
 		client := hmc.NewHmcRestClient(*hmcIP)
 
 		// Login to HMC
-		if err := client.Login(*username, *password, *verbose); err != nil {
+		if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
 			log.Fatalf("Failed to login to HMC: %v", err)
 		}
 		fmt.Println("✓ Successfully logged in to HMC")
 
 		// Close virtual terminal
 		fmt.Printf("\nClosing virtual terminal for LPAR '%s' on system '%s' via REST API...\n", *lparName, *systemName)
-		if err := client.CloseVirtualTerminal(*systemName, *lparName, *verbose); err != nil {
+		if err := client.CloseVirtualTerminal(context.Background(), *systemName, *lparName, *verbose); err != nil {
 			log.Fatalf("Failed to close virtual terminal: %v", err)
 		}
 

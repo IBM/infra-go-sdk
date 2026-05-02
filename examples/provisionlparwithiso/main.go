@@ -66,7 +66,7 @@ func (r *RollbackTracker) Rollback(ctx context.Context) {
 	if len(r.createdDisks) > 0 {
 		fmt.Printf("   [3/7] Deleting %d virtual disk(s)...\n", len(r.createdDisks))
 		for _, diskName := range r.createdDisks {
-			err := r.restClient.DeleteVirtualDisk(r.sysName, r.viosName, diskName, r.verbose)
+			err := r.restClient.DeleteVirtualDisk(context.Background(), r.sysName, r.viosName, diskName, r.verbose)
 			if err != nil {
 				fmt.Printf("   ⚠️  Failed to delete disk '%s': %v\n", diskName, err)
 			} else {
@@ -78,7 +78,7 @@ func (r *RollbackTracker) Rollback(ctx context.Context) {
 	// Step 4: Unmap optical media if they were mapped
 	if r.mappedMedia && len(r.createdMedia) > 0 && r.lparUUID != "" {
 		fmt.Printf("   [4/7] Unmapping %d optical media...\n", len(r.createdMedia))
-		_, err := r.restClient.DeleteVirtualOpticalMaps(r.sysUUID, r.viosUUID, r.lparUUID, r.createdMedia, r.verbose)
+		_, err := r.restClient.DeleteVirtualOpticalMaps(context.Background(), r.sysUUID, r.viosUUID, r.lparUUID, r.createdMedia, r.verbose)
 		if err != nil {
 			fmt.Printf("   ⚠️  Failed to unmap optical media: %v\n", err)
 		} else {
@@ -133,13 +133,13 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 	fmt.Println("\n[Step 1/7] Authenticating and resolving resources...")
 	
 	restClient := hmc.NewHmcRestClient(hmcIP)
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		log.Fatalf("❌ HMC Login failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 	fmt.Printf("✅ Logged into HMC at %s\n", hmcIP)
 
-	sysUUID, _, err := restClient.GetManagedSystemByName(sysName, verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", sysName)
 	}
@@ -150,14 +150,14 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 	// =========================================================================
 	fmt.Println("\n[Step 2/7] Finding LPAR...")
 	
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, lparName, verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName, verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found on system '%s'", lparName, sysName)
 	}
 	fmt.Printf("✅ Found LPAR: %s (UUID: %s)\n", lparName, lparUUID)
 
 	// Get LPAR details to check state
-	lparDetails, err := restClient.GetLogicalPartitionDetailed(lparUUID, verbose)
+	lparDetails, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID, verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get LPAR details: %v", err)
 	}
@@ -174,7 +174,7 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 	if viosName != "" {
 		// User specified a VIOS name - use it
 		fmt.Printf("   Using specified VIOS: %s\n", viosName)
-		viosUUID, err = hmc.GetViosID(restClient, sysUUID, viosName, verbose)
+		viosUUID, err = hmc.GetViosID(context.Background(), restClient, sysUUID, viosName, verbose)
 		if err != nil || viosUUID == "" {
 			log.Fatalf("❌ VIOS '%s' not found.", viosName)
 		}
@@ -184,7 +184,7 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 		// Auto-discover active VIOS
 		fmt.Printf("   Auto-discovering active VIOS...\n")
 		
-		viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, verbose)
+		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to get VIOS list: %v", err)
 		}
@@ -198,7 +198,7 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 			viosUUIDs[i] = v.UUID
 		}
 		
-		activeVIOSMap, err := restClient.GetActiveVIOSServers(sysUUID, viosUUIDs, verbose)
+		activeVIOSMap, err := restClient.GetActiveVIOSServers(context.Background(), sysUUID, viosUUIDs, verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to find active VIOS: %v", err)
 		}
@@ -241,7 +241,7 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 	fmt.Println("\n[Step 5/7] Removing SCSI mappings...")
 	
 	// Get all SCSI mappings for this LPAR
-	mappings, err := restClient.GetViosSCSIMappings(viosUUID, verbose)
+	mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID, verbose)
 	if err != nil {
 		fmt.Printf("⚠️  Warning: Failed to get SCSI mappings: %v\n", err)
 	} else {
@@ -275,7 +275,7 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 			// Delete the virtual disks
 			fmt.Printf("   Deleting %d virtual disk(s)...\n", len(diskMappings))
 			for _, diskName := range diskMappings {
-				err := restClient.DeleteVirtualDisk(sysName, viosNameResolved, diskName, verbose)
+				err := restClient.DeleteVirtualDisk(context.Background(), sysName, viosNameResolved, diskName, verbose)
 				if err != nil {
 					fmt.Printf("   ⚠️  Warning: Failed to delete disk '%s': %v\n", diskName, err)
 				} else {
@@ -289,7 +289,7 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 		// Unmap optical media
 		if len(opticalMappings) > 0 {
 			fmt.Printf("   Unmapping %d optical media...\n", len(opticalMappings))
-			_, err := restClient.DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID, opticalMappings, verbose)
+			_, err := restClient.DeleteVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, opticalMappings, verbose)
 			if err != nil {
 				fmt.Printf("   ⚠️  Warning: Failed to unmap optical media: %v\n", err)
 			} else {
@@ -435,13 +435,13 @@ func main() {
 	fmt.Println("\n[Step 1/10] Authenticating and resolving resources...")
 	
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Login failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 	fmt.Printf("✅ Logged into HMC at %s\n", *hmcIP)
 
-	sysUUID, _, err := restClient.GetManagedSystemByName(*sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
@@ -454,7 +454,7 @@ func main() {
 	if *viosName != "" {
 		// User specified a VIOS name - use it
 		fmt.Printf("   Using specified VIOS: %s\n", *viosName)
-		viosUUID, err = hmc.GetViosID(restClient, sysUUID, *viosName, *verbose)
+		viosUUID, err = hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
 		if err != nil || viosUUID == "" {
 			log.Fatalf("❌ VIOS '%s' not found.", *viosName)
 		}
@@ -465,7 +465,7 @@ func main() {
 		fmt.Printf("   Auto-discovering active VIOS...\n")
 		
 		// Get all VIOS servers
-		viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, *verbose)
+		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to get VIOS list: %v", err)
 		}
@@ -481,7 +481,7 @@ func main() {
 		}
 		
 		// Get active VIOS servers
-		activeVIOSMap, err := restClient.GetActiveVIOSServers(sysUUID, viosUUIDs, *verbose)
+		activeVIOSMap, err := restClient.GetActiveVIOSServers(context.Background(), sysUUID, viosUUIDs, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to find active VIOS: %v", err)
 		}
@@ -509,7 +509,7 @@ func main() {
 	fmt.Println("\n[Step 2/10] Creating LPAR...")
 	
 	// Check if LPAR already exists
-	_, existingUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_, existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err == nil && existingUUID != "" {
 		fmt.Printf("❌ LPAR '%s' already exists (UUID: %s)\n", *lparName, existingUUID)
 		log.Fatalf("Please delete the existing LPAR or use a different name")
@@ -554,7 +554,7 @@ func main() {
 	
 	// Get vSwitch UUID
 	fmt.Printf("   Resolving vSwitch '%s'...\n", *vswitchName)
-	switches, err := restClient.GetVirtualSwitchQuickAll(sysUUID, *verbose)
+	switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to retrieve Virtual Switches: %v\n", err)
 		rollback.Rollback(ctx)
@@ -576,7 +576,7 @@ func main() {
 	fmt.Printf("   ✅ Found vSwitch UUID: %s\n", vswitchUUID)
 	
 	fmt.Printf("   Creating network adapter with VLAN %d\n", *vlanID)
-	_, err = restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+	_, err = restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to create network adapter: %v\n", err)
 		rollback.Rollback(ctx)
@@ -594,7 +594,7 @@ func main() {
 	nfsPath := fmt.Sprintf("%s:%s", *nfsServer, *exportPath)
 	fmt.Printf("   NFS: %s -> %s\n", nfsPath, *mountPoint)
 	
-	_, err = hmc.MountNFS(restClient, *sysName, viosNameResolved, *nfsServer, *exportPath, *mountPoint, "3", *verbose)
+	_, err = hmc.MountNFS(context.Background(), restClient, *sysName, viosNameResolved, *nfsServer, *exportPath, *mountPoint, "3", *verbose)
 	if err != nil {
 		// Check if already mounted
 		if strings.Contains(err.Error(), "already mounted") || strings.Contains(err.Error(), "busy") {
@@ -641,7 +641,7 @@ func main() {
 		fmt.Printf("   - %s from %s\n", name, path)
 	}
 	
-	results, err := restClient.AddVirtualOpticalMedia(viosUUID, mediaFiles, *verbose)
+	results, err := restClient.AddVirtualOpticalMedia(context.Background(), viosUUID, mediaFiles, *verbose)
 	if err != nil {
 		log.Printf("⚠️  Warning: Some media creation failed: %v", err)
 	}
@@ -674,7 +674,7 @@ func main() {
 	fmt.Println("\n[Step 6/10] Mapping optical media to LPAR...")
 	
 	fmt.Printf("   Mapping %d media to LPAR '%s'\n", len(createdMedia), *lparName)
-	mappingStatus, err := restClient.CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID, createdMedia, *verbose)
+	mappingStatus, err := restClient.CreateVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, createdMedia, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to map optical media: %v\n", err)
 		rollback.Rollback(ctx)
@@ -729,7 +729,7 @@ func main() {
 		diskSizeGB := float64(diskSizeMB) / 1024.0
 		fmt.Printf("   Creating disk %d/%d: '%s' (%.2fGB / %dMB)\n", i+1, len(diskNameList), diskName, diskSizeGB, diskSizeMB)
 		
-		err = restClient.CreateVirtualDisk(*sysName, viosUUID, viosNameResolved, *vgName, diskName, diskSizeMB, *verbose)
+		err = restClient.CreateVirtualDisk(context.Background(), *sysName, viosUUID, viosNameResolved, *vgName, diskName, diskSizeMB, *verbose)
 		if err != nil {
 			fmt.Printf("❌ Failed to create virtual disk '%s': %v\n", diskName, err)
 			rollback.createdDisks = createdDisks
@@ -776,7 +776,7 @@ func main() {
 	fmt.Println("\n[Step 9/10] Saving partition profile...")
 	
 	fmt.Printf("   Saving current configuration to profile '%s'\n", *lparProfile)
-	err = restClient.SaveCurrentLparConfig(lparUUID, *lparProfile, true, *verbose)
+	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, true, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to save partition profile: %v\n", err)
 		rollback.Rollback(ctx)
@@ -793,7 +793,7 @@ func main() {
 	
 	// Get LPAR detailed info to extract profile UUID
 	fmt.Printf("   Getting LPAR details to extract profile UUID...\n")
-	lparDetailed, err := restClient.GetLogicalPartitionDetailed(lparUUID, *verbose)
+	lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID, *verbose)
 	if err != nil {
 		fmt.Printf("❌ Failed to retrieve LPAR details: %v\n", err)
 		rollback.Rollback(ctx)

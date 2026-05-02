@@ -43,17 +43,17 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// RESOLVE SYSTEM UUID
 	// =========================================================================
 	fmt.Printf("Resolving managed system: %s\n", *systemName)
 	
-	systemUUID, system, err := restClient.GetManagedSystemByName(*systemName, *verbose)
+	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *systemName, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get managed system: %v", err)
 	}
@@ -66,7 +66,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Resolving LPAR: %s\n", *lparName)
 	
-	lpar, lparUUID, err := restClient.GetLogicalPartitionByName(systemUUID, *lparName, *verbose)
+	lpar, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, *lparName, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get LPAR: %v", err)
 	}
@@ -132,7 +132,7 @@ func main() {
 	// =========================================================================
 	fmt.Println()
 	fmt.Println("Cleaning up job...")
-	if err := restClient.DeleteJob(jobID, false, *verbose); err != nil {
+	if err := restClient.DeleteJob(context.Background(), jobID, false, *verbose); err != nil {
 		log.Printf("⚠️  Warning: Failed to delete job: %v", err)
 	} else {
 		fmt.Println("✅ Job deleted successfully")

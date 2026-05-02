@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -24,11 +25,11 @@ func main() {
 	if verbose {
 		log.Printf("Attempting to log on to HMC at %s with username %s", hmcIP, username)
 	}
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
 	defer func() {
-		if err := restClient.Logoff(); err != nil {
+		if err := restClient.Logoff(context.Background()); err != nil {
 			log.Printf("Logoff failed: %v", err)
 		} else if verbose {
 			log.Println("Logged off successfully")
@@ -37,7 +38,7 @@ func main() {
 
 	// 1. Resolve System Name to UUID
 	fmt.Printf("Step 1: Resolving System Name '%s'...\n", sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(sysName, verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), sysName, verbose)
 	if err != nil {
 		log.Fatalf("Error resolving system name: %v", err)
 	}
@@ -47,7 +48,7 @@ func main() {
 
 	// 2. Fetch all partitions for this system to find the target partition's UUID
 	fmt.Printf("Step 2: Searching for Partition '%s'...\n", lparName)
-	partitions, err := restClient.GetLogicalPartitionsQuickAll(sysUUID, verbose)
+	partitions, err := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID, verbose)
 	if err != nil {
 		log.Fatalf("Failed to fetch partitions: %v", err)
 	}

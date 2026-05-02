@@ -46,19 +46,19 @@ func main() {
 	// AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// 1. Resolve System
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
 
 	// 2. Resolve LPAR & Check State
-	lpar, partUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	lpar, partUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lpar == nil {
 		log.Fatalf("❌ LPAR '%s' not found or could not be retrieved: %v", *lparName, err)
 	}
@@ -68,7 +68,7 @@ func main() {
 	}
 
 	// 3. Resolve Profile UUID
-	lparDetailed, err := restClient.GetLogicalPartitionDetailed(partUUID, *verbose)
+	lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), partUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to retrieve detailed LPAR information: %v", err)
 	}
@@ -83,7 +83,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n🔍 Translating MAC %s to Location Code...\n", *macAddr)
 	
-	locationCode, err := restClient.GetLocationCodeByMac(sysUUID, partUUID, *macAddr, *verbose)
+	locationCode, err := restClient.GetLocationCodeByMac(context.Background(), sysUUID, partUUID, *macAddr, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Translation Failed: %v", err)
 	}

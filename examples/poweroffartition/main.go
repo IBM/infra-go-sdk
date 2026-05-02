@@ -43,14 +43,14 @@ func main() {
 	if *verbose {
 		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
 	}
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		if *verbose {
 			log.Fatalf("Logon failed: %v", err)
 		}
 		log.Fatal("❌ Logon failed. (Run with -verbose for details)")
 	}
 	defer func() {
-		if err := restClient.Logoff(); err != nil {
+		if err := restClient.Logoff(context.Background()); err != nil {
 			if *verbose {
 				log.Printf("Logoff failed: %v", err)
 			}
@@ -67,7 +67,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("\nResolving System UUID for '%s'...\n", *sysName)
 	}
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		if *verbose {
 			log.Fatalf("System '%s' not found: %v", *sysName, err)
@@ -79,7 +79,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("Resolving LPAR UUID for '%s'...\n", *lparName)
 	}
-	lpar, partUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	lpar, partUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || partUUID == "" {
 		if *verbose {
 			log.Fatalf("LPAR '%s' not found: %v", *lparName, err)

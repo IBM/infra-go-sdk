@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -29,16 +30,16 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// RESOLVE SYSTEM UUID
 	// =========================================================================
 	fmt.Printf("Resolving Managed System '%s'...\n", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
@@ -48,7 +49,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Fetching comprehensive XML payload for system UUID: %s...\n", sysUUID)
 	
-	detailedSystem, err := restClient.GetManagedSystem(sysUUID, *verbose)
+	detailedSystem, err := restClient.GetManagedSystem(context.Background(), sysUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch detailed system info: %v", err)
 	}

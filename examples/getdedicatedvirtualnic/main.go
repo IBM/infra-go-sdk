@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -30,19 +31,19 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("Resolving System UUID for '%s'...\n", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	fmt.Printf("Resolving LPAR UUID for '%s'...\n", *lparName)
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -53,7 +54,7 @@ func main() {
 	fmt.Printf("\n📡 Discovering Dedicated Virtual NICs on LPAR '%s'...\n", *lparName)
 	fmt.Println("=========================================================================")
 
-	vnics, err := restClient.GetDedicatedVirtualNICs(lparUUID, *verbose)
+	vnics, err := restClient.GetDedicatedVirtualNICs(context.Background(), lparUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch Dedicated vNICs: %v", err)
 	}
@@ -81,7 +82,7 @@ func main() {
 	fmt.Printf("\n📡 Discovering Underlying SR-IOV Logical Ports on LPAR '%s'...\n", *lparName)
 	fmt.Println("=========================================================================")
 
-	logicalPorts, err := restClient.GetSRIOVLogicalPorts(lparUUID, *verbose)
+	logicalPorts, err := restClient.GetSRIOVLogicalPorts(context.Background(), lparUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch SR-IOV Logical Ports: %v", err)
 	}

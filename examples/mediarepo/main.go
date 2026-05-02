@@ -137,16 +137,16 @@ func main() {
 		restClient.EnableVerboseLogging()
 	}
 
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		cliLogger.Fatal("HMC Logon failed", "error", err)
 	}
 	defer func() {
 		cliLogger.Info("Closing HMC Session...")
-		restClient.Logoff()
+		restClient.Logoff(context.Background())
 	}()
 
 	cliLogger.Debug("Resolving System", "system", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
 		cliLogger.Fatal("Failed to resolve Managed System", "system", sysName, "error", err)
 	}
@@ -154,7 +154,7 @@ func main() {
 	var targetViosUUID string
 	if viosName != "" {
 		cliLogger.Debug("Resolving VIOS", "vios", viosName)
-		targetViosUUID, err = hmc.GetViosID(restClient, sysUUID, viosName, verbose)
+		targetViosUUID, err = hmc.GetViosID(context.Background(), restClient, sysUUID, viosName, verbose)
 		if err != nil || targetViosUUID == "" {
 			cliLogger.Fatal("VIOS not found on system", "vios", viosName, "system", sysName)
 		}
@@ -177,7 +177,7 @@ func main() {
 	case "list":
 		cliLogger.Info("Fetching Virtual Media Repository Inventory", "system", sysName)
 
-		viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, verbose)
+		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
 		if err != nil || len(viosList) == 0 {
 			cliLogger.Fatal("Failed to fetch VIOS instances for system", "system", sysName)
 		}
@@ -189,7 +189,7 @@ func main() {
 				continue
 			}
 
-			vgList, err := restClient.GetVolumeGroups(vios.UUID, verbose)
+			vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
 			if err != nil {
 				continue
 			}
@@ -221,7 +221,7 @@ func main() {
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		cliLogger.Debug("Verifying if a Media Repository already exists on this VIOS...")
-		vgList, err := restClient.GetVolumeGroups(targetViosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to fetch Volume Groups to verify repository existence", "error", err)
 		}
@@ -235,7 +235,7 @@ func main() {
 
 		cliLogger.Info("Executing Media Repository creation via VIOS...", "size_mb", repSize)
 
-		err = restClient.CreateMediaRepository(sysName, targetViosUUID, viosName, vgName, repSize, verbose)
+		err = restClient.CreateMediaRepository(context.Background(), sysName, targetViosUUID, viosName, vgName, repSize, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
@@ -253,7 +253,7 @@ func main() {
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		cliLogger.Debug("Verifying if Media Repository exists...")
-		vgList, err := restClient.GetVolumeGroups(targetViosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to fetch Volume Groups to verify repository existence", "error", err)
 		}
@@ -272,7 +272,7 @@ func main() {
 
 		cliLogger.Info("Extending Media Repository", "vios", viosName, "add_mb", addSize)
 
-		err = restClient.ChangeMediaRepository(sysName, targetViosUUID, viosName, addSize, verbose)
+		err = restClient.ChangeMediaRepository(context.Background(), sysName, targetViosUUID, viosName, addSize, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
@@ -290,7 +290,7 @@ func main() {
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		cliLogger.Debug("Verifying if Media Repository exists...")
-		vgList, err := restClient.GetVolumeGroups(targetViosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
 		if err != nil {
 			cliLogger.Fatal("Failed to fetch Volume Groups to verify repository existence", "error", err)
 		}
@@ -311,7 +311,7 @@ func main() {
 
 		cliLogger.Warn("Attempting to permanently delete Virtual Media Repository", "repo_name", repoName, "vios", viosName, "force", force)
 
-		err = restClient.DeleteMediaRepository(sysName, targetViosUUID, viosName, repoName, force, verbose)
+		err = restClient.DeleteMediaRepository(context.Background(), sysName, targetViosUUID, viosName, repoName, force, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
 				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")

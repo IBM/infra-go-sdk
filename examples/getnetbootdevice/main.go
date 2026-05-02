@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -42,15 +43,15 @@ func main() {
 	// 1. Initialize & Login
 	fmt.Println("Step 1: Connecting to HMC...")
 	client := hmc.NewHmcRestClient(*hmcIP)
-	if err := client.Login(*username, *password, *verbose); err != nil {
+	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}
-	defer client.Logoff()
+	defer client.Logoff(context.Background())
 	fmt.Println("✅ Connected to HMC")
 
 	// 2. Resolve System UUID
 	fmt.Printf("Step 2: Resolving System UUID for '%s'...", *sysName)
-	_, sysUUID, err := client.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := client.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ Managed System '%s' not found: %v", *sysName, err)
 	}
@@ -58,7 +59,7 @@ func main() {
 
 	// 3. Resolve LPAR UUID and get details
 	fmt.Printf("Step 3: Resolving LPAR UUID for '%s'...", *lparName)
-	lparDetails, lparUUID, err := client.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	lparDetails, lparUUID, err := client.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found on system '%s': %v", *lparName, *sysName, err)
 	}
@@ -67,7 +68,7 @@ func main() {
 
 	// 4. Get LPAR detailed information for profile
 	fmt.Println("Step 4: Fetching LPAR detailed information...")
-	lparDetailed, err := client.GetLogicalPartitionDetailed(lparUUID, *verbose)
+	lparDetailed, err := client.GetLogicalPartitionDetailed(context.Background(), lparUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get LPAR details: %v", err)
 	}
@@ -88,7 +89,7 @@ func main() {
 	}
 
 	fmt.Println("Step 5: Fetching network boot devices from profile...")
-	bootDevices, err := client.GetNetworkBootDevices(lparUUID, profileUUID, *verbose)
+	bootDevices, err := client.GetNetworkBootDevices(context.Background(), lparUUID, profileUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ GetNetworkBootDevices failed: %v", err)
 	}

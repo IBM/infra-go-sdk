@@ -48,13 +48,13 @@ func main() {
 	// PHASE 1: HMC RESOLUTION & SHUTDOWN
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*hmcUser, *hmcPass, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *hmcUser, *hmcPass, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
-	sysUUID, _, _ := restClient.GetManagedSystemByName(*sysName, *verbose)
-	lpars, _ := restClient.GetLogicalPartitionsQuickAll(sysUUID, *verbose)
+	sysUUID, _, _ := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	lpars, _ := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID, *verbose)
 
 	var targetLparUUID string
 	var currentState string
@@ -91,7 +91,7 @@ func main() {
 	// PHASE 2: STORAGE DISCOVERY (Using GetViosSCSIMappings)
 	// =========================================================================
 	fmt.Println("\nStep 2: Discovering storage mappings...")
-	vioses, _ := restClient.GetVirtualIOServersQuick(sysUUID, *verbose)
+	vioses, _ := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
 	var discoveredMappings []mappingData
 	
 	// Storage categorization for batch deletion
@@ -112,7 +112,7 @@ func main() {
 		}
 		
 		// Fetch all detailed mappings for the VIOS
-		mappings, err := restClient.GetViosSCSIMappings(v.UUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMappings(context.Background(), v.UUID, *verbose)
 		if err != nil {
 			log.Printf("⚠️ Warning: Failed to get mappings for VIOS %s: %v", v.PartitionName, err)
 			continue
@@ -212,7 +212,7 @@ func main() {
 					// After successful unmapping, delete the virtual disks themselves
 					fmt.Printf("   VIOS %s: Deleting virtual disks from storage pool...\n", viosName)
 					for _, diskName := range storage.virtualDisks {
-						if err := restClient.DeleteVirtualDisk(*sysName, viosName, diskName, *verbose); err != nil {
+						if err := restClient.DeleteVirtualDisk(context.Background(), *sysName, viosName, diskName, *verbose); err != nil {
 							log.Printf("⚠️ Warning: Failed to delete virtual disk '%s': %v", diskName, err)
 						} else {
 							fmt.Printf("   🗑️  Virtual disk '%s' deleted successfully\n", diskName)
@@ -224,7 +224,7 @@ func main() {
 			// Delete Optical Media
 			if len(storage.opticalMedia) > 0 {
 				fmt.Printf("   VIOS %s: Unmapping optical media: %s\n", viosName, strings.Join(storage.opticalMedia, ", "))
-				result, err := restClient.DeleteVirtualOpticalMaps(sysUUID, viosUUID, targetLparUUID, storage.opticalMedia, *verbose)
+				result, err := restClient.DeleteVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, targetLparUUID, storage.opticalMedia, *verbose)
 				if err != nil {
 					log.Printf("⚠️ Warning: Failed to delete optical media mappings: %v", err)
 				} else {
@@ -256,7 +256,7 @@ func main() {
 
 				if svcVolName != "" {
 					// Resolve SVC Host via WWPNs
-					viosObj, _ := restClient.GetVirtualIOServer(m.ViosUUID, false)
+					viosObj, _ := restClient.GetVirtualIOServer(context.Background(), m.ViosUUID, false)
 					
 					// Collect all WWPNs from the VIOS
 					var wwpns []string
@@ -296,7 +296,7 @@ func main() {
 				continue
 			}
 			cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmdev -dev %s -recursive"`, *sysName, m.ViosName, m.VolName)
-			restClient.CliRunner(cmd, *verbose)
+			restClient.CliRunner(context.Background(), cmd, *verbose)
 			processedVios[m.ViosUUID] = m.ViosName
 		}
 

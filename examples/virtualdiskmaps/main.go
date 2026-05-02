@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -58,22 +59,22 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	viosUUID, err := hmc.GetViosID(restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found.", *viosName)
 	}
 
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -85,7 +86,7 @@ func main() {
 		fmt.Printf("\n📡 LISTING Virtual Disk Maps for LPAR '%s' on VIOS '%s'...\n", *lparName, *viosName)
 		fmt.Println("=========================================================================")
 
-		mappings, err := restClient.GetViosSCSIMappings(viosUUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to get current VIOS mappings: %v", err)
 		}
@@ -156,7 +157,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n[Check] Verifying current mapping state for LPAR '%s'...\n", *lparName)
 	
-	mappings, err := restClient.GetViosSCSIMappings(viosUUID, *verbose)
+	mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get current VIOS mappings: %v", err)
 	}
@@ -215,7 +216,7 @@ func main() {
 	} else {
 		// --- CREATE LOGIC ---
 		fmt.Printf("[Validate] Verifying requested Virtual Disks exist on VIOS '%s'...\n", *viosName)
-		vgs, err := restClient.GetVolumeGroups(viosUUID, *verbose)
+		vgs, err := restClient.GetVolumeGroups(context.Background(), viosUUID, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to get Volume Groups to validate disks: %v", err)
 		}
@@ -287,7 +288,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(lparUUID, *lparProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave, *verbose)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: vFC topology modified dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {

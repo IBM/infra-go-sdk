@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -60,22 +61,22 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
-	systems, _, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	systems, _, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || systems.UUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	viosUUID, err := hmc.GetViosID(restClient, systems.UUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, systems.UUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found.", *viosName)
 	}
 
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(systems.UUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systems.UUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -87,7 +88,7 @@ func main() {
 		fmt.Printf("\n📡 LISTING Physical Volume Maps for LPAR '%s' on VIOS '%s'...\n", *lparName, *viosName)
 		fmt.Println("=========================================================================")
 
-		mappings, err := restClient.GetViosSCSIMappings(viosUUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to get current VIOS mappings: %v", err)
 		}
@@ -159,7 +160,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n[Check] Verifying current mapping state for LPAR '%s'...\n", *lparName)
 
-	mappings, err := restClient.GetViosSCSIMappings(viosUUID, *verbose)
+	mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get current VIOS mappings: %v", err)
 	}
@@ -225,7 +226,7 @@ func main() {
 		
 		// Run lspv on the VIOS to get absolute truth of physical hardware presence
 		lspvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lspv"`, *sysName, *viosName)
-		out, err := restClient.CliRunner(lspvCmd, *verbose)
+		out, err := restClient.CliRunner(context.Background(), lspvCmd, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to run lspv on VIOS to validate disks: %v", err)
 		}
@@ -299,7 +300,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(lparUUID, *lparProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave, *verbose)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: vFC topology modified dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {
@@ -330,7 +331,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *viosProfile)
-		saveErr := restClient.SaveCurrentLparConfig(lparUUID, *viosProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *viosProfile, *forceSave, *verbose)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: Disk mapping modified, but failed to save LPAR profile: %v\n", saveErr)
 		} else {

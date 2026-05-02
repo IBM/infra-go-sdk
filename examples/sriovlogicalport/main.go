@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -59,19 +60,19 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("Resolving System UUID for '%s'...\n", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	fmt.Printf("Resolving LPAR UUID for '%s'...\n", *lparName)
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -83,7 +84,7 @@ func main() {
 		fmt.Printf("\n📡 LISTING SR-IOV Logical Ports for LPAR '%s'...\n", *lparName)
 		fmt.Println("=========================================================================")
 
-		logicalPorts, err := restClient.GetSRIOVLogicalPorts(lparUUID, *verbose)
+		logicalPorts, err := restClient.GetSRIOVLogicalPorts(context.Background(), lparUUID, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to fetch SR-IOV Logical Ports: %v", err)
 		}
@@ -159,7 +160,7 @@ func main() {
 		}
 
 		// 2. Call the Smart SDK Deleter
-		err = restClient.DeleteSRIOVLogicalPorts(lparUUID, cleanTargets, *verbose)
+		err = restClient.DeleteSRIOVLogicalPorts(context.Background(), lparUUID, cleanTargets, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Deletion Failed: %v", err)
 		}
@@ -201,7 +202,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(lparUUID, *lparProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave, *verbose)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: vFC topology modified dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {

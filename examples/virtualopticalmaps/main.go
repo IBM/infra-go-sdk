@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -60,22 +61,22 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
-	sysUUID, _, err := restClient.GetManagedSystemByName(*sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	viosUUID, err := hmc.GetViosID(restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found.", *viosName)
 	}
 
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -100,7 +101,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n[Check] Verifying current mapping state for LPAR '%s'...\n", *lparName)
 	
-	mappings, err := restClient.GetViosSCSIMappings(viosUUID, *verbose)
+	mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to get current VIOS mappings: %v", err)
 	}
@@ -150,7 +151,7 @@ func main() {
 			fmt.Printf("\n⚠️  Attempting to DELETE %d Virtual Optical Media mapping(s) from LPAR '%s'...\n", len(mediaToUnmap), *lparName)
 			fmt.Printf("Media to unmap: %v\n", mediaToUnmap)
 
-			operationStatus, err = restClient.DeleteVirtualOpticalMaps(sysUUID, viosUUID, lparUUID, mediaToUnmap, *verbose)
+			operationStatus, err = restClient.DeleteVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, mediaToUnmap, *verbose)
 			if err != nil {
 				log.Fatalf("❌ Storage Deletion Failed: %v", err)
 			}
@@ -162,7 +163,7 @@ func main() {
 		
 		// 3a. Validate media actually exists in the VIOS repository
 		fmt.Printf("[Validate] Verifying requested media exists in VIOS repository...\n")
-		viosDetails, err := restClient.GetVirtualIOServer(viosUUID, *verbose)
+		viosDetails, err := restClient.GetVirtualIOServer(context.Background(), viosUUID, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to get VIOS details: %v", err)
 		}
@@ -210,7 +211,7 @@ func main() {
 			fmt.Printf("Media to map: %v\n", mediaToMap)
 
 			// Assuming CreateVirtualOpticalMaps is your auto-pilot creation function
-			operationStatus, err = restClient.CreateVirtualOpticalMaps(sysUUID, viosUUID, lparUUID, mediaToMap, *verbose)
+			operationStatus, err = restClient.CreateVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, mediaToMap, *verbose)
 			if err != nil {
 				log.Fatalf("❌ Storage Mapping Failed: %v", err)
 			}
@@ -222,7 +223,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(lparUUID, *lparProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave, *verbose)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: vFC topology modified dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {

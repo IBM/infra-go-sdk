@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"strings"
@@ -68,24 +69,24 @@ func main() {
 		restClient.EnableVerboseLogging()
 	}
 
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		cliLogger.Fatal("HMC Logon failed", "error", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// 3. DYNAMIC RESOLUTION (Name -> UUID & ID)
 	// =========================================================================
 	cliLogger.Debug("Resolving Managed System to UUID", "system", *sysName)
 	
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		cliLogger.Fatal("Failed to resolve Managed System", "system", *sysName, "error", err)
 	}
 
 	cliLogger.Debug("Resolving LPAR to UUID", "lpar", *lparName)
 	
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		cliLogger.Fatal("Failed to resolve LPAR Name", "lpar", *lparName, "error", err)
 	}
@@ -93,7 +94,7 @@ func main() {
 
 	cliLogger.Debug("Resolving VIOS to Partition ID", "vios", *viosName)
 	
-	viosList, err := restClient.GetVirtualIOServersQuick(sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
 	if err != nil {
 		cliLogger.Fatal("Failed to fetch VIOS list", "error", err)
 	}

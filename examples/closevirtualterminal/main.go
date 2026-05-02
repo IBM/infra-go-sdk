@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -41,7 +42,7 @@ func main() {
 	client := hmc.NewHmcRestClient(*hmcIP)
 
 	// Login to HMC
-	if err := client.Login(*username, *password, *verbose); err != nil {
+	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("Failed to login to HMC: %v", err)
 	}
 	fmt.Println("✓ Successfully logged in to HMC")
@@ -50,7 +51,7 @@ func main() {
 	fmt.Printf("\nClosing virtual terminal for LPAR '%s' on system '%s'...\n", *lparName, *systemName)
 	fmt.Println("Attempting REST API method...")
 	
-	err := client.CloseVirtualTerminal(*systemName, *lparName, *verbose)
+	err := client.CloseVirtualTerminal(context.Background(), *systemName, *lparName, *verbose)
 	if err != nil {
 		// Check if it's an unsupported command error
 		if *useFallback && strings.Contains(err.Error(), "Unsupported command") {

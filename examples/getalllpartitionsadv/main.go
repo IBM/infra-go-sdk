@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -19,12 +20,12 @@ func main() {
 	flag.Parse()
 
 	client := hmc.NewHmcRestClient(*hmcIP)
-	if err := client.Login(*username, *password, *verbose); err != nil {
+	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatal(err)
 	}
-	defer client.Logoff()
+	defer client.Logoff(context.Background())
 
-	_, sysUUID, _ := client.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, _ := client.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 
 	partitions, err := client.GetLogicalPartitionsAdv(sysUUID, *verbose)
 	if err != nil {

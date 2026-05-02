@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -20,14 +21,14 @@ func main() {
 	restClient := hmc.NewHmcRestClient(hmcIP)
 
 	// 2. Logon
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// 3. Find Managed System UUID by Name
 	fmt.Printf("Searching for Managed System: %s...\n", targetSystem)
-	sysUUID, _, err := restClient.GetManagedSystemByName(targetSystem, verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), targetSystem, verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("Could not find system %s: %v", targetSystem, err)
 	}
@@ -35,7 +36,7 @@ func main() {
 
 	// 4. Get all Logical Partitions using the Quick/All endpoint
 	// This uses the optimized JSON streaming you just added to logicalpartitions.go
-	partitions, err := restClient.GetLogicalPartitionsQuickAll(sysUUID, verbose)
+	partitions, err := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID, verbose)
 	if err != nil {
 		log.Fatalf("Failed to fetch partitions: %v", err)
 	}

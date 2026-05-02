@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -35,14 +36,14 @@ func main() {
 	if *verbose {
 		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
 	}
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		if *verbose {
 			log.Fatalf("Logon failed: %v", err)
 		}
 		log.Fatal("❌ Logon failed. (Run with -verbose for details)")
 	}
 	defer func() {
-		if err := restClient.Logoff(); err != nil {
+		if err := restClient.Logoff(context.Background()); err != nil {
 			if *verbose {
 				log.Printf("Logoff failed: %v", err)
 			}
@@ -58,7 +59,7 @@ func main() {
 		fmt.Printf("\nResolving System UUID for '%s'...\n", *sysName)
 	}
 	// Use the quick endpoint for fast system resolution
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		if *verbose {
 			log.Fatalf("System '%s' not found: %v", *sysName, err)

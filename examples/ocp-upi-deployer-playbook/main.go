@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -170,7 +171,7 @@ func (o *Orchestrator) Deploy() error {
 	if err := o.connectHMC(); err != nil {
 		return fmt.Errorf("failed to connect to HMC: %v", err)
 	}
-	defer o.hmcClient.Logoff()
+	defer o.hmcClient.Logoff(context.Background())
 	
 	// Connect to storage backend if needed
 	if o.config.Storage.Type == "svc" {
@@ -319,7 +320,7 @@ func (o *Orchestrator) phaseCheckResources() error {
 		log.Printf("  Checking system: %s", systemName)
 		
 		// Get system details from HMC
-		_, systemDetails, err := o.hmcClient.GetManagedSystemByName(systemName, o.config.Deployment.Verbose)
+		_, systemDetails, err := o.hmcClient.GetManagedSystemByName(context.Background(), systemName, o.config.Deployment.Verbose)
 		if err != nil {
 			return fmt.Errorf("failed to get system details for '%s': %v", systemName, err)
 		}
@@ -425,7 +426,7 @@ func (o *Orchestrator) phaseCreateLPARs() error {
 		
 		// Attach Network Adapter
 		log.Printf("[%s] Attaching VLAN %d to LPAR...", node.Name, system.VlanID)
-		adapter, err := o.hmcClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, system.VlanID, verbose)
+		adapter, err := o.hmcClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, system.VlanID, verbose)
 		if err != nil {
 			return fmt.Errorf("failed to add network adapter: %v", err)
 		}
@@ -445,7 +446,7 @@ func (o *Orchestrator) phaseCreateLPARs() error {
 		// Save LPAR configuration to profile
 		profileName := lparDetails.DefaultProfileName
 		log.Printf("[%s] Saving configuration to profile '%s'...", node.Name, profileName)
-		if err := o.hmcClient.SaveCurrentLparConfig(lparUUID, profileName, true, verbose); err != nil {
+		if err := o.hmcClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true, verbose); err != nil {
 			return fmt.Errorf("failed to save LPAR configuration: %v", err)
 		}
 		log.Printf("[%s] ✅ Configuration saved to profile", node.Name)
@@ -568,7 +569,7 @@ func (o *Orchestrator) phaseRunPlaybook() error {
 // resolveSystemUUID resolves the UUID of a managed system by name
 func (o *Orchestrator) resolveSystemUUID(systemName string) (string, error) {
 	verbose := o.config.Deployment.Verbose
-	systems, err := o.hmcClient.GetManagedSystemQuickAll(verbose)
+	systems, err := o.hmcClient.GetManagedSystemQuickAll(context.Background(), verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to get managed systems: %v", err)
 	}
@@ -592,7 +593,7 @@ func (o *Orchestrator) ensureLparDoesNotExist(systemUUID, lparName string) error
 		log.Printf("[HMC] Verifying LPAR name '%s' is unique...", lparName)
 	}
 	
-	_, existingUUID, err := o.hmcClient.GetLogicalPartitionByName(systemUUID, lparName, false)
+	_, existingUUID, err := o.hmcClient.GetLogicalPartitionByName(context.Background(), systemUUID, lparName, false)
 	if err == nil && existingUUID != "" {
 		return fmt.Errorf("LPAR with name '%s' already exists (UUID: %s)", lparName, existingUUID)
 	}
@@ -638,7 +639,7 @@ func (o *Orchestrator) createLPAR(systemUUID string, node NodeInfo) (*hmc.Logica
 // resolveVirtualSwitch resolves the UUID of a virtual switch by name
 func (o *Orchestrator) resolveVirtualSwitch(systemUUID, vswitchName string) (string, error) {
 	verbose := o.config.Deployment.Verbose
-	switches, err := o.hmcClient.GetVirtualSwitchQuickAll(systemUUID, verbose)
+	switches, err := o.hmcClient.GetVirtualSwitchQuickAll(context.Background(), systemUUID, verbose)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve Virtual Switches: %v", err)
 	}
@@ -744,7 +745,7 @@ func (o *Orchestrator) provisionVirtualDisk(sysName, systemUUID, diskName, targe
 	requiredGB := float64(diskSizeMB) / 1024.0
 	
 	// Get VIOS list
-	viosList, err := o.hmcClient.GetVirtualIOServersQuick(systemUUID, verbose)
+	viosList, err := o.hmcClient.GetVirtualIOServersQuick(context.Background(), systemUUID, verbose)
 	if err != nil || len(viosList) == 0 {
 		return "", "", fmt.Errorf("failed to fetch VIOS instances for system")
 	}
@@ -758,7 +759,7 @@ func (o *Orchestrator) provisionVirtualDisk(sysName, systemUUID, diskName, targe
 			continue
 		}
 		
-		vgList, err := o.hmcClient.GetVolumeGroups(vios.UUID, verbose)
+		vgList, err := o.hmcClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
 		if err != nil {
 			continue
 		}
@@ -810,7 +811,7 @@ func (o *Orchestrator) provisionVirtualDisk(sysName, systemUUID, diskName, targe
 	}
 	
 	// Create virtual disk
-	if err := o.hmcClient.CreateVirtualDisk(sysName, finalViosUUID, finalViosName, finalVgName, diskName, diskSizeMB, verbose); err != nil {
+	if err := o.hmcClient.CreateVirtualDisk(context.Background(), sysName, finalViosUUID, finalViosName, finalVgName, diskName, diskSizeMB, verbose); err != nil {
 		return "", "", fmt.Errorf("failed to create virtual disk: %v", err)
 	}
 	

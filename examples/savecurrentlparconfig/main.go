@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -37,10 +38,10 @@ func main() {
 	// 1. AUTHENTICATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// 2. RESOLVE SYSTEM AND LPAR UUIDS
@@ -48,13 +49,13 @@ func main() {
 	fmt.Printf("🔍 Resolving System '%s' and LPAR '%s'...\n", *sysName, *lparName)
 	
 	// Resolve System UUID
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	// Resolve LPAR UUID
-	_,lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_,lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found on System '%s'.", *lparName, *sysName)
 	}
@@ -64,7 +65,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("🚀 Initiating SaveCurrentConfig Job (Target Profile: '%s', Force: %t)...\n", *profileName, *force)
 	
-	err = restClient.SaveCurrentLparConfig(lparUUID, *profileName, *force, *verbose)
+	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *profileName, *force, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to save configuration: %v", err)
 	}

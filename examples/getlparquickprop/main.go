@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -33,10 +34,10 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// ⚡ LIGHTNING FAST RESOLUTION USING QUICK ENDPOINTS
@@ -44,7 +45,7 @@ func main() {
 	
 	// 1. Resolve System Name to UUID using GetManagedSystemQuickAll
 	if *verbose { fmt.Printf("🔍 Resolving System '%s' (Quick)...\n", *sysName) }
-	systems, err := restClient.GetManagedSystemQuickAll(*verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch quick systems list: %v", err)
 	}
@@ -62,7 +63,7 @@ func main() {
 
 	// 2. Resolve LPAR Name to UUID using GetLogicalPartitionsQuickAll
 	if *verbose { fmt.Printf("🔍 Resolving LPAR '%s' on %s (Quick)...\n", *lparName, sysUUID) }
-	lpars, err := restClient.GetLogicalPartitionsQuickAll(sysUUID, *verbose)
+	lpars, err := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch quick LPARs list: %v", err)
 	}

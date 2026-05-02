@@ -64,7 +64,7 @@ func main() {
 		defer wg.Done()
 		log.Println("[Auth-HMC] Connecting to HMC...")
 		restClient = hmc.NewHmcRestClient(*hmcIP)
-		if err := restClient.Login(*username, *password, *verbose); err != nil {
+		if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 			hmcErr = fmt.Errorf("HMC login failed: %v", err)
 			return
 		}
@@ -93,7 +93,7 @@ func main() {
 		log.Fatalf("❌ %v", svcErr)
 	}
 	
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 	
 	log.Println("✅ Both authentications completed successfully")
 
@@ -164,7 +164,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Printf("[Thread-vSwitch] Resolving Virtual Switch '%s'...", *vswitchName)
-		switches, err := restClient.GetVirtualSwitchQuickAll(sysUUID, *verbose)
+		switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, *verbose)
 		if err != nil {
 			vswitchErr = fmt.Errorf("failed to retrieve Virtual Switches: %v", err)
 			return
@@ -213,7 +213,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Printf("[Thread-Network] Attaching VLAN %d to LPAR...", *vlanID)
-		adapter, err := restClient.CreateClientNetworkAdapter(sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
 		if err != nil {
 			networkErr2 = fmt.Errorf("failed to add network adapter: %v", err)
 			return
@@ -287,7 +287,7 @@ func main() {
 	profileName := lparDetails.DefaultProfileName
 	log.Println("")
 	log.Printf("[HMC] Saving active configuration to profile '%s'...", profileName)
-	err = restClient.SaveCurrentLparConfig(lparUUID, profileName, true, *verbose)
+	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
@@ -337,7 +337,7 @@ func main() {
 // =========================================================================
 
 func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
-	systems, err := restClient.GetManagedSystemQuickAll(verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
 	}
@@ -357,7 +357,7 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 	if verbose {
 		log.Printf("[HMC] Verifying LPAR name '%s' is unique...", vmName)
 	}
-	_,existingUUID, err := restClient.GetLogicalPartitionByName(systemUUID, vmName, false)
+	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName, false)
 	if err == nil && existingUUID != "" {
 		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
 	}

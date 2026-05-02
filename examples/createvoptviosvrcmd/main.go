@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -50,21 +51,21 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// RESOLVE SYSTEM & VIOS UUID
 	// =========================================================================
 	fmt.Printf("\nResolving System Name: %s...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(*sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
 
-	viosUUID, err := hmc.GetViosID(restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found on system '%s'.", *viosName, *sysName)
 	}
@@ -86,7 +87,7 @@ func main() {
 		fmt.Println("   🔒 Applying Read-Only (-ro) protection to the media.")
 	}
 
-	err = restClient.CreateVirtualOpticalMedia(*sysName, viosUUID, *viosName, *mediaName, *sourceFile, *mediaSize, *readOnly, *nfsLink, *verbose)
+	err = restClient.CreateVirtualOpticalMedia(context.Background(), *sysName, viosUUID, *viosName, *mediaName, *sourceFile, *mediaSize, *readOnly, *nfsLink, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Failed to create/import Virtual Optical Media: %v", err)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -61,10 +62,10 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// EXECUTE NFS OPERATION
@@ -75,7 +76,7 @@ func main() {
 	switch *action {
 	case "mount":
 		fmt.Println("\n📌 Mounting NFS export...")
-		output, err = hmc.MountNFS(restClient, *sysName, *viosName, *nfsServer, *exportPath, *mountPoint, *nfsVersion, *verbose)
+		output, err = hmc.MountNFS(context.Background(), restClient, *sysName, *viosName, *nfsServer, *exportPath, *mountPoint, *nfsVersion, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to mount NFS: %v", err)
 		}
@@ -83,7 +84,7 @@ func main() {
 
 	case "unmount":
 		fmt.Println("\n📌 Unmounting NFS...")
-		output, err = hmc.UnmountNFS(restClient, *sysName, *viosName, *mountPoint, *verbose)
+		output, err = hmc.UnmountNFS(context.Background(), restClient, *sysName, *viosName, *mountPoint, *verbose)
 		if err != nil {
 			log.Fatalf("❌ Failed to unmount NFS: %v", err)
 		}

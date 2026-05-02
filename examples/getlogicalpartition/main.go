@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -32,22 +33,22 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// RESOLUTION: NAME -> UUID
 	// =========================================================================
 	fmt.Printf("Resolving System '%s' to UUID...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(*sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ Failed to resolve Managed System: %v", err)
 	}
 
 	fmt.Printf("Resolving LPAR '%s' to UUID...\n", *lparName)
-	_,lparUUID, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	_,lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ Failed to resolve LPAR Name '%s'. Does it exist on system '%s'?\n", *lparName, *sysName)
 	}
@@ -57,7 +58,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Fetching exhaustive details for LPAR UUID: %s...\n", lparUUID)
 	
-	lpar, err := restClient.GetLogicalPartitionDetailed(lparUUID, *verbose)
+	lpar, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ Error: %v", err)
 	}

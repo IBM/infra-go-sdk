@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -18,13 +19,13 @@ func main() {
 
 	// 1. Initialize and Login
 	restClient := hmc.NewHmcRestClient(hmcIP)
-	if err := restClient.Login(username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// 2. Fetch the Quick list
-	systems, err := restClient.GetManagedSystemQuickAll(verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
 	if err != nil {
 		log.Fatalf("Error retrieving systems: %v", err)
 	}

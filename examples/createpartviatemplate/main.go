@@ -65,14 +65,14 @@ func main() {
 	if *verbose {
 		log.Printf("[HMC-AUTH] Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
 	}
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("[HMC-AUTH] Logon failed: %v", err)
 	}
 	defer func() {
 		if *verbose {
 			log.Printf("[HMC-AUTH] Initiating HMC Logoff sequence...")
 		}
-		if err := restClient.Logoff(); err != nil {
+		if err := restClient.Logoff(context.Background()); err != nil {
 			log.Printf("[HMC-AUTH] Logoff failed: %v", err)
 		} else if *verbose {
 			log.Println("[HMC-AUTH] Logged off successfully")
@@ -129,7 +129,7 @@ func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose
 	}
 	
 	// Use the faster GetManagedSystemQuickAll (JSON) instead of GetManagedSystemByName (XML)
-	systems, err := restClient.GetManagedSystemQuickAll(verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
 	}
@@ -182,7 +182,7 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 	if verbose {
 		log.Printf("[HMC] Verifying LPAR name '%s' is unique on system...", vmName)
 	}
-	existingUUID, _, err := restClient.GetLogicalPartition(systemUUID, vmName, "", verbose)
+	existingUUID, _, err := restClient.GetLogicalPartition(context.Background(), systemUUID, vmName, "", verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to check for existing LPAR: %v", err)
 	}
@@ -533,7 +533,7 @@ func deployAndStartPartition(ctx context.Context,restClient *hmc.HmcRestClient, 
 	}
 
 	// Fetch detailed LPAR information to get the default profile UUID
-	lparDetails, err := restClient.GetLogicalPartitionDetailed(partUUID, verbose)
+	lparDetails, err := restClient.GetLogicalPartitionDetailed(context.Background(), partUUID, verbose)
 	if err != nil {
 		log.Fatalf("[HMC-DEPLOY] Failed to get LPAR details: %v", err)
 	}

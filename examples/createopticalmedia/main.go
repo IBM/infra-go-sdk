@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -35,17 +36,17 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
-	system, _, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	system, _, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || system.UUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
 
-	viosUUID, err := hmc.GetViosID(restClient, system.UUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, system.UUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found.", *viosName)
 	}
@@ -94,7 +95,7 @@ func main() {
 		fmt.Printf("   - Media: '%s' from file: '%s'\n", name, file)
 	}
 
-	results, err := restClient.AddVirtualOpticalMedia(viosUUID, mediaFiles, *verbose)
+	results, err := restClient.AddVirtualOpticalMedia(context.Background(), viosUUID, mediaFiles, *verbose)
 	if err != nil {
 		log.Printf("⚠️  Warning: Some or all media additions failed: %v", err)
 	}

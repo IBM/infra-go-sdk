@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -36,10 +37,10 @@ func main() {
 	// =========================================================================
 	fmt.Printf("🔌 Logging into HMC at %s...\n", *hmcIP)
 	restClient := hmc.NewHmcRestClient(*hmcIP)
-	if err := restClient.Login(*username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
-	defer restClient.Logoff()
+	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// 2. DYNAMIC RESOLUTION (Name -> UUID & ID)
@@ -47,7 +48,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("\n🔍 Resolving System '%s'...\n", *sysName)
 	}
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(*sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
@@ -55,7 +56,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("🔍 Resolving VIOS '%s' to UUID...\n", *viosName)
 	}
-	viosUUID, err := hmc.GetViosID(restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found: %v", *viosName, err)
 	}
@@ -63,7 +64,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("🔍 Resolving LPAR '%s' to Partition ID...\n", *lparName)
 	}
-	lparDetails, _, err := restClient.GetLogicalPartitionByName(sysUUID, *lparName, *verbose)
+	lparDetails, _, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparDetails == nil {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
