@@ -315,6 +315,14 @@ func (c *HmcRestClient) GetLogicalPartitionsInSystem(systemUUID string, debug bo
 		c.Logger.Debug("GetLogicalPartitions response status", "status", resp.Status)
 	}
 
+	// Handle 204 No Content - system has no logical partitions
+	if resp.StatusCode == http.StatusNoContent {
+		if debug {
+			c.Logger.Debug("System has no logical partitions", "status", resp.StatusCode)
+		}
+		return []LogicalPartitionDetailed{}, nil
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		c.Logger.Error("Request failed", "status", resp.StatusCode)
@@ -433,7 +441,7 @@ func (c *HmcRestClient) GetLogicalPartitionsQuickAll(ctx context.Context, system
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "application/json, application/atom+xml, application/xml, */*")
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
@@ -471,13 +479,52 @@ func (c *HmcRestClient) GetLogicalPartitionsQuickAll(ctx context.Context, system
 	}
 
 	var lparList []LogicalPartitionQuick
+	
+	// Try JSON first (preferred format)
 	if err := json.Unmarshal(body, &lparList); err != nil {
-		c.Logger.Error("Failed to parse JSON response", "error", err)
-		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
-	}
-
-	if debug {
-		c.Logger.Info("Successfully retrieved logical partitions", "count", len(lparList))
+		// If JSON fails, try XML format (fallback for older HMC versions)
+		if debug {
+			c.Logger.Debug("JSON parsing failed, attempting XML parsing", "error", err)
+		}
+		
+		// Parse XML response using Atom feed format
+		type AtomEntry struct {
+			ID      string `xml:"id"`
+			Content struct {
+				LPARQuick struct {
+					PartitionName string `xml:"PartitionName"`
+					UUID          string `xml:"Metadata>Atom>AtomID"`
+				} `xml:"LogicalPartition"`
+			} `xml:"content"`
+		}
+		
+		type AtomFeed struct {
+			XMLName xml.Name     `xml:"feed"`
+			Entries []AtomEntry  `xml:"entry"`
+		}
+		
+		var feed AtomFeed
+		if xmlErr := xml.Unmarshal(body, &feed); xmlErr != nil {
+			c.Logger.Error("Failed to parse response as JSON or XML", "jsonError", err, "xmlError", xmlErr)
+			return nil, fmt.Errorf("failed to parse response (tried JSON and XML): json error: %v, xml error: %v", err, xmlErr)
+		}
+		
+		// Convert XML entries to LogicalPartitionQuick structs
+		for _, entry := range feed.Entries {
+			lpar := LogicalPartitionQuick{
+				PartitionName: entry.Content.LPARQuick.PartitionName,
+				UUID:          entry.Content.LPARQuick.UUID,
+			}
+			lparList = append(lparList, lpar)
+		}
+		
+		if debug {
+			c.Logger.Info("Successfully parsed XML response", "count", len(lparList))
+		}
+	} else {
+		if debug {
+			c.Logger.Info("Successfully retrieved logical partitions (JSON)", "count", len(lparList))
+		}
 	}
 
 	return lparList, nil

@@ -517,7 +517,7 @@ type PartitionMemoryConfiguration struct {
 	ActiveMemoryExpansionEnabled          bool    `xml:"ActiveMemoryExpansionEnabled"`
 	ActiveMemorySharingEnabled            bool    `xml:"ActiveMemorySharingEnabled"`
 	CurrentExpansionFactor                float64 `xml:"CurrentExpansionFactor"`
-	CurrentHardwarePageTableRatio         int     `xml:"CurrentHardwarePageTableRatio"`
+	CurrentHardwarePageTableRatio         string  `xml:"CurrentHardwarePageTableRatio"`
 	CurrentHugePageCount                  int     `xml:"CurrentHugePageCount"`
 	CurrentMaximumHugePageCount           int     `xml:"CurrentMaximumHugePageCount"`
 	CurrentMaximumMemory                  float64 `xml:"CurrentMaximumMemory"`
@@ -526,13 +526,13 @@ type PartitionMemoryConfiguration struct {
 	CurrentMinimumMemory                  float64 `xml:"CurrentMinimumMemory"`
 	DesiredMemory                         float64 `xml:"DesiredMemory"`
 	ExpansionFactor                       float64 `xml:"ExpansionFactor"`
-	HardwarePageTableRatio                int     `xml:"HardwarePageTableRatio"`
+	HardwarePageTableRatio                string  `xml:"HardwarePageTableRatio"`
 	MaximumMemory                         float64 `xml:"MaximumMemory"`
 	MemoryEncryptionHardwareAccessEnabled bool    `xml:"MemoryEncryptionHardwareAccessEnabled"`
 	MemoryExpansionEnabled                bool    `xml:"MemoryExpansionEnabled"`
 	MemoryExpansionHardwareAccessEnabled  bool    `xml:"MemoryExpansionHardwareAccessEnabled"`
 	MinimumMemory                         float64 `xml:"MinimumMemory"`
-	PhysicalPageTableRatio                int     `xml:"PhysicalPageTableRatio"`
+	PhysicalPageTableRatio                string  `xml:"PhysicalPageTableRatio"`
 	RedundantErrorPathReportingEnabled    bool    `xml:"RedundantErrorPathReportingEnabled"`
 	RuntimeHugePageCount                  int     `xml:"RuntimeHugePageCount"`
 	RuntimeMemory                         float64 `xml:"RuntimeMemory"`
@@ -1125,10 +1125,10 @@ type ManagedSystemDetailed struct {
 	MaximumPartitions                        float64                                 `xml:"MaximumPartitions"`
 	MaximumPowerControlPartitions            float64                                 `xml:"MaximumPowerControlPartitions"`
 	SRIOVAdapters                            []SRIOVAdapter                      `xml:"SRIOVAdapters>IOAdapterChoice>SRIOVAdapter"`
-	MaximumRemoteRestartPartitions           int                                 `xml:"MaximumRemoteRestartPartitions"`
-	MaximumSharedProcessorCapablePartitionID int                                 `xml:"MaximumSharedProcessorCapablePartitionID"`
-	MaximumSuspendablePartitions             int                                 `xml:"MaximumSuspendablePartitions"`
-	MaximumBackingDevicesPerVNIC             int                                 `xml:"MaximumBackingDevicesPerVNIC"`
+	MaximumRemoteRestartPartitions           string                              `xml:"MaximumRemoteRestartPartitions"`
+	MaximumSharedProcessorCapablePartitionID string                              `xml:"MaximumSharedProcessorCapablePartitionID"`
+	MaximumSuspendablePartitions             string                              `xml:"MaximumSuspendablePartitions"`
+	MaximumBackingDevicesPerVNIC             string                              `xml:"MaximumBackingDevicesPerVNIC"`
 	PhysicalSystemAttentionLEDState          bool                                `xml:"PhysicalSystemAttentionLEDState"`
 	VirtualSystemAttentionLEDState           bool                                `xml:"VirtualSystemAttentionLEDState"`
 	PrimaryIPAddress                         string                              `xml:"PrimaryIPAddress"`
@@ -1167,8 +1167,8 @@ type ManagedSystemDetailed struct {
 	HardwareAccelerators                     []HardwareAcceleratorType           `xml:"SupportedHardwareAcceleratorTypes>HardwareAcceleratorType"`
 	CurrentStealableProcUnits                float64                             `xml:"CurrentStealableProcUnits"`
 	CurrentStealableMemory                   float64                             `xml:"CurrentStealableMemory"`
-	MinimumKeyStoreSize                      int                                 `xml:"MinimumKeyStoreSize"`
-	MaximumkeyStoreSize                      int                                 `xml:"MaximumkeyStoreSize"`
+	MinimumKeyStoreSize                      string                              `xml:"MinimumKeyStoreSize"`
+	MaximumkeyStoreSize                      string                              `xml:"MaximumkeyStoreSize"`
 	Uptime                                   string                              `xml:"Uptime"`
 	Description                              string                              `xml:"Description"`
 	SystemType                               string                              `xml:"SystemType"`
@@ -1305,7 +1305,7 @@ type SystemCapabilities struct {
 
 type SystemIOConfiguration struct {
 	AvailableWWPNs      string                    `xml:"AvailableWWPNs"`
-	MaximumIOPools      int                       `xml:"MaximumIOPools"`
+	MaximumIOPools      string                    `xml:"MaximumIOPools"`
 	WWPNPrefix          string                    `xml:"WWPNPrefix"`
 	IOAdapters          []IOAdapterXML            `xml:"IOAdapters>IOAdapterChoice>IOAdapter"`
 	IOBuses             []IOBusXML                `xml:"IOBuses>IOBus"`
@@ -1386,68 +1386,68 @@ type SystemMemoryConfiguration struct {
 	AllowedHardwarePageTableRations         []string `xml:"AllowedHardwarePageTableRations"`
 	AllowedMemoryDeduplicationTableRatios   string   `xml:"AllowedMemoryDeduplicationTableRatios"`
 	AllowedMemoryRegionSize                 string   `xml:"AllowedMemoryRegionSize"`
-	ConfigurableHugePages                   int      `xml:"ConfigurableHugePages"`
+	ConfigurableHugePages                   string   `xml:"ConfigurableHugePages"`
 	ConfigurableSystemMemory                float64  `xml:"ConfigurableSystemMemory"`
 	ConfiguredMirroredMemory                float64  `xml:"ConfiguredMirroredMemory"`
-	CurrentAvailableHugePages               int      `xml:"CurrentAvailableHugePages"`
+	CurrentAvailableHugePages               string   `xml:"CurrentAvailableHugePages"`
 	CurrentAvailableMirroredMemory          float64  `xml:"CurrentAvailableMirroredMemory"`
 	CurrentAvailableSystemMemory            float64  `xml:"CurrentAvailableSystemMemory"`
-	CurrentLogicalMemoryBlockSize           int      `xml:"CurrentLogicalMemoryBlockSize"`
+	CurrentLogicalMemoryBlockSize           string   `xml:"CurrentLogicalMemoryBlockSize"`
 	CurrentMemoryMirroringMode              string   `xml:"CurrentMemoryMirroringMode"`
 	CurrentMirroredMemory                   float64  `xml:"CurrentMirroredMemory"`
 	DeconfiguredSystemMemory                float64  `xml:"DeconfiguredSystemMemory"`
-	DefaultHardwarePageTableRatio           int      `xml:"DefaultHardwarePageTableRatio"`
-	DefaultHardwarePagingTableRatioForDedicatedMemoryPartition int `xml:"DefaultHardwarePagingTableRatioForDedicatedMemoryPartition"`
-	DefaultMemoryDeduplicationTableRatio    int      `xml:"DefaultMemoryDeduplicationTableRatio"`
-	HugePageCount                           int      `xml:"HugePageCount"`
-	HugePageSize                            int      `xml:"HugePageSize"`
+	DefaultHardwarePageTableRatio           string   `xml:"DefaultHardwarePageTableRatio"`
+	DefaultHardwarePagingTableRatioForDedicatedMemoryPartition string `xml:"DefaultHardwarePagingTableRatioForDedicatedMemoryPartition"`
+	DefaultMemoryDeduplicationTableRatio    string   `xml:"DefaultMemoryDeduplicationTableRatio"`
+	HugePageCount                           string   `xml:"HugePageCount"`
+	HugePageSize                            string   `xml:"HugePageSize"`
 	InstalledSystemMemory                   float64  `xml:"InstalledSystemMemory"`
-	MaximumHugePages                        int      `xml:"MaximumHugePages"`
-	MaximumMemoryPoolCount                  int      `xml:"MaximumMemoryPoolCount"`
+	MaximumHugePages                        string   `xml:"MaximumHugePages"`
+	MaximumMemoryPoolCount                  string   `xml:"MaximumMemoryPoolCount"`
 	MaximumMirroredMemoryDefragmented       float64  `xml:"MaximumMirroredMemoryDefragmented"`
-	MaximumPagingVirtualIOServersPerSharedMemoryPool int `xml:"MaximumPagingVirtualIOServersPerSharedMemoryPool"`
+	MaximumPagingVirtualIOServersPerSharedMemoryPool string `xml:"MaximumPagingVirtualIOServersPerSharedMemoryPool"`
 	MemoryDefragmentationState              string   `xml:"MemoryDefragmentationState"`
 	MemoryMirroringState                    string   `xml:"MemoryMirroringState"`
-	MemoryRegionSize                        int      `xml:"MemoryRegionSize"`
+	MemoryRegionSize                        string   `xml:"MemoryRegionSize"`
 	MemoryUsedByHypervisor                  float64  `xml:"MemoryUsedByHypervisor"`
 	MirrorableMemoryWithDefragmentation     float64  `xml:"MirrorableMemoryWithDefragmentation"`
 	MirrorableMemoryWithoutDefragmentation  float64  `xml:"MirrorableMemoryWithoutDefragmentation"`
 	MirroredMemoryUsedByHypervisor          float64  `xml:"MirroredMemoryUsedByHypervisor"`
-	PendingAvailableHugePages               int      `xml:"PendingAvailableHugePages"`
+	PendingAvailableHugePages               string   `xml:"PendingAvailableHugePages"`
 	PendingAvailableSystemMemory            float64  `xml:"PendingAvailableSystemMemory"`
-	PendingLogicalMemoryBlockSize           int      `xml:"PendingLogicalMemoryBlockSize"`
+	PendingLogicalMemoryBlockSize           string   `xml:"PendingLogicalMemoryBlockSize"`
 	PendingMemoryMirroringMode              string   `xml:"PendingMemoryMirroringMode"`
-	PendingMemoryRegionSize                 int      `xml:"PendingMemoryRegionSize"`
-	RequestedHugePages                      int      `xml:"RequestedHugePages"`
+	PendingMemoryRegionSize                 string   `xml:"PendingMemoryRegionSize"`
+	RequestedHugePages                      string   `xml:"RequestedHugePages"`
 	TemporaryMemoryForLogicalPartitionMobilityInUse bool `xml:"TemporaryMemoryForLogicalPartitionMobilityInUse"`
-	DefaultPhysicalPageTableRatio           int      `xml:"DefaultPhysicalPageTableRatio"`
-	AllowedPhysicalPageTableRatios          []int    `xml:"AllowedPhysicalPageTableRatios"`
+	DefaultPhysicalPageTableRatio           string   `xml:"DefaultPhysicalPageTableRatio"`
+	AllowedPhysicalPageTableRatios          []string `xml:"AllowedPhysicalPageTableRatios"`
 	PermanentSystemMemory                   float64  `xml:"PermanentSystemMemory"`
 	CurrentAssignedMemoryToPartitions       float64  `xml:"CurrentAssignedMemoryToPartitions"`
-	PendingLogicalMemoryRegionSize          int      `xml:"PendingLogicalMemoryRegionSize"`
+	PendingLogicalMemoryRegionSize          string   `xml:"PendingLogicalMemoryRegionSize"`
 }
 
 type SystemProcessorConfiguration struct {
 	ConfigurableSystemProcessorUnits               float64   `xml:"ConfigurableSystemProcessorUnits"`
 	CurrentAvailableSystemProcessorUnits           float64   `xml:"CurrentAvailableSystemProcessorUnits"`
-	CurrentMaximumProcessorsPerAIXOrLinuxPartition int       `xml:"CurrentMaximumProcessorsPerAIXOrLinuxPartition"`
-	CurrentMaximumProcessorsPerIBMiPartition       int       `xml:"CurrentMaximumProcessorsPerIBMiPartition"`
-	CurrentMaximumAllowedProcessorsPerPartition    int       `xml:"CurrentMaximumAllowedProcessorsPerPartition"`
-	CurrentMaximumProcessorsPerVirtualIOServerPartition int  `xml:"CurrentMaximumProcessorsPerVirtualIOServerPartition"`
-	CurrentMaximumVirtualProcessorsPerAIXOrLinuxPartition int `xml:"CurrentMaximumVirtualProcessorsPerAIXOrLinuxPartition"`
-	CurrentMaximumVirtualProcessorsPerIBMiPartition int      `xml:"CurrentMaximumVirtualProcessorsPerIBMiPartition"`
-	CurrentMaximumVirtualProcessorsPerVirtualIOServerPartition int `xml:"CurrentMaximumVirtualProcessorsPerVirtualIOServerPartition"`
+	CurrentMaximumProcessorsPerAIXOrLinuxPartition string    `xml:"CurrentMaximumProcessorsPerAIXOrLinuxPartition"`
+	CurrentMaximumProcessorsPerIBMiPartition       string    `xml:"CurrentMaximumProcessorsPerIBMiPartition"`
+	CurrentMaximumAllowedProcessorsPerPartition    string    `xml:"CurrentMaximumAllowedProcessorsPerPartition"`
+	CurrentMaximumProcessorsPerVirtualIOServerPartition string `xml:"CurrentMaximumProcessorsPerVirtualIOServerPartition"`
+	CurrentMaximumVirtualProcessorsPerAIXOrLinuxPartition string `xml:"CurrentMaximumVirtualProcessorsPerAIXOrLinuxPartition"`
+	CurrentMaximumVirtualProcessorsPerIBMiPartition string   `xml:"CurrentMaximumVirtualProcessorsPerIBMiPartition"`
+	CurrentMaximumVirtualProcessorsPerVirtualIOServerPartition string `xml:"CurrentMaximumVirtualProcessorsPerVirtualIOServerPartition"`
 	DeconfiguredSystemProcessorUnits               float64   `xml:"DeconfiguredSystemProcessorUnits"`
 	InstalledSystemProcessorUnits                  float64   `xml:"InstalledSystemProcessorUnits"`
 	MaximumProcessorUnitsPerIBMiPartition          float64   `xml:"MaximumProcessorUnitsPerIBMiPartition"`
-	MaximumAllowedVirtualProcessorsPerPartition    int       `xml:"MaximumAllowedVirtualProcessorsPerPartition"`
+	MaximumAllowedVirtualProcessorsPerPartition    string    `xml:"MaximumAllowedVirtualProcessorsPerPartition"`
 	MinimumProcessorUnitsPerVirtualProcessor       float64   `xml:"MinimumProcessorUnitsPerVirtualProcessor"`
 	NumberOfAllOSProcessorUnits                    float64   `xml:"NumberOfAllOSProcessorUnits"`
 	NumberOfLinuxOnlyProcessorUnits                float64   `xml:"NumberOfLinuxOnlyProcessorUnits"`
 	NumberOfLinuxOrVIOSOnlyProcessorUnits          float64   `xml:"NumberOfLinuxOrVIOSOnlyProcessorUnits"`
 	NumberOfVirtualIOServerProcessorUnits          float64   `xml:"NumberOfVirtualIOServerProcessorUnits"`
 	PendingAvailableSystemProcessorUnits           float64   `xml:"PendingAvailableSystemProcessorUnits"`
-	SharedProcessorPoolCount                       int       `xml:"SharedProcessorPoolCount"`
+	SharedProcessorPoolCount                       string    `xml:"SharedProcessorPoolCount"`
 	SupportedPartitionProcessorCompatibilityModes  []string  `xml:"SupportedPartitionProcessorCompatibilityModes"`
 	TemporaryProcessorUnitsForLogicalPartitionMobilityInUse bool `xml:"TemporaryProcessorUnitsForLogicalPartitionMobilityInUse"`
 	SharedProcessorPools                           []LinkXML `xml:"SharedProcessorPool>link"`
@@ -1455,22 +1455,22 @@ type SystemProcessorConfiguration struct {
 }
 
 type SystemSecurityConfiguration struct {
-	VirtualTrustedPlatformModuleKeyLength                  int `xml:"VirtualTrustedPlatformModuleKeyLength"`
-	VirtualTrustedPlatformModuleKeyStatus                  int `xml:"VirtualTrustedPlatformModuleKeyStatus"`
-	VirtualTrustedPlatformModuleVersion                    int `xml:"VirtualTrustedPlatformModuleVersion"`
-	MaximumSupportedVirtualTrustedPlatformModulePartitions int `xml:"MaximumSupportedVirtualTrustedPlatformModulePartitions"`
-	AvailableVirtualTrustedPlatformModulePartitions        int `xml:"AvailableVirtualTrustedPlatformModulePartitions"`
+	VirtualTrustedPlatformModuleKeyLength                  string `xml:"VirtualTrustedPlatformModuleKeyLength"`
+	VirtualTrustedPlatformModuleKeyStatus                  string `xml:"VirtualTrustedPlatformModuleKeyStatus"`
+	VirtualTrustedPlatformModuleVersion                    string `xml:"VirtualTrustedPlatformModuleVersion"`
+	MaximumSupportedVirtualTrustedPlatformModulePartitions string `xml:"MaximumSupportedVirtualTrustedPlatformModulePartitions"`
+	AvailableVirtualTrustedPlatformModulePartitions        string `xml:"AvailableVirtualTrustedPlatformModulePartitions"`
 }
 
 type SystemMigrationInformation struct {
 	AllowInactiveSourceStorageVios                 string `xml:"AllowInactiveSourceStorageVios"`
-	MaximumInactiveMigrations                      int    `xml:"MaximumInactiveMigrations"`
-	MaximumActiveMigrations                        int    `xml:"MaximumActiveMigrations"`
-	NumberOfInactiveMigrationsInProgress           int    `xml:"NumberOfInactiveMigrationsInProgress"`
-	NumberOfActiveMigrationsInProgress             int    `xml:"NumberOfActiveMigrationsInProgress"`
-	MaximumFirmwareActiveMigrations                int    `xml:"MaximumFirmwareActiveMigrations"`
+	MaximumInactiveMigrations                      string `xml:"MaximumInactiveMigrations"`
+	MaximumActiveMigrations                        string `xml:"MaximumActiveMigrations"`
+	NumberOfInactiveMigrationsInProgress           string `xml:"NumberOfInactiveMigrationsInProgress"`
+	NumberOfActiveMigrationsInProgress             string `xml:"NumberOfActiveMigrationsInProgress"`
+	MaximumFirmwareActiveMigrations                string `xml:"MaximumFirmwareActiveMigrations"`
 	LogicalPartitionAffinityCheckCapable           bool   `xml:"LogicalPartitionAffinityCheckCapable"`
-	MaximumFirmwareInactiveMigrations              int    `xml:"MaximumFirmwareInactiveMigrations"`
+	MaximumFirmwareInactiveMigrations              string `xml:"MaximumFirmwareInactiveMigrations"`
 	InactiveLogicalPartitionMigrationCapable       bool   `xml:"InactiveLogicalPartitionMigrationCapable"`
 	ActiveLogicalPartitionMigrationCapable         bool   `xml:"ActiveLogicalPartitionMigrationCapable"`
 	IBMiLogicalPartitionMigrationCapable           bool   `xml:"IBMiLogicalPartitionMigrationCapable"`
@@ -1494,7 +1494,7 @@ type SystemEnergyManagementConfiguration struct {
 type PowerSavingTunablesDynamic struct {
 	UtilizationThresholdForIncreasingFrequency string `xml:"UtilizationThresholdForIncreasingFrequency"`
 	UtilizationThresholdForDecreasingFrequency string `xml:"UtilizationThresholdForDecreasingFrequency"`
-	SamplesForComputingUtilzationStatistics    int    `xml:"SamplesForComputingUtilzationStatistics"`
+	SamplesForComputingUtilzationStatistics    string `xml:"SamplesForComputingUtilzationStatistics"`
 	StepSizeForGoingUpInFrequency              string `xml:"StepSizeForGoingUpInFrequency"`
 	StepSizeForGoingDownInFrequency            string `xml:"StepSizeForGoingDownInFrequency"`
 	DeltaPercentageForDeterminingActiveCores   string `xml:"DeltaPercentageForDeterminingActiveCores"`
@@ -1503,7 +1503,7 @@ type PowerSavingTunablesDynamic struct {
 	CoreMaximumDeltaFrequency                  string `xml:"CoreMaximumDeltaFrequency"`
 	MinimumUtilizationThresholdForIncreasingFrequency string `xml:"MinimumUtilizationThresholdForIncreasingFrequency"`
 	MinimumUtilizationThresholdForDecreasingFrequency string `xml:"MinimumUtilizationThresholdForDecreasingFrequency"`
-	MinimumSamplesForComputingUtilzationStatistics int `xml:"MinimumSamplesForComputingUtilzationStatistics"`
+	MinimumSamplesForComputingUtilzationStatistics string `xml:"MinimumSamplesForComputingUtilzationStatistics"`
 	MinimumStepSizeForGoingUpInFrequency         string `xml:"MinimumStepSizeForGoingUpInFrequency"`
 	MinimumStepSizeForGoingDownInFrequency       string `xml:"MinimumStepSizeForGoingDownInFrequency"`
 	MinimumDeltaPercentageForDeterminingActiveCores string `xml:"MinimumDeltaPercentageForDeterminingActiveCores"`
@@ -1511,7 +1511,7 @@ type PowerSavingTunablesDynamic struct {
 	MinimumCoreMaximumDeltaFrequency             string `xml:"MinimumCoreMaximumDeltaFrequency"`
 	MaximumUtilizationThresholdForIncreasingFrequency string `xml:"MaximumUtilizationThresholdForIncreasingFrequency"`
 	MaximumUtilizationThresholdForDecreasingFrequency string `xml:"MaximumUtilizationThresholdForDecreasingFrequency"`
-	MaximumSamplesForComputingUtilzationStatistics int `xml:"MaximumSamplesForComputingUtilzationStatistics"`
+	MaximumSamplesForComputingUtilzationStatistics string `xml:"MaximumSamplesForComputingUtilzationStatistics"`
 	MaximumStepSizeForGoingUpInFrequency         string `xml:"MaximumStepSizeForGoingUpInFrequency"`
 	MaximumStepSizeForGoingDownInFrequency       string `xml:"MaximumStepSizeForGoingDownInFrequency"`
 	MaximumDeltaPercentageForDeterminingActiveCores string `xml:"MaximumDeltaPercentageForDeterminingActiveCores"`
@@ -1520,36 +1520,36 @@ type PowerSavingTunablesDynamic struct {
 }
 
 type PowerSavingTunablesIdle struct {
-	DelayTimeToEnterIdlePower                    int    `xml:"DelayTimeToEnterIdlePower"`
-	DelayTimeToExitIdlePower                     int    `xml:"DelayTimeToExitIdlePower"`
+	DelayTimeToEnterIdlePower                    string `xml:"DelayTimeToEnterIdlePower"`
+	DelayTimeToExitIdlePower                     string `xml:"DelayTimeToExitIdlePower"`
 	UtilizationThresholdToEnterIdlePower         string `xml:"UtilizationThresholdToEnterIdlePower"`
 	UtilizationThresholdToExitIdlePower          string `xml:"UtilizationThresholdToExitIdlePower"`
-	MinimumDelayTimeToEnterIdlePower             int    `xml:"MinimumDelayTimeToEnterIdlePower"`
-	MinimumDelayTimeToExitIdlePower              int    `xml:"MinimumDelayTimeToExitIdlePower"`
+	MinimumDelayTimeToEnterIdlePower             string `xml:"MinimumDelayTimeToEnterIdlePower"`
+	MinimumDelayTimeToExitIdlePower              string `xml:"MinimumDelayTimeToExitIdlePower"`
 	MinimumUtilizationThresholdToEnterIdlePower  string `xml:"MinimumUtilizationThresholdToEnterIdlePower"`
 	MinimumUtilizationThresholdToExitIdlePower   string `xml:"MinimumUtilizationThresholdToExitIdlePower"`
-	MaximumDelayTimeToEnterIdlePower             int    `xml:"MaximumDelayTimeToEnterIdlePower"`
-	MaximumDelayTimeToExitIdlePower              int    `xml:"MaximumDelayTimeToExitIdlePower"`
+	MaximumDelayTimeToEnterIdlePower             string `xml:"MaximumDelayTimeToEnterIdlePower"`
+	MaximumDelayTimeToExitIdlePower              string `xml:"MaximumDelayTimeToExitIdlePower"`
 	MaximumUtilizationThresholdToEnterIdlePower  string `xml:"MaximumUtilizationThresholdToEnterIdlePower"`
 	MaximumUtilizationThresholdToExitIdlePower   string `xml:"MaximumUtilizationThresholdToExitIdlePower"`
 }
 
 type HardwareAcceleratorType struct {
 	Type                string `xml:"Type"`
-	TotalQoS            int    `xml:"TotalQoS"`
-	CurrentAvailableQoS int    `xml:"CurrentAvailableQoS"`
-	PendingAvailableQoS int    `xml:"PendingAvailableQoS"`
+	TotalQoS            string `xml:"TotalQoS"`
+	CurrentAvailableQoS string `xml:"CurrentAvailableQoS"`
+	PendingAvailableQoS string `xml:"PendingAvailableQoS"`
 }
 
 type SystemPersistentMemoryConfiguration struct {
-	MaximumPersistentMemoryVolumes          int    `xml:"MaximumPersistentMemoryVolumes"`
-	CurrentPersistentMemoryVolumes          int    `xml:"CurrentPersistentMemoryVolumes"`
-	MaximumAixLinuxPersistentMemoryVolumes  int    `xml:"MaximumAixLinuxPersistentMemoryVolumes"`
-	MaximumOS400PersistentMemoryVolumes     int    `xml:"MaximumOS400PersistentMemoryVolumes"`
-	MaximumVIOSPersistentMemoryVolumes      int    `xml:"MaximumVIOSPersistentMemoryVolumes"`
-	DramPersistentMemoryVolumeBlockSize     int    `xml:"DramPersistentMemoryVolumeBlockSize"`
-	DramPersistentMemoryVolumesSize         int    `xml:"DramPersistentMemoryVolumesSize"`
-	DramPersistentMemoryVolumesCurrentSize  int    `xml:"DramPersistentMemoryVolumesCurrentSize"`
+	MaximumPersistentMemoryVolumes          string `xml:"MaximumPersistentMemoryVolumes"`
+	CurrentPersistentMemoryVolumes          string `xml:"CurrentPersistentMemoryVolumes"`
+	MaximumAixLinuxPersistentMemoryVolumes  string `xml:"MaximumAixLinuxPersistentMemoryVolumes"`
+	MaximumOS400PersistentMemoryVolumes     string `xml:"MaximumOS400PersistentMemoryVolumes"`
+	MaximumVIOSPersistentMemoryVolumes      string `xml:"MaximumVIOSPersistentMemoryVolumes"`
+	DramPersistentMemoryVolumeBlockSize     string `xml:"DramPersistentMemoryVolumeBlockSize"`
+	DramPersistentMemoryVolumesSize         string `xml:"DramPersistentMemoryVolumesSize"`
+	DramPersistentMemoryVolumesCurrentSize  string `xml:"DramPersistentMemoryVolumesCurrentSize"`
 	SupportedPersistentMemoryDeviceTypes    string `xml:"SupportedPersistentMemoryDeviceTypes"`
 }
 // =====================================================================
@@ -1732,13 +1732,13 @@ type LparMemoryConfiguration struct {
 	DesiredHugePageCount                  int     `xml:"DesiredHugePageCount"`
 	DesiredMemory                         float64 `xml:"DesiredMemory"`
 	ExpansionFactor                       float64 `xml:"ExpansionFactor"`
-	HardwarePageTableRatio                int     `xml:"HardwarePageTableRatio"`
+	HardwarePageTableRatio                string  `xml:"HardwarePageTableRatio"`
 	MaximumHugePageCount                  int     `xml:"MaximumHugePageCount"`
 	MaximumMemory                         float64 `xml:"MaximumMemory"`
 	MinimumHugePageCount                  int     `xml:"MinimumHugePageCount"`
 	MinimumMemory                         float64 `xml:"MinimumMemory"`
 	CurrentExpansionFactor                float64 `xml:"CurrentExpansionFactor"`
-	CurrentHardwarePageTableRatio         int     `xml:"CurrentHardwarePageTableRatio"`
+	CurrentHardwarePageTableRatio         string  `xml:"CurrentHardwarePageTableRatio"`
 	CurrentHugePageCount                  int     `xml:"CurrentHugePageCount"`
 	CurrentMaximumHugePageCount           int     `xml:"CurrentMaximumHugePageCount"`
 	CurrentMaximumMemory                  float64 `xml:"CurrentMaximumMemory"`
@@ -1753,7 +1753,7 @@ type LparMemoryConfiguration struct {
 	RuntimeMemory                         float64 `xml:"RuntimeMemory"`
 	RuntimeMinimumMemory                  float64 `xml:"RuntimeMinimumMemory"`
 	SharedMemoryEnabled                   bool    `xml:"SharedMemoryEnabled"`
-	PhysicalPageTableRatio                int     `xml:"PhysicalPageTableRatio"`
+	PhysicalPageTableRatio                string  `xml:"PhysicalPageTableRatio"`
 }
 
 type LparProcessorConfiguration struct {
@@ -1793,10 +1793,13 @@ type LparCurrentSharedProcessorConfiguration struct {
 }
 
 type LparDedicatedProcessorConfiguration struct {
-	CurrentProcessors float64 `xml:"CurrentProcessors"`
-	DesiredProcessors float64 `xml:"DesiredProcessors"`
-	MaximumProcessors float64 `xml:"MaximumProcessors"`
-	MinimumProcessors float64 `xml:"MinimumProcessors"`
+	CurrentProcessors        float64 `xml:"CurrentProcessors"`
+	DesiredProcessors        float64 `xml:"DesiredProcessors"`
+	MaximumProcessors        float64 `xml:"MaximumProcessors"`
+	MinimumProcessors        float64 `xml:"MinimumProcessors"`
+	CurrentMaximumProcessors int     `xml:"CurrentMaximumProcessors"`
+	CurrentMinimumProcessors int     `xml:"CurrentMinimumProcessors"`
+	RunProcessors            int     `xml:"RunProcessors"`
 }
 
 type LparPersistentMemoryConfiguration struct {

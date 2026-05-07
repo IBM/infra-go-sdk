@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"text/tabwriter"
 
 	hmc "github.com/sudeeshjohn/powerhmc-go" // Adjust to your actual package path
@@ -59,7 +60,7 @@ func main() {
 		fmt.Printf("\nResolving System UUID for '%s'...\n", *sysName)
 	}
 	// Use the quick endpoint for fast system resolution
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	sysQuick, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
 		if *verbose {
 			log.Fatalf("System '%s' not found: %v", *sysName, err)
@@ -82,8 +83,50 @@ func main() {
 		log.Fatal("❌ Failed to retrieve advanced configurations.")
 	}
 
-	fmt.Printf("\n✅ Found %d Partitions on '%s'. Extracting configurations:\n", len(partitions), *sysName)
+	// =========================================================================
+	// CALCULATE RESOURCE USAGE
+	// =========================================================================
+	var totalCPU, totalMemMB float64
+	for _, lpar := range partitions {
+		// CPU calculation
+		sharingMode := lpar.PartitionProcessorConfiguration.SharingMode
+		if sharingMode == "keep idle procs" || sharingMode == "share idle procs" || sharingMode == "sre idle proces" {
+			totalCPU += float64(lpar.PartitionProcessorConfiguration.CurrentDedicatedProcessorConfiguration.RunProcessors)
+		} else {
+			totalCPU += lpar.PartitionProcessorConfiguration.CurrentSharedProcessorConfiguration.CurrentProcessingUnits
+		}
+		// Memory calculation
+		totalMemMB += lpar.PartitionMemoryConfiguration.CurrentMemory
+	}
+	
+	totalMemGB := totalMemMB / 1024.0
+	availCPU := sysQuick.CurrentAvailableSystemProcessorUnits
+	availMemMB := float64(sysQuick.CurrentAvailableSystemMemory)
+	availMemGB := availMemMB / 1024.0
+	totalSystemCPU := sysQuick.ConfigurableSystemProcessorUnits
+	totalSystemMemMB := float64(sysQuick.ConfigurableSystemMemory)
+	totalSystemMemGB := totalSystemMemMB / 1024.0
+
+	fmt.Printf("\n✅ Found %d Partitions on '%s'.\n", len(partitions), *sysName)
+	fmt.Printf("\n📊 Resource Summary:\n")
+	fmt.Printf("   CPU:    %.1f / %.1f used (%.1f available)\n", totalCPU, float64(totalSystemCPU), availCPU)
+	fmt.Printf("   Memory: %.1f / %.1f GB used (%.1f GB available)\n", totalMemGB, totalSystemMemGB, availMemGB)
+	
+	if len(partitions) == 0 {
+		fmt.Println("\nℹ️  No logical partitions exist on this system.")
+		fmt.Println("   This is normal for a freshly configured system or one with all LPARs deleted.")
+		return
+	}
+
+	fmt.Println("\nPartition Details:")
 	fmt.Println("=======================================================================================================================================")
+
+	// =========================================================================
+	// SORT PARTITIONS BY NAME
+	// =========================================================================
+	sort.Slice(partitions, func(i, j int) bool {
+		return partitions[i].PartitionName < partitions[j].PartitionName
+	})
 
 	// =========================================================================
 	// ITERATE & DISPLAY IN A TABLE
@@ -91,8 +134,8 @@ func main() {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	
 	// Table Header
-	fmt.Fprintln(w, "LPAR NAME\tUUID\tSTATE\tCPU (Units/vCPUs)\tMEMORY (Curr/Max MB)")
-	fmt.Fprintln(w, "---------\t----\t-----\t-----------------\t--------------------")
+	fmt.Fprintln(w, "LPAR NAME\tUUID\tSTATE\tCPU (Units/vCPUs)\tMEMORY (Curr/Max GB)")
+	fmt.Fprintln(w, "---------\t----\t-----\t------------------\t--------------------")
 
 	for _, lpar := range partitions {
 		// Native Struct Access
@@ -100,30 +143,31 @@ func main() {
 		uuid := lpar.PartitionUUID
 		state := lpar.PartitionState
 
-		// Deep Extraction: Memory
-		currMem := lpar.PartitionMemoryConfiguration.CurrentMemory
-		maxMem := lpar.PartitionMemoryConfiguration.MaximumMemory
+		// Deep Extraction: Memory (convert MB to GB)
+		currMemMB := lpar.PartitionMemoryConfiguration.CurrentMemory
+		maxMemMB := lpar.PartitionMemoryConfiguration.MaximumMemory
+		currMemGB := currMemMB / 1024.0
+		maxMemGB := maxMemMB / 1024.0
 
 		// Deep Extraction: Processors
 		sharingMode := lpar.PartitionProcessorConfiguration.SharingMode
 		var currProcUnits float64
 		var currVcpus int
 		
-		if sharingMode == "keep idle procs" || sharingMode == "share idle procs" {
-			// For dedicated processors
-			currProcUnits = lpar.PartitionProcessorConfiguration.CurrentDedicatedProcessorConfiguration.CurrentProcessors
-			// FIXED: Explicit cast from float64 to int
-			currVcpus = int(lpar.PartitionProcessorConfiguration.CurrentDedicatedProcessorConfiguration.CurrentProcessors)
+		if sharingMode == "keep idle procs" || sharingMode == "share idle procs" || sharingMode == "sre idle proces" {
+			// For dedicated processors - use RunProcessors which shows actual allocated processors
+			runProcs := lpar.PartitionProcessorConfiguration.CurrentDedicatedProcessorConfiguration.RunProcessors
+			currProcUnits = float64(runProcs)
+			currVcpus = runProcs
 		} else {
 			// For shared/uncapped processors
 			currProcUnits = lpar.PartitionProcessorConfiguration.CurrentSharedProcessorConfiguration.CurrentProcessingUnits
-			// CAST to int here to handle the float64 type safety update we made earlier!
 			currVcpus = int(lpar.PartitionProcessorConfiguration.CurrentSharedProcessorConfiguration.AllocatedVirtualProcessors)
 		}
 
 		// Format complex columns
-		cpuStr := fmt.Sprintf("%.1f / %d (%s)", currProcUnits, currVcpus, sharingMode)
-		memStr := fmt.Sprintf("%.0f / %.0f", currMem, maxMem)
+		cpuStr := fmt.Sprintf("%.1f / %d", currProcUnits, currVcpus)
+		memStr := fmt.Sprintf("%.1f / %.1f", currMemGB, maxMemGB)
 
 		// Print row into tabwriter
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, uuid, state, cpuStr, memStr)
