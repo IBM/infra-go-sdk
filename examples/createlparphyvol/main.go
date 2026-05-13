@@ -35,6 +35,9 @@ func main() {
 	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC Password")
 	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
 
+	// Processor Configuration
+	dedicatedProc := flag.Bool("dedicated-proc", false, "Use dedicated processors (default: shared)")
+	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -122,19 +125,38 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Printf("[Thread-LPAR] Creating LPAR '%s'...", *lparName)
-		req := hmc.CreateLparRequest{
-			Name:             "Go_LPAR_99",
-			OsType:           *osType, // ❌ Do not use "/Linux" or "Linux"
-			MinMem:           2048,
-			DesiredMem:       32768,
-			MaxMem:           65536,
-			MinProcUnits:     0.1,
-			DesiredProcUnits: 0.5,
-			MaxProcUnits:     2.0,
-			MinVcpus:         1,
-			DesiredVcpus:     2,
-			MaxVcpus:         4,
-			SharingMode:      "uncapped",
+		var req hmc.CreateLparRequest
+		if *dedicatedProc {
+			// Dedicated processor configuration
+			req = hmc.CreateLparRequest{
+				Name:             *lparName,
+				OsType:           *osType,
+				MinMem:           2048,
+				DesiredMem:       32768,
+				MaxMem:           65536,
+				MinProcUnits:     2,    // 2 dedicated processors
+				DesiredProcUnits: 4,    // 4 dedicated processors
+				MaxProcUnits:     8,    // 8 dedicated processors
+				SharingMode:      "share idle procs",
+				DedicatedProc:    true,
+			}
+		} else {
+			// Shared processor configuration (default)
+			req = hmc.CreateLparRequest{
+				Name:             *lparName,
+				OsType:           *osType,
+				MinMem:           2048,
+				DesiredMem:       32768,
+				MaxMem:           65536,
+				MinProcUnits:     0.1,
+				DesiredProcUnits: 0.5,
+				MaxProcUnits:     2.0,
+				MinVcpus:         1,
+				DesiredVcpus:     2,
+				MaxVcpus:         4,
+				SharingMode:      "uncapped",
+				DedicatedProc:    false,
+			}
 		}
 
 		var err error

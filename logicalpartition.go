@@ -677,51 +677,132 @@ func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, debug bool) (
 
 
 // CreateLogicalPartition creates a new LPAR using the direct UOM PUT method and returns the complete LPAR details.
+// Supports both shared and dedicated processor configurations based on req.DedicatedProc flag.
 func (c *HmcRestClient) CreateLogicalPartition(sysUUID string, req CreateLparRequest, debug bool) (*LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, sysUUID)
 
+	// Transparently handle IBM's schema typos for sharing modes
+	if req.SharingMode == "share idle procs" {
+		req.SharingMode = "sre idle proces"
+	} else if req.SharingMode == "share idle procs active" {
+		req.SharingMode = "sre idle procs active"
+	} else if req.SharingMode == "share idle procs always" {
+		req.SharingMode = "sre idle procs always"
+	}
+	
 	if debug {
-		c.Logger.Debug("Creating Logical Partition", "systemUUID", sysUUID, "lparName", req.Name)
+		procType := "shared"
+		if req.DedicatedProc {
+			procType = "dedicated"
+		}
+		c.Logger.Debug("Creating Logical Partition", "systemUUID", sysUUID, "lparName", req.Name, "processorType", procType)
 	}
 
-	// The HMC demands STRICT ALPHABETICAL ORDERING for elements.
-	// We have rearranged the Processing Units and Virtual Processors 
-	// to perfectly match this alphabetical requirement (D -> M -> M).
-	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<uom:LogicalPartition xmlns:uom="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" 
-                      schemaVersion="V1_0">
-    <uom:Metadata><uom:Atom/></uom:Metadata>
-    <uom:PartitionMemoryConfiguration schemaVersion="V1_0">
-        <uom:Metadata><uom:Atom/></uom:Metadata>
-        <uom:DesiredMemory>%d</uom:DesiredMemory>
-        <uom:MaximumMemory>%d</uom:MaximumMemory>
-        <uom:MinimumMemory>%d</uom:MinimumMemory>
-    </uom:PartitionMemoryConfiguration>
-    <uom:PartitionName>%s</uom:PartitionName>
-    <uom:PartitionProcessorConfiguration schemaVersion="V1_0">
-        <uom:Metadata><uom:Atom/></uom:Metadata>
-        <uom:HasDedicatedProcessors>false</uom:HasDedicatedProcessors>
-        <uom:SharedProcessorConfiguration schemaVersion="V1_0">
-            <uom:Metadata><uom:Atom/></uom:Metadata>
-            <uom:DesiredProcessingUnits>%.1f</uom:DesiredProcessingUnits>
-            <uom:DesiredVirtualProcessors>%d</uom:DesiredVirtualProcessors>
-            <uom:MaximumProcessingUnits>%.1f</uom:MaximumProcessingUnits>
-            <uom:MaximumVirtualProcessors>%d</uom:MaximumVirtualProcessors>
-            <uom:MinimumProcessingUnits>%.1f</uom:MinimumProcessingUnits>
-            <uom:MinimumVirtualProcessors>%d</uom:MinimumVirtualProcessors>
-            <uom:UncappedWeight>128</uom:UncappedWeight>
-        </uom:SharedProcessorConfiguration>
-        <uom:SharingMode>%s</uom:SharingMode>
-    </uom:PartitionProcessorConfiguration>
-    <uom:PartitionType>%s</uom:PartitionType>
+	// PRE-PROCESSING: Assign safe defaults for the new fields
+	resGroupID := req.ResourceGroupID
+	if resGroupID == "" {
+		resGroupID = "0" // 0 is the universal HMC ID for the "Default Resource Group"
+	}
+
+	maxVirtualSlots := req.MaxVirtualSlots
+	if maxVirtualSlots == 0 {
+		maxVirtualSlots = 200 // Safe default to allow for high I/O mapping capacity
+	}
+
+	var payload string
+	
+	if req.DedicatedProc {
+		// Dedicated Processor Configuration
+		// The HMC demands STRICT ALPHABETICAL ORDERING for elements.
+		payload = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<uom:LogicalPartition xmlns:uom="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/"
+		                    schemaVersion="V1_0">
+		  <uom:Metadata><uom:Atom/></uom:Metadata>
+		  <uom:PartitionIOConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:MaximumVirtualIOSlots>%d</uom:MaximumVirtualIOSlots>
+		  </uom:PartitionIOConfiguration>
+		  <uom:PartitionMemoryConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:DesiredMemory>%d</uom:DesiredMemory>
+		      <uom:MaximumMemory>%d</uom:MaximumMemory>
+		      <uom:MinimumMemory>%d</uom:MinimumMemory>
+		  </uom:PartitionMemoryConfiguration>
+		  <uom:PartitionName>%s</uom:PartitionName>
+		  <uom:PartitionProcessorConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:DedicatedProcessorConfiguration schemaVersion="V1_0">
+		          <uom:Metadata><uom:Atom/></uom:Metadata>
+		          <uom:DesiredProcessors>%.0f</uom:DesiredProcessors>
+		          <uom:MaximumProcessors>%.0f</uom:MaximumProcessors>
+		          <uom:MinimumProcessors>%.0f</uom:MinimumProcessors>
+		      </uom:DedicatedProcessorConfiguration>
+		      <uom:HasDedicatedProcessors>true</uom:HasDedicatedProcessors>
+		      <uom:SharingMode>%s</uom:SharingMode>
+		  </uom:PartitionProcessorConfiguration>
+		  <uom:PartitionType>%s</uom:PartitionType>
 </uom:LogicalPartition>`,
-		req.DesiredMem, req.MaxMem, req.MinMem, 
-		req.Name, 
-		req.DesiredProcUnits, req.DesiredVcpus, // Desired (D)
-		req.MaxProcUnits, req.MaxVcpus,         // Maximum (M)
-		req.MinProcUnits, req.MinVcpus,         // Minimum (Mi)
-		req.SharingMode,
-		req.OsType)
+			maxVirtualSlots,
+			req.DesiredMem, req.MaxMem, req.MinMem,
+			req.Name,
+			req.DesiredProcUnits, req.MaxProcUnits, req.MinProcUnits,
+			req.SharingMode,
+			req.OsType)
+	} else {
+		// Shared Processor Configuration
+
+		// CONDITIONAL WEIGHT: Only inject the tag if the mode is actually uncapped
+		uncappedWeightXML := ""
+		if strings.ToLower(req.SharingMode) == "uncapped" {
+			weight := req.UncappedWeight
+			if weight == 0 {
+				weight = 128 // Standard default weight
+			}
+			uncappedWeightXML = fmt.Sprintf("\n            <uom:UncappedWeight>%d</uom:UncappedWeight>", weight)
+		}
+
+		// The HMC demands STRICT ALPHABETICAL ORDERING for elements.
+		payload = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<uom:LogicalPartition xmlns:uom="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/"
+		                    schemaVersion="V1_0">
+		  <uom:Metadata><uom:Atom/></uom:Metadata>
+		  <uom:PartitionIOConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:MaximumVirtualIOSlots>%d</uom:MaximumVirtualIOSlots>
+		  </uom:PartitionIOConfiguration>
+		  <uom:PartitionMemoryConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:DesiredMemory>%d</uom:DesiredMemory>
+		      <uom:MaximumMemory>%d</uom:MaximumMemory>
+		      <uom:MinimumMemory>%d</uom:MinimumMemory>
+		  </uom:PartitionMemoryConfiguration>
+		  <uom:PartitionName>%s</uom:PartitionName>
+		  <uom:PartitionProcessorConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:HasDedicatedProcessors>false</uom:HasDedicatedProcessors>
+		      <uom:SharedProcessorConfiguration schemaVersion="V1_0">
+		          <uom:Metadata><uom:Atom/></uom:Metadata>
+		          <uom:DesiredProcessingUnits>%.1f</uom:DesiredProcessingUnits>
+		          <uom:DesiredVirtualProcessors>%d</uom:DesiredVirtualProcessors>
+		          <uom:MaximumProcessingUnits>%.1f</uom:MaximumProcessingUnits>
+		          <uom:MaximumVirtualProcessors>%d</uom:MaximumVirtualProcessors>
+		          <uom:MinimumProcessingUnits>%.1f</uom:MinimumProcessingUnits>
+		          <uom:MinimumVirtualProcessors>%d</uom:MinimumVirtualProcessors>%s
+		      </uom:SharedProcessorConfiguration>
+		      <uom:SharingMode>%s</uom:SharingMode>
+		  </uom:PartitionProcessorConfiguration>
+		  <uom:PartitionType>%s</uom:PartitionType>
+</uom:LogicalPartition>`,
+			maxVirtualSlots,
+			req.DesiredMem, req.MaxMem, req.MinMem,
+			req.Name,
+			req.DesiredProcUnits, req.DesiredVcpus,
+			req.MaxProcUnits, req.MaxVcpus,
+			req.MinProcUnits, req.MinVcpus,
+			uncappedWeightXML,
+			req.SharingMode,
+			req.OsType)
+	}
 
 	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {

@@ -24,15 +24,18 @@ func main() {
 	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
-	vswitchName := flag.String("vswitch-name", "VNET0", "Name of the Virtual Switch")
+	vswitchName := flag.String("vswitch-name", "ETHERNET0(Default)", "Name of the Virtual Switch")
 	vlanID := flag.Int("vlan-id", 1, "VLAN ID for the Client Network Adapter")
 
 	// Native Virtual Disk Config (Replaces SVC logic)
 	targetVios := flag.String("vios-name", "", "Target VIOS (Leave empty for smart auto-select)")
 	targetVg := flag.String("vg-name", "", "Target Volume Group (Leave empty for smart auto-select)")
 	diskName := flag.String("disk-name", "lpar03_boot_lv", "Name of the Virtual Disk (LV)")
-	diskSize := flag.Int("disk-size", 51200, "Size of the Virtual Disk in Megabytes")
+	diskSize := flag.Int("disk-size", 307200, "Size of the Virtual Disk in Megabytes")
 
+	// Processor Configuration
+	dedicatedProc := flag.Bool("dedicated-proc", false, "Use dedicated processors (default: shared)")
+	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
@@ -79,19 +82,38 @@ func main() {
 	// -------------------------------------------------------------------------
 	go func() {
 		log.Printf("[Branch 1] Provisioning base LPAR '%s'...", *lparName)
-		req := hmc.CreateLparRequest{
-			Name:             *lparName,
-			OsType:           *osType ,
-			MinMem:           2048,
-			DesiredMem:       32768,
-			MaxMem:           65536,
-			MinProcUnits:     0.1,
-			DesiredProcUnits: 0.5,
-			MaxProcUnits:     2.0,
-			MinVcpus:         1,
-			DesiredVcpus:     1,
-			MaxVcpus:         4,
-			SharingMode:      "uncapped",
+		var req hmc.CreateLparRequest
+		if *dedicatedProc {
+			// Dedicated processor configuration
+			req = hmc.CreateLparRequest{
+				Name:             *lparName,
+				OsType:           *osType,
+				MinMem:           153600,
+				DesiredMem:       307200,
+				MaxMem:           614400,
+				MinProcUnits:     8,    // 2 dedicated processors
+				DesiredProcUnits: 16,    // 4 dedicated processors
+				MaxProcUnits:     32,    // 8 dedicated processors
+				SharingMode:      "sre idle proces",
+				DedicatedProc:    true,
+			}
+		} else {
+			// Shared processor configuration (default)
+			req = hmc.CreateLparRequest{
+				Name:             *lparName,
+				OsType:           *osType,
+				MinMem:           2048,
+				DesiredMem:       32768,
+				MaxMem:           65536,
+				MinProcUnits:     0.1,
+				DesiredProcUnits: 0.5,
+				MaxProcUnits:     2.0,
+				MinVcpus:         1,
+				DesiredVcpus:     1,
+				MaxVcpus:         4,
+				SharingMode:      "uncapped",
+				DedicatedProc:    false,
+			}
 		}
 
 		lparDetails, err := restClient.CreateLogicalPartition(sysUUID, req, *verbose)

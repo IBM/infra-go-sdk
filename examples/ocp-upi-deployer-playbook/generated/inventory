@@ -1,2 +1,0 @@
-[bastion]
-192.0.2.10 ansible_connection=local

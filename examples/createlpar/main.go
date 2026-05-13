@@ -19,28 +19,28 @@ func main() {
 	// CONFIGURATION & FLAGS
 	// =========================================================================
 	// HMC Config
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
 	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
+	password := flag.String("hmc-pass", "", "HMC Password")
+	sysName := flag.String("system-name", "", "Managed System Name")
 	lparName := flag.String("lpar-name", "helpernode", "Name for the new LPAR")
 	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
 	vswitchName := flag.String("vswitch-name", "ETHERNET0(Default)", "Name of the Virtual Switch")
-	vlanID := flag.Int("vlan-id", 1337, "VLAN ID for the Client Network Adapter")
+	vlanID := flag.Int("vlan-id", 0, "VLAN ID for the Client Network Adapter")
 
 	// Storage Type Selection
 	storageTypes := flag.String("storage", "physical,virtual,optical", "Comma-separated storage types: physical,virtual,optical")
 
 	// SVC Config (for Physical Disk)
-	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
+	svcIP := flag.String("svc-ip", "", "SVC IP address")
 	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC Username")
-	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC Password")
+	svcPass := flag.String("svc-pass", "", "SVC Password")
 	baseImageName := flag.String("base-image", "image-ibm-default-centos-9", "Base image name for FlashCopy (leave empty to create fresh volume without FlashCopy)")
 
 	// Virtual Disk Config
-	targetVios := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS for virtual disk (Leave empty for auto-select)")
+	targetVios := flag.String("vios-name", "", "Target VIOS for virtual disk (Leave empty for auto-select)")
 	targetVg := flag.String("vg-name", "auto_vg01", "Target Volume Group (Leave empty for auto-select)")
 	virtualDiskName := flag.String("vdisk-name", "", "Name of the Virtual Disk (auto-generated if empty)")
 	virtualDiskSize := flag.Int("vdisk-size", 51200, "Size of the Virtual Disk in Megabytes")
@@ -48,6 +48,12 @@ func main() {
 	// Optical Media Config
 	mediaNamesStr := flag.String("media-names", "ocp_1774438837", "Comma-separated list of ISO files to map (e.g., 'rhel9.iso,aix73.iso'). Leave empty to skip optical mapping.")
 
+	// Processor Configuration
+	dedicatedProc := flag.Bool("dedicated-proc", false, "Use dedicated processors (default: shared)")
+	
+	// Power-on Configuration
+	powerOn := flag.Bool("power-on", false, "Power on the LPAR after creation (default: false)")
+	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
@@ -150,11 +156,23 @@ func main() {
 	log.Println("")
 	log.Println("🔀 Phase 2: 3-Way Parallel Operations (LPAR || VIOS || vSwitch)...")
 
-	var lparDetails *hmc.LogicalPartitionDetailed
-	var viosWwpnMap map[string][]string
-	var viosUuidMap map[string]string
-	var vswitchUUID string
-	var lparErr, viosErr, vswitchErr error
+	// Channel-based synchronization for better error handling
+	type lparResult struct {
+		details *hmc.LogicalPartitionDetailed
+		uuid    string
+	}
+	lparResCh := make(chan lparResult, 1)
+	lparErrCh := make(chan error, 1)
+	
+	type viosResult struct {
+		wwpnMap map[string][]string
+		uuidMap map[string]string
+	}
+	viosResCh := make(chan viosResult, 1)
+	viosErrCh := make(chan error, 1)
+	
+	vswitchResCh := make(chan string, 1)
+	vswitchErrCh := make(chan error, 1)
 
 	parallelOps := 2 // LPAR + vSwitch
 	if usePhysical {
@@ -166,28 +184,50 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Printf("[Thread-LPAR] Creating LPAR '%s'...", *lparName)
-		req := hmc.CreateLparRequest{
-			Name:             *lparName,
-			OsType:           *osType,
-			MinMem:           2048,
-			DesiredMem:       32768,
-			MaxMem:           65536,
-			MinProcUnits:     0.1,
-			DesiredProcUnits: 1,
-			MaxProcUnits:     2.0,
-			MinVcpus:         1,
-			DesiredVcpus:     2,
-			MaxVcpus:         4,
-			SharingMode:      "uncapped",
+		var req hmc.CreateLparRequest
+		if *dedicatedProc {
+			// Dedicated processor configuration
+			req = hmc.CreateLparRequest{
+				Name:             *lparName,
+				OsType:           *osType,
+				MinMem:           153600,
+				DesiredMem:       307200,
+				MaxMem:           614400,
+				MinProcUnits:     8,    // 2 dedicated processors
+				DesiredProcUnits: 16,    // 4 dedicated processors
+				MaxProcUnits:     32,    // 8 dedicated processors
+				SharingMode:      "sre idle proces",
+				DedicatedProc:    true,
+			}
+		} else {
+			// Shared processor configuration (default)
+			req = hmc.CreateLparRequest{
+				Name:             *lparName,
+				OsType:           *osType,
+				MinMem:           2048,
+				DesiredMem:       32768,
+				MaxMem:           65536,
+				MinProcUnits:     0.1,
+				DesiredProcUnits: 1,
+				MaxProcUnits:     2.0,
+				MinVcpus:         1,
+				DesiredVcpus:     2,
+				MaxVcpus:         4,
+				SharingMode:      "uncapped",
+				DedicatedProc:    false,
+			}
 		}
 
-		var err error
-		lparDetails, err = restClient.CreateLogicalPartition(sysUUID, req, *verbose)
+		lparDetails, err := restClient.CreateLogicalPartition(sysUUID, req, *verbose)
 		if err != nil {
-			lparErr = fmt.Errorf("LPAR creation failed: %v", err)
+			lparErrCh <- fmt.Errorf("LPAR creation failed: %v", err)
 			return
 		}
-		log.Printf("[Thread-LPAR] ✅ LPAR Created! UUID: %s", lparDetails.MetadataID)
+		lparUUID := lparDetails.MetadataID
+		log.Printf("[Thread-LPAR] ✅ LPAR Created! UUID: %s", lparUUID)
+		
+		// Early unlock: Send result immediately for network/storage operations
+		lparResCh <- lparResult{details: lparDetails, uuid: lparUUID}
 	}()
 
 	// Thread 2: Discover VIOS WWPNs (only if physical storage needed)
@@ -195,13 +235,13 @@ func main() {
 		go func() {
 			defer wg.Done()
 			log.Println("[Thread-VIOS] Discovering VIOS WWPNs...")
-			var err error
-			viosWwpnMap, viosUuidMap, err = getViosWwpnMap(restClient, sysUUID, *verbose)
+			wwpnMap, uuidMap, err := getViosWwpnMap(restClient, sysUUID, *verbose)
 			if err != nil {
-				viosErr = fmt.Errorf("VIOS discovery failed: %v", err)
+				viosErrCh <- fmt.Errorf("VIOS discovery failed: %v", err)
 				return
 			}
 			log.Println("[Thread-VIOS] ✅ VIOS Discovery Complete.")
+			viosResCh <- viosResult{wwpnMap: wwpnMap, uuidMap: uuidMap}
 		}()
 	}
 
@@ -211,61 +251,86 @@ func main() {
 		log.Printf("[Thread-vSwitch] Resolving Virtual Switch '%s'...", *vswitchName)
 		switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, *verbose)
 		if err != nil {
-			vswitchErr = fmt.Errorf("failed to retrieve Virtual Switches: %v", err)
+			vswitchErrCh <- fmt.Errorf("failed to retrieve Virtual Switches: %v", err)
 			return
 		}
 
+		var foundUUID string
 		for _, s := range switches {
 			if strings.EqualFold(s.SwitchName, *vswitchName) {
-				vswitchUUID = s.UUID
+				foundUUID = s.UUID
 				break
 			}
 		}
-		if vswitchUUID == "" {
-			vswitchErr = fmt.Errorf("virtual Switch '%s' not found", *vswitchName)
+		if foundUUID == "" {
+			vswitchErrCh <- fmt.Errorf("virtual Switch '%s' not found", *vswitchName)
 			return
 		}
-		log.Printf("[Thread-vSwitch] ✅ Virtual Switch Resolved: %s", vswitchUUID)
+		log.Printf("[Thread-vSwitch] ✅ Virtual Switch Resolved: %s", foundUUID)
+		vswitchResCh <- foundUUID
 	}()
 
 	wg.Wait()
 
-	// Check for errors
-	if lparErr != nil {
-		log.Fatalf("❌ LPAR Thread Failed: %v", lparErr)
+	// Collect results using select statements for cleaner error handling
+	var lparRes lparResult
+	select {
+	case err := <-lparErrCh:
+		log.Fatalf("❌ LPAR Thread Failed: %v", err)
+	case lparRes = <-lparResCh:
 	}
-	if viosErr != nil {
-		log.Fatalf("❌ VIOS Thread Failed: %v", viosErr)
+	
+	var viosWwpnMap map[string][]string
+	var viosUuidMap map[string]string
+	if usePhysical {
+		select {
+		case err := <-viosErrCh:
+			log.Fatalf("❌ VIOS Thread Failed: %v", err)
+		case viosRes := <-viosResCh:
+			viosWwpnMap = viosRes.wwpnMap
+			viosUuidMap = viosRes.uuidMap
+		}
 	}
-	if vswitchErr != nil {
-		log.Fatalf("❌ vSwitch Thread Failed: %v", vswitchErr)
+	
+	var vswitchUUID string
+	select {
+	case err := <-vswitchErrCh:
+		log.Fatalf("❌ vSwitch Thread Failed: %v", err)
+	case vswitchUUID = <-vswitchResCh:
 	}
 
 	log.Println("✅ All parallel operations completed successfully")
-
-	// =========================================================================
-	// 4. ATTACH NETWORK ADAPTER
-	// =========================================================================
-	lparUUID := lparDetails.MetadataID
 	
-	log.Println("")
-	log.Printf("[HMC] Phase 3: Attaching VLAN %d to LPAR...", *vlanID)
-	adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Failed to add network adapter: %v", err)
-	}
-	log.Printf("[HMC] ✅ Network Adapter Attached.")
-	log.Printf("[HMC]    Adapter UUID: %s", adapter.UUID)
-	log.Printf("[HMC]    MAC Address: %s", hmc.FormatMACAddress(adapter.MACAddress))
-	log.Printf("[HMC]    Virtual Slot: %s", adapter.VirtualSlotNumber)
-	log.Printf("[HMC]    Location Code: %s", adapter.LocationCode)
+	// Extract LPAR details from result
+	lparDetails := lparRes.details
+	lparUUID := lparRes.uuid
 
 	// =========================================================================
-	// 5. STORAGE PROVISIONING (CONDITIONAL BASED ON FLAGS)
+	// 4. PARALLEL: ATTACH NETWORK || PROVISION STORAGE
 	// =========================================================================
 	log.Println("")
-	log.Println("🔀 Phase 4: Storage Provisioning...")
+	log.Println("🔀 Phase 3: Parallel Operations (Network || Storage)...")
+	
+	networkResCh := make(chan *hmc.ClientNetworkAdapter, 1)
+	networkErrCh := make(chan error, 1)
+	
+	// Thread: Attach Network Adapter
+	go func() {
+		log.Printf("[Thread-Network] Attaching VLAN %d to LPAR...", *vlanID)
+		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		if err != nil {
+			networkErrCh <- fmt.Errorf("failed to add network adapter: %v", err)
+			return
+		}
+		log.Printf("[Thread-Network] ✅ Network Adapter Attached.")
+		log.Printf("[Thread-Network]    Adapter UUID: %s", adapter.UUID)
+		log.Printf("[Thread-Network]    MAC Address: %s", hmc.FormatMACAddress(adapter.MACAddress))
+		log.Printf("[Thread-Network]    Virtual Slot: %s", adapter.VirtualSlotNumber)
+		log.Printf("[Thread-Network]    Location Code: %s", adapter.LocationCode)
+		networkResCh <- adapter
+	}()
 
+	// Storage provisioning runs in parallel with network attachment
 	type physicalStorageResult struct {
 		targetVol        *svc.Vdisk
 		selectedViosName string
@@ -278,9 +343,10 @@ func main() {
 		viosName string
 	}
 
-	var physicalStorage physicalStorageResult
-	var virtualStorage virtualStorageResult
-	var storageViosUUID, storageViosName string // For optical media mapping
+	physicalResCh := make(chan physicalStorageResult, 1)
+	physicalErrCh := make(chan error, 1)
+	virtualResCh := make(chan virtualStorageResult, 1)
+	virtualErrCh := make(chan error, 1)
 
 	storageOps := 0
 	if usePhysical {
@@ -291,18 +357,13 @@ func main() {
 	}
 
 	if storageOps > 0 {
-		physicalResCh := make(chan physicalStorageResult, 1)
-		physicalErrCh := make(chan error, 1)
-		virtualResCh := make(chan virtualStorageResult, 1)
-		virtualErrCh := make(chan error, 1)
-
 		wg.Add(storageOps)
 
-		// Branch A: Provision Physical SAN Disk (if requested)
+		// Thread: Provision Physical SAN Disk (if requested)
 		if usePhysical {
 			go func() {
 				defer wg.Done()
-				log.Println("[Branch-Physical] Starting SVC storage provisioning...")
+				log.Println("[Thread-Physical] Starting SVC storage provisioning...")
 
 				targetVol, selectedViosName, err := provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, physicalVolumeName, *verbose)
 				if err != nil {
@@ -312,19 +373,19 @@ func main() {
 
 				selectedViosUUID := viosUuidMap[selectedViosName]
 
-				log.Printf("[Branch-Physical] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
-				if err := restClient.ConfigDevice(ctx,selectedViosUUID, "", *verbose); err != nil {
+				log.Printf("[Thread-Physical] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
+				if err := restClient.ConfigDevice(ctx, selectedViosUUID, "", *verbose); err != nil {
 					physicalErrCh <- fmt.Errorf("failed to run cfgdev: %v", err)
 					return
 				}
 
-				log.Printf("[Branch-Physical] Locating new physical volume matching SVC UID: %s...", targetVol.VdiskUID)
+				log.Printf("[Thread-Physical] Locating new physical volume matching SVC UID: %s...", targetVol.VdiskUID)
 				diskName, err := identifyFreeVolume(ctx, restClient, selectedViosUUID, selectedViosName, targetVol.VdiskUID, *verbose)
 				if err != nil {
 					physicalErrCh <- fmt.Errorf("failed to identify free volume: %v", err)
 					return
 				}
-				log.Printf("[Branch-Physical] ✅ Matched SVC LUN to VIOS Disk: %s", diskName)
+				log.Printf("[Thread-Physical] ✅ Matched SVC LUN to VIOS Disk: %s", diskName)
 
 				physicalResCh <- physicalStorageResult{
 					targetVol:        targetVol,
@@ -335,11 +396,11 @@ func main() {
 			}()
 		}
 
-		// Branch B: Provision Virtual Disk (if requested)
+		// Thread: Provision Virtual Disk (if requested)
 		if useVirtual {
 			go func() {
 				defer wg.Done()
-				log.Printf("[Branch-Virtual] Discovering optimal Volume Group for %d MB virtual disk...", *virtualDiskSize)
+				log.Printf("[Thread-Virtual] Discovering optimal Volume Group for %d MB virtual disk...", *virtualDiskSize)
 
 				viosUUID, viosName, err := provisionVirtualDisk(restClient, *sysName, sysUUID, *virtualDiskName, *targetVios, *targetVg, *virtualDiskSize, *verbose)
 				if err != nil {
@@ -347,43 +408,60 @@ func main() {
 					return
 				}
 
-				log.Printf("[Branch-Virtual] ✅ Virtual Disk '%s' Provisioned on VIOS '%s'.", *virtualDiskName, viosName)
+				log.Printf("[Thread-Virtual] ✅ Virtual Disk '%s' Provisioned on VIOS '%s'.", *virtualDiskName, viosName)
 				virtualResCh <- virtualStorageResult{viosUUID: viosUUID, viosName: viosName}
 			}()
 		}
 
 		wg.Wait()
-
-		// Check for errors and collect results
-		if usePhysical {
-			select {
-			case err := <-physicalErrCh:
-				log.Fatalf("❌ Physical Storage Branch Failed: %v", err)
-			case physicalStorage = <-physicalResCh:
-				storageViosUUID = physicalStorage.selectedViosUUID
-				storageViosName = physicalStorage.selectedViosName
-			}
-		}
-
-		if useVirtual {
-			select {
-			case err := <-virtualErrCh:
-				log.Fatalf("❌ Virtual Storage Branch Failed: %v", err)
-			case virtualStorage = <-virtualResCh:
-				// Virtual storage takes precedence for optical media if both exist
-				storageViosUUID = virtualStorage.viosUUID
-				storageViosName = virtualStorage.viosName
-			}
-		}
-
-		log.Println("✅ Storage provisioning completed successfully")
 	}
+
+	// =========================================================================
+	// 5. SYNCHRONIZATION: COLLECT ALL RESULTS
+	// =========================================================================
+	log.Println("")
+	log.Println("🔗 Phase 4: Synchronizing parallel operations...")
+	
+	// Wait for network attachment
+	select {
+	case err := <-networkErrCh:
+		log.Fatalf("❌ Network Thread Failed: %v", err)
+	case <-networkResCh:
+	}
+	
+	// Collect storage results
+	var physicalStorage physicalStorageResult
+	var virtualStorage virtualStorageResult
+	var storageViosUUID, storageViosName string // For optical media mapping
+
+	if usePhysical {
+		select {
+		case err := <-physicalErrCh:
+			log.Fatalf("❌ Physical Storage Thread Failed: %v", err)
+		case physicalStorage = <-physicalResCh:
+			storageViosUUID = physicalStorage.selectedViosUUID
+			storageViosName = physicalStorage.selectedViosName
+		}
+	}
+
+	if useVirtual {
+		select {
+		case err := <-virtualErrCh:
+			log.Fatalf("❌ Virtual Storage Thread Failed: %v", err)
+		case virtualStorage = <-virtualResCh:
+			// Virtual storage takes precedence for optical media if both exist
+			storageViosUUID = virtualStorage.viosUUID
+			storageViosName = virtualStorage.viosName
+		}
+	}
+
+	log.Println("✅ All parallel operations completed successfully")
 
 	// =========================================================================
 	// 6. MAP DISKS TO LPAR
 	// =========================================================================
 	log.Println("")
-	log.Println("[HMC] Phase 5: Mapping disks to LPAR...")
+	log.Println("[HMC] Phase 5: Mapping storage to LPAR...")
 
 	// Map Physical Disk (if provisioned)
 	if usePhysical {
@@ -421,7 +499,7 @@ func main() {
 	var opticalMediaCount int
 	if useOptical && *mediaNamesStr != "" && storageViosUUID != "" {
 		log.Println("")
-		log.Println("[HMC] Phase 5.5: Mapping Virtual Optical Media...")
+		log.Println("[HMC] Phase 6: Mapping Virtual Optical Media...")
 		
 		// Parse comma-separated media names
 		mediaNames := strings.Split(*mediaNamesStr, ",")
@@ -449,15 +527,14 @@ func main() {
 	// Use the default profile name from the LPAR details
 	profileName := lparDetails.DefaultProfileName
 	log.Println("")
-	log.Printf("[HMC] Phase 6: Saving active configuration to profile '%s'...", profileName)
-	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true, *verbose)
-	if err != nil {
+	log.Printf("[HMC] Phase 7: Saving configuration to profile '%s'...", profileName)
+	if err := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true, *verbose); err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
 	log.Printf("[HMC] ✅ Configuration permanently saved to profile.")
 
 	log.Println("")
-	log.Printf("[HMC] Phase 7: Powering on LPAR '%s'...", *lparName)
+	log.Printf("[HMC] Phase 8: Powering on LPAR '%s'...", *lparName)
 
 	// Extract profile UUID from the AssociatedPartitionProfile href (already available from CreateLogicalPartition)
 	profileHref := lparDetails.AssociatedPartitionProfile.Href
@@ -475,21 +552,26 @@ func main() {
 		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
 	}
 
-	// Create PowerOnOptions
-	options := &hmc.PowerOnOptions{
-		ProfileUUID: profileUUID,
-		Keylock:     "normal",
-		OSType:      *osType,
-	}
-	_, err = restClient.PowerOnPartition(ctx,lparUUID, options, *verbose)
-	if err != nil {
-		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
+	// Power on LPAR if requested
+	lparStatus := "READY (not powered on)"
+	if *powerOn {
+		log.Println("\n⚡ Powering on LPAR...")
+		// Create PowerOnOptions
+		options := &hmc.PowerOnOptions{
+			ProfileUUID: profileUUID,
+			Keylock:     "normal",
+			OSType:      *osType,
+		}
+		if _, err := restClient.PowerOnPartition(ctx, lparUUID, options, *verbose); err != nil {
+			log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
+		}
+		lparStatus = "BOOTING"
 	}
 
 	log.Println("")
 	log.Println("=========================================================================")
 	log.Printf(" 🎉 SUCCESS: PowerVM Provisioning Complete!")
-	log.Printf("    - LPAR Name      : %s is BOOTING", *lparName)
+	log.Printf("    - LPAR Name      : %s is %s", *lparName, lparStatus)
 	log.Printf("    - Network        : Attached to %s (VLAN %d)", *vswitchName, *vlanID)
 	if usePhysical {
 		log.Printf("    - Physical Disk  : SVC Vol '%s' (%s) via %s", physicalStorage.targetVol.Name, physicalStorage.diskName, physicalStorage.selectedViosName)

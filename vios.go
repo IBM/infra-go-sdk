@@ -3687,3 +3687,485 @@ func (c *HmcRestClient) GetRawViosXML(viosUUID string, group string, debug bool)
 
 	return string(body), nil
 }
+// ReduceVolumeGroup removes one or more physical volumes (e.g., "hdisk2") from an existing Volume Group.
+// It implements the POST method on the VolumeGroup endpoint with the ReduceVolumeGroup action payload.
+func (c *HmcRestClient) ReduceVolumeGroup(ctx context.Context, sysName, viosUUID, viosName, vgName string, pvNames []string, debug bool) error {
+	if debug {
+		c.Logger.Debug("Initiating ReduceVolumeGroup", "vios", viosName, "vg", vgName, "pvs", pvNames)
+	}
+
+	if len(pvNames) == 0 {
+		return fmt.Errorf("no physical volumes provided to remove")
+	}
+
+	// 1. Resolve Target Volume Group UUID
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
+	if err != nil {
+		return fmt.Errorf("failed to fetch volume groups: %v", err)
+	}
+
+	var targetVg *VolumeGroup
+	for i, vg := range vgList {
+		if strings.EqualFold(vg.GroupName, vgName) {
+			targetVg = &vgList[i]
+			break
+		}
+	}
+
+	if targetVg == nil {
+		return fmt.Errorf("Volume Group '%s' not found on VIOS '%s'", vgName, viosName)
+	}
+
+	// 2. Pre-flight Check: Ensure PVs actually belong to this VG
+	var validPVs []string
+	for _, requestedPV := range pvNames {
+		cleanPV := strings.TrimSpace(requestedPV)
+		if cleanPV == "" {
+			continue
+		}
+
+		found := false
+		for _, existingPV := range targetVg.PhysicalVolumes {
+			if strings.EqualFold(existingPV.VolumeName, cleanPV) {
+				found = true
+				break
+			}
+		}
+		
+		if found {
+			validPVs = append(validPVs, cleanPV)
+		} else {
+			c.Logger.Warn("Physical volume not found in Volume Group. Skipping eviction.", "pv", cleanPV, "vg", vgName)
+		}
+	}
+
+	// Idempotent Exit
+	if len(validPVs) == 0 {
+		c.Logger.Info("None of the requested physical volumes reside in the target Volume Group. No API action needed.")
+		return nil
+	}
+
+	// 3. Build XML Action Payload
+	var pvXML strings.Builder
+	for _, pv := range validPVs {
+		// IBM schema requires repeated tags for arrays
+		pvXML.WriteString(fmt.Sprintf("        <PhysicalVolumeNames>%s</PhysicalVolumeNames>\n", pv))
+	}
+
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup/%s", c.hmcIP, viosUUID, targetVg.UUID)
+
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VolumeGroup:VolumeGroup xmlns:VolumeGroup="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" schemaVersion="V1_0">
+    <ReduceVolumeGroup schemaVersion="V1_0">
+%s    </ReduceVolumeGroup>
+</VolumeGroup:VolumeGroup>`, pvXML.String())
+
+	// 4. Dispatch the HTTP POST Request
+	httpReq, err := http.NewRequest("POST", url, strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VolumeGroup")
+	httpReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=Job")
+
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(reqCtx)
+
+	c.logRawTraffic("REQUEST (POST)", url, payload)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		c.Logger.Error("ReduceVolumeGroup failed", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("ReduceVolumeGroup failed (%s): %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("ReduceVolumeGroup failed (%s)", resp.Status)
+	}
+
+	// 5. Extract Job and Enter Polling Loop
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return fmt.Errorf("JobID not found in response: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+
+	c.Logger.Info("ReduceVolumeGroup job submitted", "job_id", jobID)
+
+	_, err = c.FetchJobStatus(ctx, jobID, false, 10, debug)
+	return err
+}
+
+// ExtendVolumeGroup adds one or more physical volumes (e.g., "hdisk5") to an existing Volume Group.
+// It implements the POST method on the VolumeGroup endpoint with the ExtendVolumeGroup action payload.
+func (c *HmcRestClient) ExtendVolumeGroup(ctx context.Context, sysName, viosUUID, viosName, vgName string, pvNames []string, debug bool) error {
+	if debug {
+		c.Logger.Debug("Initiating ExtendVolumeGroup", "vios", viosName, "vg", vgName, "pvs", pvNames)
+	}
+
+	if len(pvNames) == 0 {
+		return fmt.Errorf("no physical volumes provided to add")
+	}
+
+	// 1. Resolve Target Volume Group UUID
+	vgList, err := c.GetVolumeGroups(ctx, viosUUID, debug)
+	if err != nil {
+		return fmt.Errorf("failed to fetch volume groups: %v", err)
+	}
+
+	var targetVg *VolumeGroup
+	for i, vg := range vgList {
+		if strings.EqualFold(vg.GroupName, vgName) {
+			targetVg = &vgList[i]
+			break
+		}
+	}
+
+	if targetVg == nil {
+		return fmt.Errorf("Volume Group '%s' not found on VIOS '%s'", vgName, viosName)
+	}
+
+	// 2. Pre-flight Check: Ensure PVs are not ALREADY in this VG (Idempotency)
+	var pvsToAdd []string
+	for _, requestedPV := range pvNames {
+		cleanPV := strings.TrimSpace(requestedPV)
+		if cleanPV == "" {
+			continue
+		}
+
+		alreadyExists := false
+		for _, existingPV := range targetVg.PhysicalVolumes {
+			if strings.EqualFold(existingPV.VolumeName, cleanPV) {
+				alreadyExists = true
+				break
+			}
+		}
+		
+		if alreadyExists {
+			c.Logger.Info("Physical volume is already in the Volume Group. Skipping.", "pv", cleanPV, "vg", vgName)
+		} else {
+			pvsToAdd = append(pvsToAdd, cleanPV)
+		}
+	}
+
+	// Idempotent Exit
+	if len(pvsToAdd) == 0 {
+		c.Logger.Info("All requested physical volumes are already in the target Volume Group. No API action needed.")
+		return nil
+	}
+
+	// 3. Build XML Action Payload
+	var pvXML strings.Builder
+	for _, pv := range pvsToAdd {
+		// IBM schema requires repeated tags for arrays
+		pvXML.WriteString(fmt.Sprintf("        <PhysicalVolumeNames>%s</PhysicalVolumeNames>\n", pv))
+	}
+
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup/%s", c.hmcIP, viosUUID, targetVg.UUID)
+
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VolumeGroup:VolumeGroup xmlns:VolumeGroup="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" schemaVersion="V1_0">
+    <ExtendVolumeGroup schemaVersion="V1_0">
+%s    </ExtendVolumeGroup>
+</VolumeGroup:VolumeGroup>`, pvXML.String())
+
+	// 4. Dispatch the HTTP POST Request
+	httpReq, err := http.NewRequest("POST", url, strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VolumeGroup")
+	httpReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=Job")
+
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(reqCtx)
+
+	c.logRawTraffic("REQUEST (POST)", url, payload)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		c.Logger.Error("ExtendVolumeGroup failed", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("ExtendVolumeGroup failed (%s): %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("ExtendVolumeGroup failed (%s)", resp.Status)
+	}
+
+	// 5. Extract Job and Enter Polling Loop
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return fmt.Errorf("JobID not found in response: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+
+	c.Logger.Info("ExtendVolumeGroup job submitted", "job_id", jobID)
+
+	_, err = c.FetchJobStatus(ctx, jobID, false, 10, debug)
+	return err
+}
+
+// CreateVirtualIOServer creates a new VIOS using the direct UOM PUT method.
+// Returns the UUID of the newly created VIOS on success.
+func (c *HmcRestClient) CreateVirtualIOServer(ctx context.Context, sysUUID string, req CreateViosRequest, debug bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, sysUUID)
+
+	// Transparently handle IBM's schema typos for sharing modes
+	if req.SharingMode == "share idle procs" {
+		req.SharingMode = "sre idle proces"
+	} else if req.SharingMode == "share idle procs active" {
+		req.SharingMode = "sre idle procs active"
+	} else if req.SharingMode == "share idle procs always" {
+		req.SharingMode = "sre idle procs always"
+	}
+
+	if debug {
+		procType := "shared"
+		if req.DedicatedProc {
+			procType = "dedicated"
+		}
+		c.Logger.Debug("Creating Virtual I/O Server", "systemUUID", sysUUID, "viosName", req.Name, "processorType", procType)
+	}
+
+	resGroupID := req.ResourceGroupID
+	if resGroupID == "" {
+		resGroupID = "0" // Default Resource Group
+	}
+
+	maxVirtualSlots := req.MaxVirtualSlots
+	if maxVirtualSlots == 0 {
+		maxVirtualSlots = 2000 // Safe default for VIOS (higher than LPAR default)
+	}
+
+	var payload string
+
+	if req.DedicatedProc {
+		payload = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<uom:VirtualIOServer xmlns:uom="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/"
+	                     schemaVersion="V1_0">
+	   <uom:Metadata><uom:Atom/></uom:Metadata>
+	   <uom:PartitionIOConfiguration schemaVersion="V1_0">
+	       <uom:Metadata><uom:Atom/></uom:Metadata>
+	       <uom:MaximumVirtualIOSlots>%d</uom:MaximumVirtualIOSlots>
+	   </uom:PartitionIOConfiguration>
+	   <uom:PartitionMemoryConfiguration schemaVersion="V1_0">
+	       <uom:Metadata><uom:Atom/></uom:Metadata>
+	       <uom:DesiredMemory>%d</uom:DesiredMemory>
+	       <uom:MaximumMemory>%d</uom:MaximumMemory>
+	       <uom:MinimumMemory>%d</uom:MinimumMemory>
+	   </uom:PartitionMemoryConfiguration>
+	   <uom:PartitionName>%s</uom:PartitionName>
+	   <uom:PartitionProcessorConfiguration schemaVersion="V1_0">
+	       <uom:Metadata><uom:Atom/></uom:Metadata>
+	       <uom:DedicatedProcessorConfiguration schemaVersion="V1_0">
+	           <uom:Metadata><uom:Atom/></uom:Metadata>
+	           <uom:DesiredProcessors>%.0f</uom:DesiredProcessors>
+	           <uom:MaximumProcessors>%.0f</uom:MaximumProcessors>
+	           <uom:MinimumProcessors>%.0f</uom:MinimumProcessors>
+	       </uom:DedicatedProcessorConfiguration>
+	       <uom:HasDedicatedProcessors>true</uom:HasDedicatedProcessors>
+	       <uom:SharingMode>%s</uom:SharingMode>
+	   </uom:PartitionProcessorConfiguration>
+	   <uom:PartitionType>Virtual IO Server</uom:PartitionType>
+</uom:VirtualIOServer>`,
+			maxVirtualSlots,
+			req.DesiredMem, req.MaxMem, req.MinMem,
+			req.Name,
+			req.DesiredProcUnits, req.MaxProcUnits, req.MinProcUnits,
+			req.SharingMode)
+	} else {
+		uncappedWeightXML := ""
+		if strings.ToLower(req.SharingMode) == "uncapped" {
+			weight := req.UncappedWeight
+			if weight == 0 {
+				weight = 128
+			}
+			uncappedWeightXML = fmt.Sprintf("\n            <uom:UncappedWeight>%d</uom:UncappedWeight>", weight)
+		}
+
+		payload = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<uom:VirtualIOServer xmlns:uom="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/"
+		                    schemaVersion="V1_0">
+		  <uom:Metadata><uom:Atom/></uom:Metadata>
+		  <uom:PartitionIOConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:MaximumVirtualIOSlots>%d</uom:MaximumVirtualIOSlots>
+		  </uom:PartitionIOConfiguration>
+		  <uom:PartitionMemoryConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:DesiredMemory>%d</uom:DesiredMemory>
+		      <uom:MaximumMemory>%d</uom:MaximumMemory>
+		      <uom:MinimumMemory>%d</uom:MinimumMemory>
+		  </uom:PartitionMemoryConfiguration>
+		  <uom:PartitionName>%s</uom:PartitionName>
+		  <uom:PartitionProcessorConfiguration schemaVersion="V1_0">
+		      <uom:Metadata><uom:Atom/></uom:Metadata>
+		      <uom:HasDedicatedProcessors>false</uom:HasDedicatedProcessors>
+		      <uom:SharedProcessorConfiguration schemaVersion="V1_0">
+		          <uom:Metadata><uom:Atom/></uom:Metadata>
+		          <uom:DesiredProcessingUnits>%.1f</uom:DesiredProcessingUnits>
+		          <uom:DesiredVirtualProcessors>%d</uom:DesiredVirtualProcessors>
+		          <uom:MaximumProcessingUnits>%.1f</uom:MaximumProcessingUnits>
+		          <uom:MaximumVirtualProcessors>%d</uom:MaximumVirtualProcessors>
+		          <uom:MinimumProcessingUnits>%.1f</uom:MinimumProcessingUnits>
+		          <uom:MinimumVirtualProcessors>%d</uom:MinimumVirtualProcessors>%s
+		      </uom:SharedProcessorConfiguration>
+		      <uom:SharingMode>%s</uom:SharingMode>
+		  </uom:PartitionProcessorConfiguration>
+		  <uom:PartitionType>Virtual IO Server</uom:PartitionType>
+</uom:VirtualIOServer>`,
+			maxVirtualSlots,
+			req.DesiredMem, req.MaxMem, req.MinMem,
+			req.Name,
+			req.DesiredProcUnits, req.DesiredVcpus,
+			req.MaxProcUnits, req.MaxVcpus,
+			req.MinProcUnits, req.MinVcpus,
+			uncappedWeightXML,
+			req.SharingMode)
+	}
+
+	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	httpReq.Header.Set("Accept", "application/atom+xml")
+
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(reqCtx)
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		c.Logger.Error("VIOS creation failed", "status", resp.Status)
+		if debug {
+			return "", fmt.Errorf("VIOS creation failed (%s): %s", resp.Status, string(body))
+		}
+		return "", fmt.Errorf("VIOS creation failed (%s)", resp.Status)
+	}
+
+	// Parse XML to extract newly created UUID
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	elem := doc.FindElement("//VirtualIOServer/Metadata/Atom/AtomID")
+	if elem == nil {
+		return "", fmt.Errorf("failed to extract AtomID from VIOS response")
+	}
+
+	if debug {
+		c.Logger.Info("Virtual I/O Server Created!", "uuid", elem.Text(), "name", req.Name)
+	}
+
+	return elem.Text(), nil
+}
+
+// DeleteVirtualIOServer permanently removes a VIOS from the Managed System.
+// Note: The VIOS must be powered off before this operation can succeed.
+func (c *HmcRestClient) DeleteVirtualIOServer(ctx context.Context, sysUUID, viosUUID string, debug bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer/%s", c.hmcIP, sysUUID, viosUUID)
+
+	if debug {
+		c.Logger.Debug("Initiating Virtual I/O Server Deletion", "systemUUID", sysUUID, "viosUUID", viosUUID)
+	}
+
+	httpReq, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	httpReq.Header.Set("X-API-Session", c.session)
+	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
+	httpReq.Header.Set("Accept", "application/atom+xml")
+
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(reqCtx)
+
+	c.logRawTraffic("REQUEST (DELETE)", url, "")
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	// HMC typically returns 200 OK or 204 No Content for a successful deletion
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		c.Logger.Error("VIOS deletion failed", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("VIOS deletion failed (%s): %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("VIOS deletion failed (%s)", resp.Status)
+	}
+
+	// Sometimes the HMC wraps deletions in an asynchronous Job.
+	// If a Job ID is present, we poll it. Otherwise, it was synchronous.
+	if strings.Contains(string(body), "Job") {
+		doc, err := xmlStripNamespace(body)
+		if err == nil {
+			if jobIDElem := doc.FindElement("//JobID"); jobIDElem != nil {
+				jobID := jobIDElem.Text()
+				c.Logger.Info("VIOS deletion job submitted", "job_id", jobID)
+				_, err = c.FetchJobStatus(ctx, jobID, false, 10, debug)
+				return err
+			}
+		}
+	}
+
+	if debug {
+		c.Logger.Info("Virtual I/O Server successfully deleted", "viosUUID", viosUUID)
+	}
+
+	return nil
+}

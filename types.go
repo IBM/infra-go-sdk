@@ -908,18 +908,41 @@ type VirtualDisk struct {
 
 // CreateLparRequest defines the parameters for a new LPAR creation.
 type CreateLparRequest struct {
-	Name             string
-	OsType           string  // NEW: e.g., "AIX/Linux", "OS400", or "Virtual IO Server"
-	MinMem           int     // MB
-	DesiredMem       int     // MB
-	MaxMem           int     // MB
-	MinProcUnits     float64 
-	DesiredProcUnits float64
-	MaxProcUnits     float64
-	MinVcpus         int
-	DesiredVcpus     int
-	MaxVcpus         int
-	SharingMode      string  // "uncapped" or "capped"
+	Name              string
+	OsType            string  // e.g., "AIX/Linux", "OS400", or "Virtual IO Server"
+	MinMem            int     // MB
+	DesiredMem        int     // MB
+	MaxMem            int     // MB
+	MinProcUnits      float64 // For shared: processing units; For dedicated: number of processors
+	DesiredProcUnits  float64 // For shared: processing units; For dedicated: number of processors
+	MaxProcUnits      float64 // For shared: processing units; For dedicated: number of processors
+	MinVcpus          int     // For shared: virtual processors; For dedicated: ignored
+	DesiredVcpus      int     // For shared: virtual processors; For dedicated: ignored
+	MaxVcpus          int     // For shared: virtual processors; For dedicated: ignored
+	SharingMode       string  // For shared: "uncapped" or "capped"; For dedicated: "keep idle procs" or "share idle procs"
+	UncappedWeight    int     // For shared uncapped mode: processor weight (0-255, default 128 if not specified)
+	MaxVirtualSlots   int     // Maximum number of virtual I/O adapter slots (default 200 if not specified)
+	ResourceGroupID   string  // Resource group association (default "0" for Default group if not specified)
+	DedicatedProc     bool    // true = dedicated processors, false = shared processors (default)
+}
+
+// CreateViosRequest defines the parameters for a new Virtual I/O Server (VIOS) creation.
+type CreateViosRequest struct {
+	Name              string
+	MinMem            int     // MB
+	DesiredMem        int     // MB
+	MaxMem            int     // MB
+	MinProcUnits      float64 // For shared: processing units; For dedicated: number of processors
+	DesiredProcUnits  float64 // For shared: processing units; For dedicated: number of processors
+	MaxProcUnits      float64 // For shared: processing units; For dedicated: number of processors
+	MinVcpus          int     // For shared: virtual processors; For dedicated: ignored
+	DesiredVcpus      int     // For shared: virtual processors; For dedicated: ignored
+	MaxVcpus          int     // For shared: virtual processors; For dedicated: ignored
+	SharingMode       string  // For shared: "uncapped" or "capped"; For dedicated: "keep idle procs" or "share idle procs"
+	UncappedWeight    int     // For shared uncapped mode: processor weight (0-255, default 128 if not specified)
+	MaxVirtualSlots   int     // Maximum number of virtual I/O adapter slots (default 500 for VIOS if not specified)
+	ResourceGroupID   string  // Resource group association (default "0" for Default group if not specified)
+	DedicatedProc     bool    // true = dedicated processors, false = shared processors (default)
 }
 
 // VirtualSwitchQuick represents the JSON response for quick switch details.
