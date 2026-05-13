@@ -13,12 +13,12 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION & FLAGS
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
+	username := flag.String("hmc-user", "", "HMC Username")
+	password := flag.String("hmc-pass", "", "HMC Password")
 	
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_03", "Name of the LPAR to save")
+	sysName := flag.String("system-name", "", "Managed System Name")
+	lparName := flag.String("lpar-name", "", "Name of the LPAR to save")
 	
 	profileName := flag.String("profile-name", "default_profile", "Name of the target profile")
 	force := flag.Bool("force", true, "Overwrite the profile if it already exists")

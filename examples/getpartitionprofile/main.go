@@ -15,7 +15,7 @@ func main() {
 	// CONFIGURATION & FLAGS
 	// =========================================================================
 	hmcIP := flag.String("hmc-ip", "192.0.2.2", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
+	username := flag.String("hmc-user", "", "HMC username")
 	password := flag.String("hmc-pass", "7UGadmin1Q2024", "HMC password")
 	systemName := flag.String("system-name", "LTC09u23-p11", "Managed system name (required)")
 	lparName := flag.String("lpar-name", "sno-new-4", "LPAR name (required)")

@@ -29,10 +29,10 @@ func formatBool(b bool) string {
 
 func main() {
 	// Command line flags
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	hmcUser := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	hmcPass := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
+	hmcUser := flag.String("hmc-user", "", "HMC username")
+	hmcPass := flag.String("hmc-pass", "", "HMC password")
+	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	jsonOutput := flag.Bool("json", false, "Output in JSON format")
 	viosFilter := flag.String("vios-filter", "", "Filter by specific VIOS name (optional)")

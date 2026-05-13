@@ -12,10 +12,10 @@ import (
 )
 
 func main() {
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "User")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "Pass")
-	sysName := flag.String("system-name", "LTC13U05", "System Name")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP")
+	username := flag.String("hmc-user", "", "User")
+	password := flag.String("hmc-pass", "", "Pass")
+	sysName := flag.String("system-name", "", "System Name")
 	verbose := flag.Bool("verbose", false, "Verbose")
 	flag.Parse()
 

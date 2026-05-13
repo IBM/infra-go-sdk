@@ -25,10 +25,10 @@ func main() {
 	// =========================================================================
 	// 2. FLAGS & VALIDATION
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name (Required)")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address (Required)")
+	username := flag.String("hmc-user", "", "HMC username (Required)")
+	password := flag.String("hmc-pass", "", "HMC password (Required)")
+	sysName := flag.String("system-name", "", "Managed System Name (Required)")
 
 	viosName := flag.String("vios-name", "", "Name of the Virtual I/O Server to delete (Required)")
 	force := flag.Bool("force", false, "Acknowledge this is a destructive action (Required for safety)")
@@ -42,8 +42,8 @@ func main() {
 		cliLogger.SetLevel(0) // InfoLevel
 	}
 
-	if *password == "" || *sysName == "" || *viosName == "" {
-		fmt.Println("Usage: deletevios -system-name <sys> -vios-name <name> -force")
+	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" || *viosName == "" {
+		fmt.Println("Usage: deletevios -hmc-ip <ip> -hmc-user <user> -hmc-pass <pass> -system-name <sys> -vios-name <name> -force")
 		cliLogger.Fatal("Missing required arguments.")
 	}
 

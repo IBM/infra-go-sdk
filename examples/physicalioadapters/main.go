@@ -54,7 +54,7 @@ func main() {
 	// ✨ HELPER 1: Global flags used by ALL commands
 	bindCommonFlags := func(fs *flag.FlagSet) {
 		fs.StringVar(&hmcIP, "hmc-ip", "bonn078-vhmc3.btc.tadn.ibm.com", "HMC IP address")
-		fs.StringVar(&username, "hmc-user", "REDACTED_HMC_USER<==", "HMC username")
+		fs.StringVar(&username, "hmc-user", "", "HMC username")
 		fs.StringVar(&password, "hmc-pass", "Pow3rGetsReady4Bob!", "HMC password")
 		fs.StringVar(&sysName, "system-name", "blue09bmc", "Managed System Name")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose HTTP output")

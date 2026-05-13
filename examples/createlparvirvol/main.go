@@ -16,11 +16,11 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION & FLAGS
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_03", "Name for the new LPAR")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address (Required)")
+	username := flag.String("hmc-user", "", "HMC Username (Required)")
+	password := flag.String("hmc-pass", "", "HMC Password (Required)")
+	sysName := flag.String("system-name", "", "Managed System Name (Required)")
+	lparName := flag.String("lpar-name", "", "Name for the new LPAR (Required)")
 	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
@@ -30,7 +30,7 @@ func main() {
 	// Native Virtual Disk Config (Replaces SVC logic)
 	targetVios := flag.String("vios-name", "", "Target VIOS (Leave empty for smart auto-select)")
 	targetVg := flag.String("vg-name", "", "Target Volume Group (Leave empty for smart auto-select)")
-	diskName := flag.String("disk-name", "lpar03_boot_lv", "Name of the Virtual Disk (LV)")
+	diskName := flag.String("disk-name", "", "Name of the Virtual Disk (LV) (Required)")
 	diskSize := flag.Int("disk-size", 307200, "Size of the Virtual Disk in Megabytes")
 
 	// Processor Configuration

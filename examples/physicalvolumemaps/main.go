@@ -16,12 +16,12 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION & FLAGS
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
+	username := flag.String("hmc-user", "", "HMC username")
+	password := flag.String("hmc-pass", "", "HMC password")
+	sysName := flag.String("system-name", "", "Managed System Name")
 	viosName := flag.String("vios-name", "ltc09u31-vios1", "Target VIOS")
-	lparName := flag.String("lpar-name", "Go_LPAR_99", "Target LPAR Name")
+	lparName := flag.String("lpar-name", "", "Target LPAR Name")
 	lparProfile := flag.String("lpar-profile", "default_profile", "Name of the LPAR profile to overwrite")
 	
 	// Default to empty so we can safely validate it when NOT in list mode

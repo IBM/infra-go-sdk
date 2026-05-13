@@ -18,17 +18,17 @@ import (
 
 func main() {
 	// --- Command-line flags with hardcoded defaults ---
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
 	username := flag.String("username", "REDACTED_HMC_USER<==", "Username")
 	password := flag.String("password", "REDACTED_HMC_PASS<==", "Password")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	osType := flag.String("os-type", "linux", "OS type (aix, linux, aix_linux, ibmi)")
-	systemName := flag.String("system-name", "LTC09U31-ZZ", "Managed system name")
+	systemName := flag.String("system-name", "", "Managed system name")
 
 	// --- SVC Configuration Flags ---
-	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
-	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC Username")
-	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC Password")
+	svcIP := flag.String("svc-ip", "", "SVC IP address")
+	svcUser := flag.String("svc-user", "", "SVC Username")
+	svcPass := flag.String("svc-pass", "", "SVC Password")
 	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
 
 	flag.Parse()

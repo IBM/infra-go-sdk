@@ -25,16 +25,16 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION - Command Line Flags
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	hmcUser := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	hmcPass := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
+	hmcUser := flag.String("hmc-user", "", "HMC username")
+	hmcPass := flag.String("hmc-pass", "", "HMC password")
+	sysName := flag.String("system-name", "", "Managed System Name")
 	lparName := flag.String("lpar-name", "sno-master", "LPAR Name to delete")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
-	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
-	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
-	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC password")
+	svcIP := flag.String("svc-ip", "", "SVC IP address")
+	svcUser := flag.String("svc-user", "", "SVC username")
+	svcPass := flag.String("svc-pass", "", "SVC password")
 
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)

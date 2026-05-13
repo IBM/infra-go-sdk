@@ -16,9 +16,9 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION & GENERAL FLAGS
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
+	username := flag.String("hmc-user", "", "HMC username")
+	password := flag.String("hmc-pass", "", "HMC password")
 	sysName := flag.String("system-name", "LTC13U29-Ranier", "Managed System Name")
 	lparName := flag.String("lpar-name", "IMAGE_WORK-a9cbb4a2-00029acc", "Target LPAR Name")
 	lparProfile := flag.String("lpar-profile", "default_profile", "Name of the LPAR profile to overwrite")

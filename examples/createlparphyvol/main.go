@@ -18,11 +18,11 @@ func main() {
 	// CONFIGURATION & FLAGS
 	// =========================================================================
 	// HMC Config
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC Password")
-	sysName := flag.String("system-name", "LTC09U31-ZZ", "Managed System Name")
-	lparName := flag.String("lpar-name", "Go_LPAR_99", "Name for the new LPAR")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address (Required)")
+	username := flag.String("hmc-user", "", "HMC Username (Required)")
+	password := flag.String("hmc-pass", "", "HMC Password (Required)")
+	sysName := flag.String("system-name", "", "Managed System Name (Required)")
+	lparName := flag.String("lpar-name", "", "Name for the new LPAR (Required)")
 	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
@@ -30,10 +30,10 @@ func main() {
 	vlanID := flag.Int("vlan-id", 1, "VLAN ID for the Client Network Adapter")
 
 	// SVC Config
-	svcIP := flag.String("svc-ip", "192.0.2.8", "SVC IP address")
-	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC Username")
-	svcPass := flag.String("svc-pass", "REDACTED_HMC_PASS<==", "SVC Password")
-	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
+	svcIP := flag.String("svc-ip", "", "SVC IP address (Required)")
+	svcUser := flag.String("svc-user", "", "SVC Username (Required)")
+	svcPass := flag.String("svc-pass", "", "SVC Password (Required)")
+	baseImageName := flag.String("base-image", "", "Base image name for FlashCopy (Required)")
 
 	// Processor Configuration
 	dedicatedProc := flag.Bool("dedicated-proc", false, "Use dedicated processors (default: shared)")

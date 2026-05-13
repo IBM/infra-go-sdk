@@ -13,11 +13,11 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION & FLAGS
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
-	systemName := flag.String("system-name", "LTC09U31-ZZ", "Managed system name")
-	lparName := flag.String("lpar-name", "Go_LPAR_100", "Name of the LPAR")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
+	username := flag.String("hmc-user", "", "HMC username")
+	password := flag.String("hmc-pass", "", "HMC password")
+	systemName := flag.String("system-name", "", "Managed system name")
+	lparName := flag.String("lpar-name", "", "Name of the LPAR")
 	profileName := flag.String("profile-name", "", "Profile name to delete (required)")
 	verbose := flag.Bool("verbose", true, "Enable verbose logging")
 

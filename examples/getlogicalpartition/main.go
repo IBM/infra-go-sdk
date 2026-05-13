@@ -14,19 +14,19 @@ func main() {
 	// =========================================================================
 	// CONFIGURATION & FLAGS
 	// =========================================================================
-	hmcIP := flag.String("hmc-ip", "192.0.2.1", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-	password := flag.String("hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address (Required)")
+	username := flag.String("hmc-user", "", "HMC username (Required)")
+	password := flag.String("hmc-pass", "", "HMC password (Required)")
 	
 	// We take the human-readable names now instead of the UUID!
-	sysName := flag.String("system-name", "LTC13U05", "Managed System Name")
-	lparName := flag.String("lpar-name", "prow-3e3e-bas-875d8322-00003bfc", "LPAR Name")
+	sysName := flag.String("system-name", "", "Managed System Name (Required)")
+	lparName := flag.String("lpar-name", "", "LPAR Name (Required)")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
-	if *password == "" || *sysName == "" || *lparName == "" {
-		log.Fatal("❌ Error: hmc-pass, system-name, and lpar-name are required.")
+	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" || *lparName == "" {
+		log.Fatal("❌ Error: hmc-ip, hmc-user, hmc-pass, system-name, and lpar-name are required.")
 	}
 
 	// =========================================================================

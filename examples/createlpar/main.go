@@ -19,11 +19,11 @@ func main() {
 	// CONFIGURATION & FLAGS
 	// =========================================================================
 	// HMC Config
-	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
-	username := flag.String("hmc-user", "REDACTED_HMC_USER<==", "HMC Username")
-	password := flag.String("hmc-pass", "", "HMC Password")
-	sysName := flag.String("system-name", "", "Managed System Name")
-	lparName := flag.String("lpar-name", "helpernode", "Name for the new LPAR")
+	hmcIP := flag.String("hmc-ip", "", "HMC IP address (Required)")
+	username := flag.String("hmc-user", "", "HMC Username (Required)")
+	password := flag.String("hmc-pass", "", "HMC Password (Required)")
+	sysName := flag.String("system-name", "", "Managed System Name (Required)")
+	lparName := flag.String("lpar-name", "", "Name for the new LPAR (Required)")
 	osType := flag.String("os-type", "AIX/Linux", "OS type (AIX/Linux, OS400, Virtual IO Server)")
 
 	// Networking Config
@@ -34,10 +34,10 @@ func main() {
 	storageTypes := flag.String("storage", "physical,virtual,optical", "Comma-separated storage types: physical,virtual,optical")
 
 	// SVC Config (for Physical Disk)
-	svcIP := flag.String("svc-ip", "", "SVC IP address")
-	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC Username")
-	svcPass := flag.String("svc-pass", "", "SVC Password")
-	baseImageName := flag.String("base-image", "image-ibm-default-centos-9", "Base image name for FlashCopy (leave empty to create fresh volume without FlashCopy)")
+	svcIP := flag.String("svc-ip", "", "SVC IP address (Required if using physical storage)")
+	svcUser := flag.String("svc-user", "", "SVC Username (Required if using physical storage)")
+	svcPass := flag.String("svc-pass", "", "SVC Password (Required if using physical storage)")
+	baseImageName := flag.String("base-image", "", "Base image name for FlashCopy (leave empty to create fresh volume without FlashCopy)")
 
 	// Virtual Disk Config
 	targetVios := flag.String("vios-name", "", "Target VIOS for virtual disk (Leave empty for auto-select)")
@@ -46,7 +46,7 @@ func main() {
 	virtualDiskSize := flag.Int("vdisk-size", 51200, "Size of the Virtual Disk in Megabytes")
 
 	// Optical Media Config
-	mediaNamesStr := flag.String("media-names", "ocp_1774438837", "Comma-separated list of ISO files to map (e.g., 'rhel9.iso,aix73.iso'). Leave empty to skip optical mapping.")
+	mediaNamesStr := flag.String("media-names", "", "Comma-separated list of ISO files to map (e.g., 'rhel9.iso,aix73.iso'). Leave empty to skip optical mapping.")
 
 	// Processor Configuration
 	dedicatedProc := flag.Bool("dedicated-proc", false, "Use dedicated processors (default: shared)")

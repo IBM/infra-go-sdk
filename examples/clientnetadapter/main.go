@@ -55,10 +55,10 @@ func main() {
 
 	// ✨ HELPER: Global flags used by ALL commands
 	bindCommonFlags := func(fs *flag.FlagSet) {
-		fs.StringVar(&hmcIP, "hmc-ip", "192.0.2.1", "HMC IP address")
-		fs.StringVar(&username, "hmc-user", "REDACTED_HMC_USER<==", "HMC username")
-		fs.StringVar(&password, "hmc-pass", "REDACTED_HMC_PASS<==", "HMC password")
-		fs.StringVar(&sysName, "system-name", "LTC09U31-ZZ", "Managed System Name (Required)")
+		fs.StringVar(&hmcIP, "hmc-ip", "", "HMC IP address")
+		fs.StringVar(&username, "hmc-user", "", "HMC username")
+		fs.StringVar(&password, "hmc-pass", "", "HMC password")
+		fs.StringVar(&sysName, "system-name", "", "Managed System Name (Required)")
 		fs.StringVar(&lparName, "lpar-name", "ocp-sno-lpar", "Target LPAR Name (Required)")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose output")
 	}
