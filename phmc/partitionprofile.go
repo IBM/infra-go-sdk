@@ -345,7 +345,6 @@ func (c *HmcRestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]Par
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=LogicalPartitionProfile")
 	req.Header.Set("Accept", "application/json")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)

@@ -233,7 +233,6 @@ func (c *HmcRestClient) GetManagedSystems(ctx context.Context, debug bool) (*etr
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml;type=ManagedSystem")
 
-	// Set timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
@@ -248,7 +247,6 @@ func (c *HmcRestClient) GetManagedSystems(ctx context.Context, debug bool) (*etr
 	}
 	defer resp.Body.Close()
 
-	// Log response status if debug
 	if debug {
 		c.Logger.Debug("GetManagedSystems response status", "status", resp.Status)
 	}
@@ -279,7 +277,6 @@ func (c *HmcRestClient) GetManagedSystems(ctx context.Context, debug bool) (*etr
 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
-	// Log response body if debug
 	if debug {
 		c.Logger.Debug("GetManagedSystems response body", "body", string(body))
 	}

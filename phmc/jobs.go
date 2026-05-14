@@ -228,7 +228,6 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 		jobResp = &jr
 		jobStatus = jobResp.Status
 
-		// Log status if debug
 		if debug {
 			c.Logger.Debug("Polled job status", "jobID", jobID, "status", jobStatus)
 		}
@@ -377,7 +376,6 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 
 // DeleteJob deletes a job from the HMC.
 // According to IBM documentation, after a job is completed, you must delete the job.
-// This function sends a DELETE request to remove the job specified by jobID.
 //
 // Parameters:
 //   - jobID: The job identifier to delete

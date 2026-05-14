@@ -12,7 +12,7 @@ import (
 	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc" // Adjust to your actual package path
 )
 
-// Helper function to safely extract text from an etree Element
+// safeGetText safely extracts text from an etree Element
 func safeGetText(elem *etree.Element, path string) string {
 	if found := elem.FindElement(path); found != nil {
 		return found.Text()

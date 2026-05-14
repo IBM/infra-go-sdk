@@ -9,7 +9,7 @@ import (
 	"time"
 
 	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
-	svc "github.com/sudeeshjohn/svc-go-sdk"
+	svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
 )
 
 type mappingData struct {
@@ -238,8 +238,8 @@ func main() {
 		// =========================================================================
 		fmt.Printf("\nStep 4: Connecting to SVC [%s] for SAN cleanup...\n", *svcIP)
 		svcClient := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-		if err := svcClient.Authenticate(); err == nil {
-			vdisks, _ := svcClient.LsVdisk()
+		if err := svcClient.Authenticate(ctx); err == nil {
+			vdisks, _ := svcClient.LsVdisk(ctx)
 			for _, m := range discoveredMappings {
 				if m.VolumeUDID == "" {
 					continue // Skip if it's not a physical volume (e.g. optical media)
@@ -270,16 +270,16 @@ func main() {
 					
 					// Try to find host by any of the WWPNs
 					if len(wwpns) > 0 {
-						host, matchedWWPN, err := svcClient.GetHostByWWPN(wwpns)
+						host, matchedWWPN, err := svcClient.GetHostByWWPN(ctx, wwpns)
 						if err == nil && host != "" {
 							if *verbose {
 								fmt.Printf("   Found SVC host '%s' via WWPN %s\n", host, matchedWWPN)
 							}
-							svcClient.Rmvdiskhostmap(host, svcVolName)
+							svcClient.Rmvdiskhostmap(ctx, host, svcVolName)
 						}
 					}
 					
-					svcClient.Rmvdisk(svcVolName, svc.VolumeRemove{Force: true})
+					svcClient.Rmvdisk(ctx, svcVolName, svc.VolumeRemove{Force: true})
 					fmt.Printf("✅ SVC Volume %s purged.\n", svcVolName)
 				}
 			}

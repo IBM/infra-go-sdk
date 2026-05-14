@@ -27,6 +27,10 @@ go.work.sum
 # env file
 .env
 
+# Security scan artifacts
+my-bom.json
+*.bom.json
+
 # Editor/IDE
 # .idea/
 # .vscode/

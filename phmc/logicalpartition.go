@@ -377,7 +377,6 @@ func (c *HmcRestClient) GetLogicalPartitionQuick(partitionUUID string, debug boo
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -545,7 +544,6 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, debug bool)
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)

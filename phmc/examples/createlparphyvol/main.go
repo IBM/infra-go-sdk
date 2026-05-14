@@ -10,7 +10,7 @@ import (
 	"time"
 
 	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
-	svc "github.com/sudeeshjohn/svc-go-sdk"
+	svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
 )
 
 func main() {
@@ -79,7 +79,7 @@ func main() {
 		defer wg.Done()
 		log.Println("[Auth-SVC] Connecting to SVC...")
 		svcclient = svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-		if err := svcclient.Authenticate(); err != nil {
+		if err := svcclient.Authenticate(context.Background()); err != nil {
 			svcErr = fmt.Errorf("SVC authentication failed: %v", err)
 			return
 		}
@@ -251,7 +251,7 @@ func main() {
 		defer wg.Done()
 		log.Println("[Thread-SVC] Starting SVC storage provisioning...")
 		var err error
-		targetVol, selectedViosName, err = provisionSVCStorage(svcclient, *baseImageName, viosWwpnMap, volumeName, *verbose)
+		targetVol, selectedViosName, err = provisionSVCStorage(context.Background(), svcclient, *baseImageName, viosWwpnMap, volumeName, *verbose)
 		if err != nil {
 			storageErr = fmt.Errorf("failed to provision SVC storage: %v", err)
 			return
@@ -427,14 +427,14 @@ func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bo
 	return viosWwpnMap, viosUuidMap, nil
 }
 
-func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, volumeName string, verbose bool) (*svc.Vdisk, string, error) {
+func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, volumeName string, verbose bool) (*svc.Vdisk, string, error) {
 
 	var selectedViosName string
 	var selectedHostName string
 	var selectedWWPNs []string
 	hostExists := false
 
-	fabricLogins, err := svcclient.Lsfabric()
+	fabricLogins, err := svcclient.Lsfabric(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to fetch fabric logins: %v", err)
 	}
@@ -474,49 +474,52 @@ func provisionSVCStorage(svcclient *svc.Client, baseImageName string, viosWwpnMa
 			Type:     "generic",
 			Protocol: "scsi",
 		}
-		if err := svcclient.Mkhost(newHost); err != nil && !strings.Contains(err.Error(), "already exists") {
+		if err := svcclient.Mkhost(ctx, newHost); err != nil && !strings.Contains(err.Error(), "already exists") {
 			return nil, "", fmt.Errorf("mkhost error: %v", err)
 		}
 	}
 
-	targetHost, err := svcclient.LshostByTarget(selectedHostName)
+	targetHost, err := svcclient.LshostByTarget(ctx, selectedHostName)
 	if err != nil {
 		return nil, "", fmt.Errorf("error finding host %s: %v", selectedHostName, err)
 	}
 
+	grainSize := 256
 	volume := svc.Volume{
 		Name: volumeName,
 		MdiskGrp: "0", Size: 120, Unit: "gb",
-		RSize: "2%", Warning: "80%", AutoExpand: true, GrainSize: 256,
+		RSize: "2%", Warning: "80%", AutoExpand: true, GrainSize: &grainSize,
 	}
-	if err := svcclient.Mkvdisk(volume); err != nil {
+	if err := svcclient.Mkvdisk(ctx, volume); err != nil {
 		return nil, "", fmt.Errorf("mkvdisk error: %v", err)
 	}
 	
-	sourceVol, err := svcclient.LsVdiskByName(baseImageName)
+	sourceVol, err := svcclient.LsVdiskByName(ctx, baseImageName)
 	if err != nil {
 		return nil, "", fmt.Errorf("error finding source volume %s: %v", baseImageName, err)
 	}
-	targetVol, err := svcclient.LsVdiskByName(volume.Name)
+	targetVol, err := svcclient.LsVdiskByName(ctx, volume.Name)
 	if err != nil {
 		return nil, "", fmt.Errorf("error finding target volume %s: %v", volume.Name, err)
 	}
 
+	copyRate := 150
+	fcGrainSize := 256
 	fcmapping := svc.FlashCopyMapping{
 		Name: fmt.Sprintf("fcmap_%d", time.Now().Unix()), Source: sourceVol.ID, Target: targetVol.ID,
-		CopyRate: 150, GrainSize: 256, Incremental: true, AutoDelete: true,
+		CopyRate: &copyRate, GrainSize: &fcGrainSize, Incremental: true, AutoDelete: true,
 	}
-	if err := svcclient.Mkfcmap(fcmapping); err != nil {
+	if err := svcclient.Mkfcmap(ctx, fcmapping); err != nil {
 		return nil, "", fmt.Errorf("mkfcmap error: %v", err)
 	}
 
 	fmapping := svc.FlashCopyMappingStart{ID: fcmapping.Name, Prep: true, Restore: true}
-	if err := svcclient.Startfcmap(fmapping); err != nil {
+	if err := svcclient.Startfcmap(ctx, fmapping); err != nil {
 		return nil, "", fmt.Errorf("startfcmap error: %v", err)
 	}
 
 	mapping := svc.VolumeHostMap{Host: targetHost.ID, Force: true, VDisk: volume.Name}
-	if err := svcclient.Mkvdiskhostmap(mapping); err != nil {
+	if err := svcclient.Mkvdiskhostmap(ctx, mapping); err != nil {
 		return nil, "", fmt.Errorf("mkvdiskhostmap error: %v", err)
 	}
 

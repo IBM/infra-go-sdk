@@ -13,7 +13,7 @@ import (
 
 	"github.com/beevik/etree"
 	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
-	svc "github.com/sudeeshjohn/svc-go-sdk"
+	svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
 )
 
 func main() {
@@ -103,7 +103,7 @@ func main() {
 		if *verbose {
 			log.Println("[SVC] Starting SVC storage provisioning...")
 		}
-		targetVol, selectedViosName := provisionSVCStorage(*svcIP, *svcUser, *svcPass, *baseImageName, viosWwpnMap, *verbose)
+		targetVol, selectedViosName := provisionSVCStorage(ctx, *svcIP, *svcUser, *svcPass, *baseImageName, viosWwpnMap, *verbose)
 
 		// 6. Configure VSCSI and update the template (with cached VIOS UUIDs)
 		configureVSCSI(ctx,restClient, systemUUID, tempUUID, targetVol, tempTemplateDoc, selectedViosName, viosUuidMap, *verbose)
@@ -305,12 +305,12 @@ func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bo
 	return viosWwpnMap, viosUuidMap
 }
 
-func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string) {
+func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string) {
 	if verbose {
 		log.Printf("[SVC] Connecting to SVC Cluster at %s...", svcIP)
 	}
 	svcclient := svc.NewClient(svcIP, svcUser, svcPass).WithTLSInsecure()
-	if err := svcclient.Authenticate(); err != nil {
+	if err := svcclient.Authenticate(ctx); err != nil {
 		log.Fatalf("[SVC] Auth error: %v", err)
 	}
 	if verbose {
@@ -327,7 +327,7 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 	}
 	
 	// --- 1. Optimized: Fetch fabric logins once and check all VIOS in parallel ---
-	fabricLogins, err := svcclient.Lsfabric()
+	fabricLogins, err := svcclient.Lsfabric(ctx)
 	if err != nil {
 		log.Fatalf("[SVC] Failed to fetch fabric logins: %v", err)
 	}
@@ -380,7 +380,7 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 			Type:     "generic",
 			Protocol: "scsi",
 		}
-		if err := svcclient.Mkhost(newHost); err != nil && !strings.Contains(err.Error(), "already exists") {
+		if err := svcclient.Mkhost(ctx, newHost); err != nil && !strings.Contains(err.Error(), "already exists") {
 			log.Fatalf("[SVC] Mkhost error: %v", err)
 		}
 		if verbose {
@@ -389,7 +389,7 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 	}
 
 	// Retrieve final SVC host ID
-	target_host, err := svcclient.LshostByTarget(selectedHostName)
+	target_host, err := svcclient.LshostByTarget(ctx, selectedHostName)
 	if err != nil {
 		log.Fatalf("[SVC] Error finding host %s: %v", selectedHostName, err)
 	}
@@ -399,11 +399,12 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 	if verbose {
 		log.Printf("[SVC] Provisioning new VDisk (Volume)...")
 	}
+	grainSize := 256
 	volume := svc.Volume{
 		Name: "test_volume2", MdiskGrp: "0", Size: 120, Unit: "gb",
-		RSize: "2%", Warning: "80%", AutoExpand: true, GrainSize: 256,
+		RSize: "2%", Warning: "80%", AutoExpand: true, GrainSize: &grainSize,
 	}
-	if err := svcclient.Mkvdisk(volume); err != nil {
+	if err := svcclient.Mkvdisk(ctx, volume); err != nil {
 		log.Fatalf("[SVC] Mkvdisk error: %v", err)
 	}
 	if verbose {
@@ -413,18 +414,20 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 	if verbose {
 		log.Printf("[SVC] Locating Source Base Image: %s", baseImageName)
 	}
-	sourceVol, _ := svcclient.LsVdiskByName(baseImageName)
-	targetVol, _ := svcclient.LsVdiskByName(volume.Name)
+	sourceVol, _ := svcclient.LsVdiskByName(ctx, baseImageName)
+	targetVol, _ := svcclient.LsVdiskByName(ctx, volume.Name)
 
 	// --- 4. FlashCopy ---
 	if verbose {
 		log.Printf("[SVC] Setting up FlashCopy Mapping from %s -> %s", sourceVol.Name, targetVol.Name)
 	}
+	copyRate := 150
+	fcGrainSize := 256
 	fcmapping := svc.FlashCopyMapping{
 		Name: "test_fcmap", Source: sourceVol.ID, Target: targetVol.ID,
-		CopyRate: 150, GrainSize: 256, Incremental: true, AutoDelete: true,
+		CopyRate: &copyRate, GrainSize: &fcGrainSize, Incremental: true, AutoDelete: true,
 	}
-	if err := svcclient.Mkfcmap(fcmapping); err != nil {
+	if err := svcclient.Mkfcmap(ctx, fcmapping); err != nil {
 		log.Fatalf("[SVC] Mkfcmap error: %v", err)
 	}
 
@@ -432,7 +435,7 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 		log.Printf("[SVC] Starting FlashCopy operation...")
 	}
 	fmapping := svc.FlashCopyMappingStart{ID: fcmapping.Name, Prep: true, Restore: true}
-	if err := svcclient.Startfcmap(fmapping); err != nil {
+	if err := svcclient.Startfcmap(ctx, fmapping); err != nil {
 		log.Fatalf("[SVC] Startfcmap error: %v", err)
 	}
 
@@ -441,7 +444,7 @@ func provisionSVCStorage(svcIP, svcUser, svcPass, baseImageName string, viosWwpn
 		log.Printf("[SVC] Mapping Target Volume '%s' to Host '%s'", volume.Name, finalHostID)
 	}
 	mapping := svc.VolumeHostMap{Host: finalHostID, Force: true, VDisk: volume.Name}
-	if err := svcclient.Mkvdiskhostmap(mapping); err != nil {
+	if err := svcclient.Mkvdiskhostmap(ctx, mapping); err != nil {
 		log.Fatalf("[SVC] Mkvdiskhostmap error: %v", err)
 	}
 

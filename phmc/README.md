@@ -8,6 +8,7 @@ A comprehensive Go SDK for interacting with IBM PowerVM Hardware Management Cons
 ## 🚀 Features
 
 ### Core Capabilities
+
 - **Authentication & Session Management**: Secure login/logout with HMC REST API
 - **Managed Systems**: Query and manage PowerVM systems and their configurations
 - **Logical Partitions (LPARs)**: Full lifecycle management - create, configure, power control, and delete
@@ -16,6 +17,7 @@ A comprehensive Go SDK for interacting with IBM PowerVM Hardware Management Cons
 - **Job Management**: Monitor and track asynchronous HMC operations
 
 ### Storage Management
+
 - Physical volume discovery and mapping
 - Virtual disk creation and management
 - Volume group operations (create, extend, reduce)
@@ -24,6 +26,7 @@ A comprehensive Go SDK for interacting with IBM PowerVM Hardware Management Cons
 - Storage repository operations
 
 ### Network Management
+
 - Virtual switch operations and configuration
 - Client network adapter management
 - Virtual Ethernet adapter configuration
@@ -32,6 +35,7 @@ A comprehensive Go SDK for interacting with IBM PowerVM Hardware Management Cons
 - Dedicated virtual NIC operations
 
 ### Advanced Features
+
 - Partition templates for rapid deployment
 - Parallel operations for improved performance
 - Comprehensive error handling and logging
@@ -48,7 +52,7 @@ A comprehensive Go SDK for interacting with IBM PowerVM Hardware Management Cons
 ## 📦 Installation
 
 ```bash
-go get github.com/sudeeshjohn/powerhmc-go
+go get github.ibm.com/sudeeshjohn/infra-go-sdk/phmc
 ```
 
 ## 🎯 Quick Start
@@ -62,7 +66,7 @@ import (
     "context"
     "log"
     
-    hmc "github.com/sudeeshjohn/powerhmc-go"
+    hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
 )
 
 func main() {
@@ -208,7 +212,7 @@ err := client.ConfigDevice(ctx, viosUUID, deviceName, verbose)
 mappings, err := client.GetViosSCSIMappings(viosUUID, verbose)
 ```
 
-### Storage Management
+### Storage Management API
 
 ```go
 // Create virtual disk
@@ -238,7 +242,7 @@ err := client.ReduceVolumeGroup(ctx, systemName, viosUUID, viosName,
     vgName, []string{"hdisk3"}, verbose)
 ```
 
-### Network Management
+### Network Management API
 
 ```go
 // Get virtual switches
@@ -272,7 +276,7 @@ The `examples/` directory contains 50+ comprehensive examples demonstrating vari
 ### LPAR Management Examples
 
 | Example | Description |
-|---------|-------------|
+| ------- | ----------- |
 | [`createlpar/`](examples/createlpar/) | Create LPAR with flexible storage options (physical/virtual/optical) |
 | [`createlparphyvol/`](examples/createlparphyvol/) | Create LPAR with physical SAN storage via SVC |
 | [`createlparvirvol/`](examples/createlparvirvol/) | Create LPAR with native virtual storage |
@@ -287,7 +291,7 @@ The `examples/` directory contains 50+ comprehensive examples demonstrating vari
 ### VIOS Management Examples
 
 | Example | Description |
-|---------|-------------|
+| ------- | ----------- |
 | [`createvios/`](examples/createvios/) | Create Virtual I/O Server |
 | [`deletevios/`](examples/deletevios/) | Delete Virtual I/O Server |
 | [`getvirtualioserver/`](examples/getvirtualioserver/) | Get VIOS details |
@@ -297,7 +301,7 @@ The `examples/` directory contains 50+ comprehensive examples demonstrating vari
 ### Storage Examples
 
 | Example | Description |
-|---------|-------------|
+| --------- | ------------- |
 | [`createvirtualdiskmapcli/`](examples/createvirtualdiskmapcli/) | Create virtual disk mapping |
 | [`createvolumegroup/`](examples/createvolumegroup/) | Create volume group |
 | [`extendvg/`](examples/extendvg/) | Extend volume group with physical volumes |
@@ -311,7 +315,7 @@ The `examples/` directory contains 50+ comprehensive examples demonstrating vari
 ### Network Examples
 
 | Example | Description |
-|---------|-------------|
+| ------- | ----------- |
 | [`clientnetadapter/`](examples/clientnetadapter/) | Client network adapter operations |
 | [`getvirtualswitch/`](examples/getvirtualswitch/) | Get virtual switch details |
 | [`getdedicatedvirtualnic/`](examples/getdedicatedvirtualnic/) | Get dedicated virtual NIC info |
@@ -321,7 +325,7 @@ The `examples/` directory contains 50+ comprehensive examples demonstrating vari
 ### Profile Management Examples
 
 | Example | Description |
-|---------|-------------|
+| ------- | ----------- |
 | [`changedefaultprofile/`](examples/changedefaultprofile/) | Change default partition profile |
 | [`getpartitionprofile/`](examples/getpartitionprofile/) | Get partition profile details |
 | [`savecurrentlparconfig/`](examples/savecurrentlparconfig/) | Save current LPAR configuration |
@@ -330,7 +334,7 @@ The `examples/` directory contains 50+ comprehensive examples demonstrating vari
 ### Query Examples
 
 | Example | Description |
-|---------|-------------|
+| ------- | ----------- |
 | [`getallsystems/`](examples/getallsystems/) | List all managed systems |
 | [`getalllogicalpartitions/`](examples/getalllogicalpartitions/) | List all LPARs across systems |
 | [`getallhmcpartitions/`](examples/getallhmcpartitions/) | List all HMC-managed partitions |
@@ -386,12 +390,12 @@ wg.Wait()
 
 ### Integration with SVC Storage
 
-This SDK integrates seamlessly with [`svc-go-sdk`](https://github.com/sudeeshjohn/svc-go-sdk) for IBM SAN Volume Controller operations:
+This SDK integrates seamlessly with the SVC SDK (located in `svc/` directory of this monorepo) for IBM SAN Volume Controller operations:
 
 ```go
 import (
-    hmc "github.com/sudeeshjohn/powerhmc-go"
-    svc "github.com/sudeeshjohn/svc-go-sdk"
+    hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
+    svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
 )
 
 // Complete workflow:
@@ -492,8 +496,8 @@ Contributions are welcome! Please follow these guidelines:
 
 ```bash
 # Clone the repository
-git clone https://github.com/sudeeshjohn/powerhmc-go.git
-cd powerhmc-go
+git clone https://github.ibm.com/sudeeshjohn/infra-go-sdk.git
+cd infra-go-sdk/phmc
 
 # Install dependencies
 go mod download
@@ -506,21 +510,27 @@ cd examples/getallsystems
 go run main.go -hmc-ip <ip> -hmc-user <user> -hmc-pass <pass>
 ```
 
+## 📊 Supported Versions
+
+To successfully deploy and use this SDK, various components of the IBM Power software stack must be at the minimum levels listed below:
+
+| Component | P10 | P11 |
+| :---------- | :---: | :---: |
+| **Hardware Management Console (HMC)** | V10R1 (1061) | V11R1 (1110) |
+| **Partition Firmware (PFW)** | 1050.50, 1060.50 | 1110.00 |
+| **Virtual I/O Server (VIOS)** | 4.1.1.0/4.1.2.0 | 4.1.1.0/4.1.2.0 |
+
+> **Note**: These are minimum recommended versions. Higher versions within the same major release are generally compatible.
+
 ## 📄 License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## 🔗 Related Projects
-
-- [svc-go-sdk](https://github.com/sudeeshjohn/svc-go-sdk) - IBM SAN Volume Controller Go SDK
-- [hmcctl](../hmcctl/) - CLI tool for HMC management
-- [powershift](../powershift/) - OpenShift deployment on PowerVM
 
 ## 📞 Support
 
 For issues, questions, and contributions:
 
-- **Issues**: [GitHub Issues](https://github.com/sudeeshjohn/powerhmc-go/issues)
+- **Issues**: [GitHub Issues](https://github.ibm.com/sudeeshjohn/infra-go-sdk/issues)
 - **Examples**: Check the `examples/` directory for usage patterns
 - **Documentation**: See inline code documentation
 
@@ -530,4 +540,4 @@ This SDK provides Go bindings for the IBM PowerVM Hardware Management Console RE
 
 ---
 
-**Made with ❤️ for the PowerVM community**
+## Made with ❤️ for the PowerVM community

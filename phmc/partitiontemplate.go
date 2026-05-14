@@ -57,7 +57,6 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug
 		c.Logger.Debug("Deploy request headers", "headers", req.Header)
 	}
 	
-	// Set a timeout of 300 seconds
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -71,7 +70,6 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug
 	}
 	defer resp.Body.Close()
 
-	// Log the response status and body
 	if debug {
 		c.Logger.Debug("DeployPartitionTemplate response status", "status", resp.Status)
 	}
@@ -608,7 +606,6 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, debug bool)
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.web+xml")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -622,7 +619,6 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, debug bool)
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
 	if debug {
 		c.Logger.Debug("DeletePartitionTemplate response status", "status", resp.Status)
 	}
@@ -685,7 +681,6 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, de
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -699,7 +694,6 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, de
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
 	if debug {
 		c.Logger.Debug("TransformPartitionTemplate response status", "status", resp.Status)
 	}
@@ -832,7 +826,6 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, deb
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
 
-	// Set timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -846,7 +839,6 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, deb
 	}
 	defer resp.Body.Close()
 
-	// Log response status if verbose
 	if debug {
 		c.Logger.Debug("CheckPartitionTemplate response status", "status", resp.Status)
 	}

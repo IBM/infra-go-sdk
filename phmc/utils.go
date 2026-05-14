@@ -1163,9 +1163,8 @@ func (c *HmcRestClient) CloseVirtualTerminalViaSsh(hmcIP, username, password, sy
 // Returns a map where:
 //   - KEY: VIOS UUID
 //   - VALUE: VirtualIOServerDetailed (complete VIOS details)
-// 
+// GetActiveVIOSServers returns ALL active VIOS servers for redundancy scenarios.
 // Note: In PowerVM environments, multiple VIOS servers can be active simultaneously for redundancy.
-// This function returns ALL active VIOS servers, allowing the caller to choose which one to use.
 func (c *HmcRestClient) GetActiveVIOSServers(ctx context.Context, systemUUID string, viosUUIDs []string, debug bool) (map[string]*VirtualIOServerDetailed, error) {
 	activeVIOSServers := make(map[string]*VirtualIOServerDetailed)
 	

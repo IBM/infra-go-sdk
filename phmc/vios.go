@@ -61,7 +61,6 @@ func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*")
 
-	// Set timeout
 	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 	req = req.WithContext(reqCtx)
@@ -83,7 +82,6 @@ func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName 
 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
-	// Log response status if debug
 	if debug {
 		c.Logger.Debug("ConfigDevice response status", "status", resp.Status)
 		c.Logger.Debug("ConfigDevice response body", "body", string(body))
@@ -126,7 +124,6 @@ func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName 
 		return fmt.Errorf("failed to fetch job response: %v", err)
 	}
 
-	// Log the job response
 	if debug {
 		c.Logger.Info("ConfigDevice job response", "status", jobResp.Status)
 	}
@@ -167,7 +164,6 @@ func (c *HmcRestClient) GetVirtualIOServersQuick(ctx context.Context, systemUUID
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/json")
 
-	// Set a timeout of 300 seconds
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctxWithTimeout)
@@ -262,7 +258,6 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]Physica
 		c.Logger.Debug("Request headers prepared")
 	}
 
-	// Set a timeout of 300 seconds
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -284,7 +279,6 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]Physica
 
 	c.logRawTraffic("RESPONSE", url, string(body))
 
-	// Log the response status and body
 	if debug {
 		c.Logger.Debug("GetFreePhyVolume response status", "status", resp.Status)
 		c.Logger.Debug("GetFreePhyVolume response body", "body", string(body))
@@ -334,7 +328,6 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]Physica
 		return nil, fmt.Errorf("failed to fetch job response: %v", err)
 	}
 
-	// Log the job response
 	if debug {
 		c.Logger.Info("Free Physical Volume job response", "status", jobResp.Status)
 	}
@@ -3508,7 +3501,7 @@ func (c *HmcRestClient) AcquireVIOSMountLock(ctx context.Context, systemName, vi
 		if err != nil || strings.Contains(output, "NOTFOUND") {
 			// Lock doesn't exist - try to create it atomically
 			// Use echo with PID and timestamp for debugging (echo is allowed)
-			createCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "echo powershift_\$\$_\$(date +%%s) > %s"`,
+			createCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "echo lock_\$\$_\$(date +%%s) > %s"`,
 				systemName, viosName, lockFile)
 			_, err := c.CliRunner(ctx, createCmd, debug)
 			
