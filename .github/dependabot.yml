@@ -1,21 +1,8 @@
 version: 2
 updates:
-  # Monitor phmc module for security updates
+  # Monitor root module for security updates
   - package-ecosystem: "gomod"
-    directory: "/phmc"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    labels:
-      - "dependencies"
-      - "security"
-    # Enable security updates
-    allow:
-      - dependency-type: "all"
-    
-  # Monitor svc module for security updates
-  - package-ecosystem: "gomod"
-    directory: "/svc"
+    directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
