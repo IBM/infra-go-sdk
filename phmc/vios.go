@@ -4749,7 +4749,7 @@ func (c *HmcRestClient) UnmapPhysicalIOAdaptersFromVios(ctx context.Context, sys
 	return detached, skipped, nil
 }
 
-// PowerOnVios powers on a Virtual I/O Server (VIOS) using standard boot options.
+// PowerOnVios powers on a Virtual I/O Server (VIOS) using standard or network boot options.
 func (c *HmcRestClient) PowerOnVios(ctx context.Context, viosUUID string, options *PowerOnOptions, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/PowerOn", c.hmcIP, viosUUID)
 
@@ -4757,7 +4757,7 @@ func (c *HmcRestClient) PowerOnVios(ctx context.Context, viosUUID string, option
 		c.Logger.Debug("Powering on VIOS", "viosUUID", viosUUID, "bootMode", options.BootMode, "url", url)
 	}
 
-	// ✨ CHANGE 1: Set GroupName to VirtualIOServer
+	// GroupName MUST be VirtualIOServer
 	reqdOperation := map[string]string{
 		"OperationName": "PowerOn",
 		"GroupName":     "VirtualIOServer",
@@ -4772,25 +4772,72 @@ func (c *HmcRestClient) PowerOnVios(ctx context.Context, viosUUID string, option
 	if bootMode == "" {
 		bootMode = "norm"
 	}
-	
+
 	keylock := options.Keylock
 	if keylock == "" {
 		keylock = "normal"
 	}
 
-	// Standard VIOS boot parameters
-	jobParams["bootmode"] = bootMode
-	jobParams["force"] = "false"
-	jobParams["novsi"] = "true"
+	// =====================================================================
+	// NETBOOT LOGIC
+	// =====================================================================
+	if bootMode == "netboot" {
+		jobParams["OperationType"] = "netboot"
+		schemaVersion = "V1_2_0" // IBM strictly requires V1_2_0 for network booting
 
-	if options.ProfileUUID != "" {
-		jobParams["LogicalPartitionProfile"] = options.ProfileUUID
+		// For netboot, the key is 'LogicalPartitionProfileUUID'
+		if options.ProfileUUID != "" {
+			jobParams["LogicalPartitionProfileUUID"] = options.ProfileUUID
+		}
+
+		// Network Speeds
+		if options.ConnectionSpeed != "" {
+			jobParams["ConnectionSpeed"] = options.ConnectionSpeed
+		} else {
+			jobParams["ConnectionSpeed"] = "auto"
+		}
+
+		if options.DuplexMode != "" {
+			jobParams["DuplexMode"] = options.DuplexMode
+		} else {
+			jobParams["DuplexMode"] = "auto"
+		}
+
+		// IP & Location Parameters
+		if options.LocationCode != "" {
+			jobParams["SlotPhysicalLocationCode"] = options.LocationCode
+		}
+		if options.ClientIP != "" {
+			jobParams["IPAddress"] = options.ClientIP
+		}
+		if options.ServerIP != "" {
+			jobParams["ServerIPAddress"] = options.ServerIP
+		}
+		if options.Gateway != "" {
+			jobParams["Gateway"] = options.Gateway
+		}
+		if options.Netmask != "" {
+			jobParams["SubnetMask"] = options.Netmask
+		}
+
+	} else {
+		// =====================================================================
+		// NORMAL BOOT LOGIC
+		// =====================================================================
+		jobParams["bootmode"] = bootMode
+		jobParams["force"] = "false"
+		jobParams["novsi"] = "true"
+
+		// For normal boot, the key is just 'LogicalPartitionProfile'
+		if options.ProfileUUID != "" {
+			jobParams["LogicalPartitionProfile"] = options.ProfileUUID
+		}
+
+		if keylock == "normal" {
+			keylock = "norm"
+		}
+		jobParams["keylock"] = keylock
 	}
-	
-	if keylock == "normal" {
-		keylock = "norm"
-	}
-	jobParams["keylock"] = keylock
 
 	payload, err := createJobRequestPayload(reqdOperation, jobParams, schemaVersion, debug, true)
 	if err != nil {
@@ -4840,10 +4887,19 @@ func (c *HmcRestClient) PowerOnVios(ctx context.Context, viosUUID string, option
 	jobID := jobIDElem.Text()
 
 	if debug {
-		c.Logger.Debug("PowerOnVios job submitted", "jobID", jobID)
+		c.Logger.Debug("PowerOnVios netboot job submitted", "jobID", jobID)
 	}
 
-	jobResp, err := c.FetchJobStatus(ctx, jobID, false, 15, debug)
+	// Network boot operations take significantly longer than normal boots!
+	timeout := 15
+	if bootMode == "netboot" {
+		timeout = 45 // Wait up to 45 minutes for the NIM server installation to complete
+		if debug {
+			c.Logger.Debug("Using extended timeout for VIOS network boot operation", "timeoutMinutes", timeout)
+		}
+	}
+
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, timeout, debug)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}

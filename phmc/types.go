@@ -429,6 +429,7 @@ type VirtualIOServerDetailed struct {
 	ReferenceCode          string `xml:"ReferenceCode"`
 	LastActivatedProfile   string `xml:"LastActivatedProfile"`
 	DefaultProfileName     string `xml:"DefaultProfileName"`
+	AssociatedPartitionProfile LinkXML `xml:"AssociatedPartitionProfile"`
 
 	// --- State & Uptime ---
 	PartitionState                 string `xml:"PartitionState"`
