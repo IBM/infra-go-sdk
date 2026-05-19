@@ -74,7 +74,7 @@ func (c *HmcRestClient) Login(ctx context.Context, username, password string, de
 
 	// For massive XML payloads, you can still use Debugf if you want formatted strings
 	if debug {
-		c.Logger.Debugf("Logon response body:\n%s", string(body))
+		c.Logger.Debugf("Logon response body:%s", string(body))
 	}
 
 	var logonResp LogonResponse
