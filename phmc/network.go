@@ -314,7 +314,7 @@ func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID
 //   - error: Error if the operation fails
 //
 // Reference: HMC REST API - GetNetworkBootDevices job operation
-func (c *HmcRestClient) GetNetworkBootDevices(ctx context.Context, lparUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
+func (c *HmcRestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/GetNetworkBootDevices", c.hmcIP, lparUUID)
 
 	if debug {

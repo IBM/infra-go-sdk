@@ -89,7 +89,7 @@ func main() {
 	}
 
 	fmt.Println("Step 5: Fetching network boot devices from profile...")
-	bootDevices, err := client.GetNetworkBootDevices(context.Background(), lparUUID, profileUUID, *verbose)
+	bootDevices, err := client.GetNetworkBootDevicesForLpar(context.Background(), lparUUID, profileUUID, *verbose)
 	if err != nil {
 		log.Fatalf("❌ GetNetworkBootDevices failed: %v", err)
 	}
