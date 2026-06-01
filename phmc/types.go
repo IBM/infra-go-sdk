@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/beevik/etree"
 )
@@ -1599,8 +1600,6 @@ type SRIOVAdapter struct {
 	IsFunctional  string              `xml:"IsFunctional"` 
 	Description   string              `xml:"Description"`
 	
-	// ✨ Here is the slice linking to the struct above! ✨
-	// Go will use the ">" syntax to step through the wrapper tag automatically.
 	PhysicalPorts []SRIOVPhysicalPort `xml:"SRIOVEthernetPhysicalPorts>SRIOVEthernetPhysicalPort"`
 }
 
@@ -1933,4 +1932,1824 @@ type PowerOnOptions struct {
 	// Advanced Network Boot (extensible for future IBM parameters)
 	ConnectionSpeed string // "auto", "1", "10", "100", "1000"
 	DuplexMode      string // "auto", "half", "full"
+}
+
+// AggregatedMetricsOptions holds the query parameters for retrieving PCM metrics.
+type AggregatedMetricsOptions struct {
+	StartTS     time.Time // Mandatory: The API returns metrics after this time
+	EndTS       time.Time // Optional: The API returns metrics on or before this time
+	NoOfSamples int       // Optional: Number of aggregated metrics to return (> 0)
+}
+
+// PcmMetricsSnapshot represents a single metrics snapshot link from the PCM Atom feed.
+type PcmMetricsSnapshot struct {
+	Updated   string // End timestamp of the Aggregated JSON
+	Published string // Start timestamp of the Aggregated JSON
+	Category  string // Metrics category (e.g., "LogicalPartition")
+	Frequency string // Metrics aggregation frequency in seconds
+	JSONLink  string // Direct URL to download the application/json metrics payload
+}
+
+// =====================================================================
+// PCM (PERFORMANCE & CAPACITY MONITORING) JSON STRUCTURES
+// =====================================================================
+
+type PcmMetricsPayload struct {
+	SystemUtil SystemUtil `json:"systemUtil"`
+}
+
+type SystemUtil struct {
+	UtilInfo    UtilInfo     `json:"utilInfo"`
+	UtilSamples []UtilSample `json:"utilSamples"`
+}
+
+type UtilInfo struct {
+	Version          string   `json:"version"`
+	MetricType       string   `json:"metricType"`
+	Frequency        int      `json:"frequency"`
+	StartTimeStamp   string   `json:"startTimeStamp"`
+	EndTimeStamp     string   `json:"endTimeStamp"`
+	MTMS             string   `json:"mtms"`
+	Name             string   `json:"name"`
+	UUID             string   `json:"uuid"`
+	MetricArrayOrder []string `json:"metricArrayOrder"` // e.g., ["AVG", "MIN", "MAX"]
+}
+
+type UtilSample struct {
+	SampleType string     `json:"sampleType"`
+	SampleInfo SampleInfo `json:"sampleInfo"`
+	LparsUtil  []LparUtil `json:"lparsUtil"`
+}
+
+type SampleInfo struct {
+	TimeStamp              string      `json:"timeStamp"`
+	NumOfSamplesAggregated int         `json:"numOfSamplesAggregated"`
+	Status                 int         `json:"status"`
+	ErrorInfo              []ErrorInfo `json:"errorInfo"`
+}
+
+type ErrorInfo struct {
+	ErrId          string `json:"errId"`
+	ErrMsg         string `json:"errMsg"`
+	UUID           string `json:"uuid"`
+	ReportedBy     string `json:"reportedBy"`
+	OccurenceCount int    `json:"occurenceCount"`
+}
+
+type LparUtil struct {
+	ID            int              `json:"id"`
+	UUID          string           `json:"uuid"`
+	Name          string           `json:"name"`
+	State         string           `json:"state"`
+	Type          string           `json:"type"`
+	OSType        string           `json:"osType"`
+	AffinityScore float64          `json:"affinityScore"`
+	Memory        MemoryMetrics    `json:"memory"`
+	Processor     ProcessorMetrics `json:"processor"`
+	Network       NetworkMetrics   `json:"network"`
+	Storage       StorageMetrics   `json:"storage"`
+}
+
+type MemoryMetrics struct {
+	PoolId               int       `json:"poolId"`
+	Weight               int       `json:"weight"`
+	LogicalMem           []float64 `json:"logicalMem"`
+	BackedPhysicalMem    []float64 `json:"backedPhysicalMem"`
+	TotalIOMem           []float64 `json:"totalIOMem"`
+	MappedIOMem          []float64 `json:"mappedIOMem"`
+	VirtualPersistentMem []float64 `json:"virtualPersistentMem"`
+}
+
+type ProcessorMetrics struct {
+	PoolId                      int       `json:"poolId"`
+	Weight                      int       `json:"weight"`
+	Mode                        string    `json:"mode"`
+	MaxVirtualProcessors        []float64 `json:"maxVirtualProcessors"`
+	CurrentVirtualProcessors    []float64 `json:"currentVirtualProcessors"`
+	MaxProcUnits                []float64 `json:"maxProcUnits"`
+	EntitledProcUnits           []float64 `json:"entitledProcUnits"`
+	UtilizedProcUnitsDeductIdle []float64 `json:"utilizedProcUnitsDeductIdle"`
+	UtilizedProcUnits           []float64 `json:"utilizedProcUnits"`
+	UtilizedCappedProcUnits     []float64 `json:"utilizedCappedProcUnits"`
+	UtilizedUncappedProcUnits   []float64 `json:"utilizedUncappedProcUnits"`
+	IdleProcUnits               []float64 `json:"idleProcUnits"`
+	DonatedProcUnits            []float64 `json:"donatedProcUnits"`
+	TimeSpentWaitingForDispatch []float64 `json:"timeSpentWaitingForDispatch"`
+	TimePerInstructionExecution []float64 `json:"timePerInstructionExecution"`
+}
+
+type NetworkMetrics struct {
+	VirtualEthernetAdapters []VirtualEthernetAdapterMetrics `json:"virtualEthernetAdapters"`
+	SriovLogicalPorts       []SriovLogicalPortMetrics       `json:"sriovLogicalPorts"`
+}
+
+type VirtualEthernetAdapterMetrics struct {
+	PhysicalLocation         string    `json:"physicalLocation"`
+	VlanId                   int       `json:"vlanId"`
+	VswitchId                int       `json:"vswitchId"`
+	IsPortVLANID             bool      `json:"isPortVLANID"`
+	ViosId                   int       `json:"viosId"`
+	SharedEthernetAdapterId  string    `json:"sharedEthernetAdapterId"`
+	ReceivedPackets          []float64 `json:"receivedPackets"`
+	SentPackets              []float64 `json:"sentPackets"`
+	DroppedPackets           []float64 `json:"droppedPackets"`
+	SentBytes                []float64 `json:"sentBytes"`
+	ReceivedBytes            []float64 `json:"receivedBytes"`
+	ReceivedPhysicalPackets  []float64 `json:"receivedPhysicalPackets"`
+	SentPhysicalPackets      []float64 `json:"sentPhysicalPackets"`
+	DroppedPhysicalPackets   []float64 `json:"droppedPhysicalPackets"`
+	SentPhysicalBytes        []float64 `json:"sentPhysicalBytes"`
+	ReceivedPhysicalBytes    []float64 `json:"receivedPhysicalBytes"`
+	TransferredBytes         []float64 `json:"transferredBytes"`
+	TransferredPhysicalBytes []float64 `json:"transferredPhysicalBytes"`
+}
+
+type SriovLogicalPortMetrics struct {
+	DrcIndex          string    `json:"drcIndex"`
+	PhysicalLocation  string    `json:"physicalLocation"`
+	PhysicalDrcIndex  string    `json:"physicalDrcIndex"`
+	PhysicalPortId    int       `json:"physicalPortId"`
+	VnicDeviceMode    string    `json:"vnicDeviceMode"`
+	ConfigurationType string    `json:"configurationType"`
+	ReceivedPackets   []float64 `json:"receivedPackets"`
+	SentPackets       []float64 `json:"sentPackets"`
+	DroppedPackets    []float64 `json:"droppedPackets"`
+	SentBytes         []float64 `json:"sentBytes"`
+	ReceivedBytes     []float64 `json:"receivedBytes"`
+	ErrorIn           []float64 `json:"errorIn"`
+	ErrorOut          []float64 `json:"errorOut"`
+	TransferredBytes  []float64 `json:"transferredBytes"`
+}
+
+type StorageMetrics struct {
+	GenericVirtualAdapters      []GenericVirtualAdapterMetrics      `json:"genericVirtualAdapters"`
+	VirtualFiberChannelAdapters []VirtualFiberChannelAdapterMetrics `json:"virtualFiberChannelAdapters"`
+}
+
+type GenericVirtualAdapterMetrics struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	ViosId           int       `json:"viosId"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+type VirtualFiberChannelAdapterMetrics struct {
+	ID               string    `json:"id"`
+	Wwpn             string    `json:"wwpn"`
+	Wwpn2            string    `json:"wwpn2"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	PhysicalPortWwpn string    `json:"physicalPortWWPN"`
+	ViosId           int       `json:"viosId"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	RunningSpeed     []float64 `json:"runningSpeed"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+// ManagedSystemMetricsOptions holds the query options for a system-wide metric call.
+type ManagedSystemMetricsOptions struct {
+	StartTS     time.Time // Mandatory: Metrics after this time
+	EndTS       time.Time // Optional: Metrics on or before this time
+	NoOfSamples int       // Optional: Number of aggregated metrics to return (> 0)
+	Feed        string    // Optional: "bySource" (default) or "byTier"
+}
+
+// =====================================================================
+// IBM MANAGED SYSTEM PCM METRICS EXHAUSTIVE SPECIFICATION
+// =====================================================================
+
+type SysPcmMetricsPayload struct {
+	SystemUtil SysSystemUtil `json:"systemUtil"`
+}
+
+type SysSystemUtil struct {
+	UtilInfo    SysUtilInfo    `json:"utilInfo"`
+	UtilSamples []SysUtilSample `json:"utilSamples"`
+}
+
+type SysUtilInfo struct {
+	Version          string   `json:"version"`
+	MetricType       string   `json:"metricType"`
+	Frequency        int      `json:"frequency"`
+	StartTimeStamp   string   `json:"startTimeStamp"`
+	EndTimeStamp     string   `json:"endTimeStamp"`
+	MTMS             string   `json:"mtms"`
+	Name             string   `json:"name"`
+	UUID             string   `json:"uuid"`
+	MetricArrayOrder []string `json:"metricArrayOrder"` // e.g., ["Avg", "Min", "Max"]
+}
+
+type SysUtilSample struct {
+	SampleType         string             `json:"sampleType"`
+	SampleInfo         SysSampleInfo      `json:"sampleInfo"`
+	SystemFirmwareUtil SystemFirmwareUtil `json:"systemFirmwareUtil"`
+	ServerUtil         ServerUtil         `json:"serverUtil"`
+	ViosUtil           []SysViosUtil      `json:"viosUtil"`
+}
+
+type SysSampleInfo struct {
+	TimeStamp              string           `json:"timeStamp"`
+	NumOfSamplesAggregated int              `json:"numOfSamplesAggregated"`
+	Status                 int              `json:"status"`
+	ErrorInfo              []SysErrorInfo   `json:"errorInfo"`
+}
+
+type SysErrorInfo struct {
+	ErrId          string `json:"errId"`
+	ErrMsg         string `json:"errMsg"`
+	UUID           string `json:"uuid"`
+	ReportedBy     string `json:"reportedBy"`
+	OccurenceCount int    `json:"occurenceCount"`
+}
+
+type SystemFirmwareUtil struct {
+	UtilizedProcUnits []float64 `json:"utilizedProcUnits"`
+	AssignedMem       []float64 `json:"assignedMem"`
+}
+
+type ServerUtil struct {
+	Processor             SysServerProcessor     `json:"processor"`
+	Memory                SysServerMemory        `json:"memory"`
+	PhysicalProcessorPool PhysicalProcessorPool  `json:"physicalProcessorPool"`
+	SharedMemoryPool      []SharedMemoryPool     `json:"sharedMemoryPool"`
+	SharedProcessorPool   []SharedProcessorPool  `json:"sharedProcessorPool"`
+	Network               SysServerNetwork       `json:"network"`
+}
+
+type SysServerProcessor struct {
+	TotalProcUnits              []float64 `json:"totalProcUnits"`
+	UtilizedProcUnits           []float64 `json:"utilizedProcUnits"`
+	UtilizedProcUnitsDeductIdle []float64 `json:"utilizedProcUnitsDeductIdle"`
+	AvailableProcUnits          []float64 `json:"availableProcUnits"`
+	ConfigurableProcUnits        []float64 `json:"configurableProcUnits"`
+}
+
+type SysServerMemory struct {
+	TotalMem             []float64 `json:"totalMem"`
+	AvailableMem         []float64 `json:"availableMem"`
+	ConfigurableMem      []float64 `json:"configurableMem"`
+	AssignedMemToLpars   []float64 `json:"assignedMemToLpars"`
+	VirtualPersistentMem []float64 `json:"virtualPersistentMem"`
+}
+
+type PhysicalProcessorPool struct {
+	AssignedProcUnits     []float64 `json:"assignedProcUnits"`
+	UtilizedProcUnits     []float64 `json:"utilizedProcUnits"`
+	AvailableProcUnits    []float64 `json:"availableProcUnits"`
+	ConfiguredProcUnits   []float64 `json:"configuredProcUnits"`
+	BorrowedProcUnits     []float64 `json:"borrowedProcUnits"`
+}
+
+type SharedMemoryPool struct {
+	ID                       int       `json:"id"`
+	TotalMem                 []float64 `json:"totalMem"`
+	AssignedMemToLpars       []float64 `json:"assignedMemToLpars"`
+	TotalIOMem               []float64 `json:"totalIOMem"`
+	MappedIOMemToLpars       []float64 `json:"mappedIOMemToLpars"`
+	AssignedMemToSysFirmware []float64 `json:"assignedMemToSysFirmware"`
+}
+
+type SharedProcessorPool struct {
+	ID                 int       `json:"id"`
+	Name               string    `json:"name"`
+	AssignedProcUnits  []float64 `json:"assignedProcUnits"`
+	UtilizedProcUnits  []float64 `json:"utilizedProcUnits"`
+	AvailableProcUnits []float64 `json:"availableProcUnits"`
+	ConfiguredProcUnits []float64 `json:"configuredProcUnits"`
+	BorrowedProcUnits  []float64 `json:"borrowedProcUnits"`
+}
+
+type SysServerNetwork struct {
+	SriovAdapters []SysSriovAdapter `json:"sriovAdapters"`
+	HEAdapters    []SysHEAdapter    `json:"HEAdapters"`
+}
+
+type SysSriovAdapter struct {
+	DrcIndex      string               `json:"drcIndex"`
+	PhysicalPorts []SysSriovPhysicalPort `json:"physicalPorts"`
+}
+
+type SysSriovPhysicalPort struct {
+	ID               int       `json:"id"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	ErrorIn          []float64 `json:"errorIn"`
+	ErrorOut         []float64 `json:"errorOut"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+}
+
+type SysHEAdapter struct {
+	DrcIndex      string            `json:"drcIndex"`
+	PhysicalPorts []SysHEPhysicalPort `json:"physicalPorts"`
+}
+
+type SysHEPhysicalPort struct {
+	ID               int       `json:"id"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+}
+
+// --- VIOS TELEMETRY ARRAYS ---
+
+type SysViosUtil struct {
+	ID            int              `json:"id"`
+	UUID          string           `json:"uuid"`
+	Name          string           `json:"name"`
+	State         string           `json:"state"`
+	AffinityScore float64          `json:"affinityScore"`
+	Memory        ViosMemoryInfo   `json:"memory"`
+	Processor     ViosProcessorInfo `json:"processor"`
+	Network       ViosNetworkInfo  `json:"network"`
+	Storage       ViosStorageInfo  `json:"storage"`
+}
+
+type ViosMemoryInfo struct {
+	AssignedMem          []float64 `json:"assignedMem"`
+	UtilizedMem          []float64 `json:"utilizedMem"`
+	VirtualPersistentMem []float64 `json:"virtualPersistentMem"`
+}
+
+type ViosProcessorInfo struct {
+	PoolId                      int       `json:"poolId"`
+	Weight                      int       `json:"weight"`
+	Mode                        string    `json:"mode"`
+	MaxVirtualProcessors        []float64 `json:"maxVirtualProcessors"`
+	CurrentVirtualProcessors    []float64 `json:"currentVirtualProcessors"`
+	MaxProcUnits                []float64 `json:"maxProcUnits"`
+	EntitledProcUnits           []float64 `json:"entitledProcUnits"`
+	UtilizedProcUnits           []float64 `json:"utilizedProcUnits"`
+	UtilizedProcUnitsDeductIdle []float64 `json:"utilizedProcUnitsDeductIdle"`
+	UtilizedCappedProcUnits     []float64 `json:"utilizedCappedProcUnits"`
+	UtilizedUncappedProcUnits   []float64 `json:"utilizedUncappedProcUnits"`
+	IdleProcUnits               []float64 `json:"idleProcUnits"`
+	DonatedProcUnits            []float64 `json:"donatedProcUnits"`
+	TimeSpentWaitingForDispatch []float64 `json:"timeSpentWaitingForDispatch"`
+	TimePerInstructionExecution []float64 `json:"timePerInstructionExecution"`
+}
+
+type ViosNetworkInfo struct {
+	ClientLpars             []string                        `json:"clientLpars"`
+	GenericAdapters         []ViosGenericAdapter            `json:"genericAdapters"`
+	SharedAdapters          []ViosSharedAdapter             `json:"sharedAdapters"`
+	VirtualEthernetAdapters []ViosVirtualEthernetAdapter    `json:"virtualEthernetAdapters"`
+	SriovLogicalPorts       []ViosSriovLogicalPort          `json:"sriovLogicalPorts"`
+}
+
+type ViosGenericAdapter struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+}
+
+type ViosSharedAdapter struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+	BridgedAdapters  []string  `json:"bridgedAdapters"`
+}
+
+type ViosVirtualEthernetAdapter struct {
+	PhysicalLocation         string    `json:"physicalLocation"`
+	VlanId                   int       `json:"vlanId"`
+	VswitchId                int       `json:"vswitchId"`
+	IsPortVLANID             bool      `json:"isPortVLANID"`
+	ReceivedPackets          []float64 `json:"receivedPackets"`
+	SentPackets              []float64 `json:"sentPackets"`
+	DroppedPackets           []float64 `json:"droppedPackets"`
+	SentBytes                []float64 `json:"sentBytes"`
+	ReceivedBytes            []float64 `json:"receivedBytes"`
+	ReceivedPhysicalPackets  []float64 `json:"receivedPhysicalPackets"`
+	SentPhysicalPackets      []float64 `json:"sentPhysicalPackets"`
+	DroppedPhysicalPackets   []float64 `json:"droppedPhysicalPackets"`
+	SentPhysicalBytes        []float64 `json:"sentPhysicalBytes"`
+	ReceivedPhysicalBytes    []float64 `json:"receivedPhysicalBytes"`
+	TransferredBytes         []float64 `json:"transferredBytes"`
+	TransferredPhysicalBytes []float64 `json:"transferredPhysicalBytes"`
+}
+
+type ViosSriovLogicalPort struct {
+	DrcIndex            string    `json:"drcIndex"`
+	PhysicalLocation    string    `json:"physicalLocation"`
+	PhysicalDrcIndex    string    `json:"physicalDrcIndex"`
+	PhysicalPortId      int       `json:"physicalPortId"`
+	ClientPartitionUUID string    `json:"clientPartitionUUID"`
+	VnicDeviceMode      string    `json:"vnicDeviceMode"`
+	ConfigurationType   string    `json:"configurationType"`
+	ReceivedPackets     []float64 `json:"receivedPackets"`
+	SentPackets         []float64 `json:"sentPackets"`
+	DroppedPackets      []float64 `json:"droppedPackets"`
+	SentBytes           []float64 `json:"sentBytes"`
+	ReceivedBytes       []float64 `json:"receivedBytes"`
+	ErrorIn             []float64 `json:"errorIn"`
+	ErrorOut            []float64 `json:"errorOut"`
+	TransferredBytes    []float64 `json:"transferredBytes"`
+}
+
+type ViosStorageInfo struct {
+	ClientLpars             []string                        `json:"clientLpars"`
+	GenericVirtualAdapters  []ViosGenericVirtualAdapter     `json:"genericVirtualAdapters"`
+	GenericPhysicalAdapters []ViosGenericPhysicalAdapter    `json:"genericPhysicalAdapters"`
+	FiberChannelAdapters    []ViosFiberChannelAdapter       `json:"fiberChannelAdapters"`
+	SharedStoragePools      []ViosSharedStoragePool         `json:"sharedStoragePools"`
+}
+
+type ViosGenericVirtualAdapter struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+type ViosGenericPhysicalAdapter struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+type ViosFiberChannelAdapter struct {
+	ID               string    `json:"id"`
+	Wwpn             string    `json:"wwpn"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	NumOfPorts       int       `json:"numOfPorts"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	RunningSpeed     []float64 `json:"runningSpeed"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+type ViosSharedStoragePool struct {
+	ID               string    `json:"id"`
+	TotalSpace       []float64 `json:"totalSpace"`
+	UsedSpace        []float64 `json:"usedSpace"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+// LtmMetricsOptions holds query intervals for raw Long Term Monitor loops.
+type LtmMetricsOptions struct {
+	StartTS time.Time // Optional: Fetch snapshots after this window
+	EndTS   time.Time // Optional: Fetch snapshots on or before this window
+}
+
+// =====================================================================
+// LTM POWER HYPERVISOR EXHAUSTIVE STRUCTURE DEFINITION
+// =====================================================================
+
+type LtmPhypPayload struct {
+	SystemUtil LtmPhypSystemUtil `json:"systemUtil"`
+}
+
+type LtmPhypSystemUtil struct {
+	UtilInfo   LtmPhypUtilInfo   `json:"utilInfo"`
+	UtilSample LtmPhypUtilSample `json:"utilSample"` // Strict singular wrapper for Raw LTM metrics
+}
+
+type LtmPhypUtilInfo struct {
+	Version        string `json:"version"`
+	MetricType     string `json:"metricType"`
+	MonitoringType string `json:"monitoringType"`
+	MTMS           string `json:"mtms"`
+	Name           string `json:"name"`
+}
+
+type LtmPhypUtilSample struct {
+	TimeStamp             string                        `json:"timeStamp"`
+	Status                int                           `json:"status"`
+	ErrorInfo             []LtmPhypErrorInfo            `json:"errorInfo"`
+	TimeBasedCycles       float64                       `json:"timeBasedCycles"`
+	SystemFirmware        LtmPhypSystemFirmware         `json:"systemFirmware"`
+	Processor             LtmPhypSystemProcessor        `json:"processor"`
+	Memory                LtmPhypSystemMemory           `json:"memory"`
+	SharedMemoryPool      []LtmPhypSharedMemoryPool     `json:"sharedMemoryPool"`
+	PhysicalProcessorPool LtmPhypPhysicalProcessorPool  `json:"physicalProcessorPool"`
+	SharedProcessorPool   []LtmPhypSharedProcessorPool   `json:"sharedProcessorPool"`
+	Network               LtmPhypSystemNetwork          `json:"network"`
+	LparsUtil             []LtmPhypLparUtil             `json:"lparsUtil"`
+	ViosUtil              []LtmPhypViosUtil             `json:"viosUtil"`
+}
+
+type LtmPhypErrorInfo struct {
+	ErrID  string `json:"errId"`
+	ErrMsg string `json:"errMsg"`
+}
+
+type LtmPhypSystemFirmware struct {
+	UtilizedProcCycles float64 `json:"utilizedProcCycles"`
+	AssignedMem        float64 `json:"assignedMem"`
+}
+
+type LtmPhypSystemProcessor struct {
+	TotalProcUnits        float64 `json:"totalProcUnits"`
+	ConfigurableProcUnits float64 `json:"configurableProcUnits"`
+	AvailableProcUnits    float64 `json:"availableProcUnits"`
+	ProcCyclesPerSecond   float64 `json:"procCyclesPerSecond"`
+}
+
+type LtmPhypSystemMemory struct {
+	TotalMem             float64 `json:"totalMem"`
+	AvailableMem         float64 `json:"availableMem"`
+	ConfigurableMem      float64 `json:"configurableMem"`
+	VirtualPersistentMem float64 `json:"virtualPersistentMem"`
+}
+
+type LtmPhypSharedMemoryPool struct {
+	ID                       int     `json:"id"`
+	Name                     string  `json:"name"`
+	TotalMem                 float64 `json:"totalMem"`
+	AssignedMemToLpars       float64 `json:"assignedMemToLpars"`
+	AssignedMemToSysFirmware float64 `json:"assignedMemToSysFirmware"`
+	TotalIOMem               float64 `json:"totalIOMem"`
+	MappedIOMemToLpars       float64 `json:"mappedIOMemToLpars"`
+}
+
+type LtmPhypPhysicalProcessorPool struct {
+	TotalPoolCycles            float64 `json:"totalPoolCycles"`
+	UtilizedPoolCycles           float64 `json:"utilizedPoolCycles"`
+	ConfigurablePoolProcUnits float64 `json:"configurablePoolProcUnits"`
+	CurrAvailablePoolProcUnits float64 `json:"currAvailablePoolProcUnits"`
+	BorrowedPoolProcUnits     float64 `json:"borrowedPoolProcUnits"`
+}
+
+type LtmPhypSharedProcessorPool struct {
+	ID                 int     `json:"id"`
+	Name               string  `json:"name"`
+	AssignedProcCycles  float64 `json:"assignedProcCycles"`
+	UtilizedProcCycles  float64 `json:"utilizedProcCycles"`
+	MaxProcUnits       float64 `json:"maxProcUnits"`
+	BorrowedProcUnits  float64 `json:"borrowedProcUnits"`
+}
+
+type LtmPhypSystemNetwork struct {
+	SriovAdapters []LtmPhypSriovAdapter `json:"sriovAdapters"`
+	HEAdapters    []LtmPhypHEAdapter    `json:"HEAdapters"`
+}
+
+type LtmPhypSriovAdapter struct {
+	DrcIndex      string                     `json:"drcIndex"`
+	PhysicalPorts []LtmPhypSriovPhysicalPort `json:"physicalPorts"`
+}
+
+type LtmPhypSriovPhysicalPort struct {
+	ID                     int     `json:"id"`
+	PhysicalLocation       string  `json:"physicalLocation"`
+	ReceivedPackets        float64 `json:"receivedPackets"`
+	SentPackets            float64 `json:"sentPackets"`
+	DroppedSentPackets     float64 `json:"droppedSentPackets"`
+	DroppedReceivedPackets float64 `json:"droppedReceivedPackets"`
+	SentBytes              float64 `json:"sentBytes"`
+	ReceivedBytes          float64 `json:"receivedBytes"`
+	ErrorIn                float64 `json:"errorIn"`
+	ErrorOut               float64 `json:"errorOut"`
+}
+
+type LtmPhypHEAdapter struct {
+	DrcIndex         string                  `json:"drcIndex"`
+	PhysicalLocation string                  `json:"physicalLocation"`
+	PhysicalPorts    []LtmPhypHEPhysicalPort `json:"physicalPorts"`
+}
+
+type LtmPhypHEPhysicalPort struct {
+	ID               int     `json:"id"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	ReceivedPackets  float64 `json:"receivedPackets"`
+	SentPackets      float64 `json:"sentPackets"`
+	DroppedPackets   float64 `json:"droppedPackets"`
+	SentBytes        float64 `json:"sentBytes"`
+	ReceivedBytes    float64 `json:"receivedBytes"`
+}
+
+// =====================================================================
+// LPAR RESOURCE TRACKING STRUCTURES
+// =====================================================================
+
+type LtmPhypLparUtil struct {
+	ID             int                     `json:"id"`
+	UUID           string                  `json:"uuid"`
+	Type           string                  `json:"type"`
+	OSType         string                  `json:"osType"`
+	Name           string                  `json:"name"`
+	State          string                  `json:"state"`
+	MigrationState string                  `json:"migrationState"`
+	AffinityScore  float64                 `json:"affinityScore"`
+	Memory         LtmPhypLparMemory       `json:"memory"`
+	Processor      LtmPhypLparProcessor    `json:"processor"`
+	Network        LtmPhypLparNetwork      `json:"network"`
+	Storage        LtmPhypLparStorage      `json:"Storage"` // Capitalized in schema definition mapping
+}
+
+type LtmPhypLparMemory struct {
+	PoolID               int     `json:"poolId"`
+	Weight               int     `json:"weight"`
+	LogicalMem           float64 `json:"logicalMem"`
+	BackedPhysicalMem    float64 `json:"backedPhysicalMem"`
+	TotalIOMem           float64 `json:"totalIOMem"`
+	MappedIOMem          float64 `json:"mappedIOMem"`
+	VirtualPersistentMem float64 `json:"virtualPersistentMem"`
+}
+
+type LtmPhypLparProcessor struct {
+	PoolID                         int     `json:"poolId"`
+	Mode                           string  `json:"mode"`
+	MaxVirtualProcessors           float64 `json:"maxVirtualProcessors"`
+	CurrentVirtualProcessors       float64 `json:"currentVirtualProcessors"`
+	MaxProcUnits                   float64 `json:"maxProcUnits"`
+	Weight                         int     `json:"weight"`
+	EntitledProcCycles             float64 `json:"entitledProcCycles"`
+	EntitledProcUnits              float64 `json:"entitledProcUnits"`
+	UtilizedCappedProcCycles       float64 `json:"utilizedCappedProcCycles"`
+	UtilizedUnCappedProcCycles     float64 `json:"utilizedUnCappedProcCycles"`
+	IdleProcCycles                 float64 `json:"idleProcCycles"`
+	DonatedProcCycles              float64 `json:"donatedProcCycles"`
+	TimeSpentWaitingForDispatch    float64 `json:"timeSpentWaitingForDispatch"`
+	TotalInstructions              float64 `json:"totalInstructions"`
+	TotalInstructionsExecutionTime float64 `json:"totalInstructionsExecutionTime"`
+}
+
+type LtmPhypLparNetwork struct {
+	VirtualEthernetAdapters []LtmPhypVirtualEthernetAdapter `json:"virtualEthernetAdapters"`
+	SriovLogicalPorts       []LtmPhypSriovLogicalPort       `json:"sriovLogicalPorts"`
+}
+
+type LtmPhypVirtualEthernetAdapter struct {
+	VlanID                  int     `json:"vlanId"`
+	VswitchID               int     `json:"vswitchId"`
+	PhysicalLocation        string  `json:"physicalLocation"`
+	IsPortVLANID            bool    `json:"isPortVLANID"` // Strictly cased as per JSON format data
+	ReceivedPackets         float64 `json:"receivedPackets"`
+	SentPackets             float64 `json:"sentPackets"`
+	DroppedPackets          float64 `json:"droppedPackets"`
+	SentBytes               float64 `json:"sentBytes"`
+	ReceivedBytes           float64 `json:"receivedBytes"`
+	ReceivedPhysicalPackets float64 `json:"receivedPhysicalPackets"`
+	SentPhysicalPackets     float64 `json:"sentPhysicalPackets"`
+	DroppedPhysicalPackets  float64 `json:"droppedPhysicalPackets"`
+	SentPhysicalBytes       float64 `json:"sentPhysicalBytes"`
+	ReceivedPhysicalBytes   float64 `json:"receivedPhysicalBytes"`
+}
+
+type LtmPhypSriovLogicalPort struct {
+	DrcIndex               string  `json:"drcIndex"`
+	PhysicalDrcIndex       string  `json:"physicalDrcIndex"`
+	PhysicalPortID         int     `json:"physicalPortId"`
+	ClientPartitionUUID    string  `json:"clientPartitionUUID"`
+	VnicDeviceMode         string  `json:"vnicDeviceMode"`
+	ConfigurationType      string  `json:"configurationType"`
+	PhysicalLocation       string  `json:"physicalLocation"`
+	ReceivedPackets        float64 `json:"receivedPackets"`
+	SentPackets            float64 `json:"sentPackets"`
+	DroppedSentPackets     float64 `json:"droppedSentPackets"`
+	DroppedReceivedPackets float64 `json:"droppedReceivedPackets"`
+	SentBytes              float64 `json:"sentBytes"`
+	ReceivedBytes          float64 `json:"receivedBytes"`
+	ErrorIn                float64 `json:"errorIn"`
+	ErrorOut               float64 `json:"errorOut"`
+}
+
+type LtmPhypLparStorage struct {
+	VirtualFiberChannelAdapters []LtmPhypVirtualFiberChannelAdapter `json:"virtualFiberChannelAdapters"`
+	GenericVirtualAdapters      []LtmPhypGenericVirtualAdapter      `json:"genericVirtualAdapters"`
+}
+
+type LtmPhypVirtualFiberChannelAdapter struct {
+	ViosID           int      `json:"viosId"`
+	WwpnPair         []string `json:"wwpnPair"` // Maps target explicit array format ["wwpn1", "wwpn2"]
+	PhysicalLocation string   `json:"physicalLocation"`
+}
+
+type LtmPhypGenericVirtualAdapter struct {
+	PhysicalLocation  string `json:"physicalLocation"`
+	ViosID            int    `json:"viosId"`
+	ViosAdapterSlotID int    `json:"viosAdapterSlotId"`
+}
+
+// =====================================================================
+// VIOS HYPERVISOR SUB-TIER PROFILE STRUCTURES
+// =====================================================================
+
+type LtmPhypViosUtil struct {
+	ID            int                  `json:"id"`
+	UUID          string               `json:"uuid"`
+	Name          string               `json:"name"`
+	State         string               `json:"state"`
+	AffinityScore float64              `json:"affinityScore"`
+	Memory        LtmPhypViosMemory    `json:"memory"`
+	Processor     LtmPhypLparProcessor `json:"processor"` // Shared mapping properties with LPAR compute sets
+	Network       LtmPhypLparNetwork   `json:"network"`   // Shared mapping properties with LPAR connectivity components
+}
+
+type LtmPhypViosMemory struct {
+	AssignedMem          float64 `json:"assignedMem"`
+	VirtualPersistentMem float64 `json:"virtualPersistentMem"`
+}
+
+
+// =====================================================================
+// LTM VIRTUAL I/O SERVER (VIOS) EXHAUSTIVE STRUCTURE DEFINITION
+// =====================================================================
+
+type LtmViosPayload struct {
+	SystemUtil LtmViosSystemUtil `json:"systemUtil"`
+}
+
+type LtmViosSystemUtil struct {
+	UtilInfo   LtmViosUtilInfo   `json:"utilInfo"`
+	UtilSample LtmViosUtilSample `json:"utilSample"` // Singular wrapper for Raw LTM metrics
+}
+
+type LtmViosUtilInfo struct {
+	Version        string `json:"version"`
+	MetricType     string `json:"metricType"`
+	MonitoringType string `json:"monitoringType"`
+	MTMS           string `json:"mtms"`
+}
+
+type LtmViosUtilSample struct {
+	TimeStamp string             `json:"timeStamp"`
+	Status    int                `json:"status"`
+	ErrorInfo []LtmViosErrorInfo `json:"errorInfo"`
+	ViosUtil  []LtmViosUtilEntry `json:"viosUtil"`
+}
+
+type LtmViosErrorInfo struct {
+	ErrID  string `json:"errId"`
+	ErrMsg string `json:"errMsg"`
+}
+
+type LtmViosUtilEntry struct {
+	ID      string         `json:"id"` // Explicitly defined as a string in VIOS schema
+	Name    string         `json:"name"`
+	Memory  LtmViosMemory  `json:"memory"`
+	Network LtmViosNetwork `json:"network"`
+	Storage LtmViosStorage `json:"storage"`
+}
+
+type LtmViosMemory struct {
+	UtilizedMem float64 `json:"utilizedMem"`
+}
+
+// --- VIOS NETWORK TRACKING ---
+
+type LtmViosNetwork struct {
+	GenericAdapters []LtmViosGenericAdapter `json:"genericAdapters"`
+	SharedAdapters  []LtmViosSharedAdapter  `json:"sharedAdapters"`
+}
+
+type LtmViosGenericAdapter struct {
+	ID               string  `json:"id"`
+	Type             string  `json:"type"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	ReceivedPackets  float64 `json:"receivedPackets"`
+	SentPackets      float64 `json:"sentPackets"`
+	DroppedPackets   float64 `json:"droppedPackets"`
+	SentBytes        float64 `json:"sentBytes"`
+	ReceivedBytes    float64 `json:"receivedBytes"`
+}
+
+type LtmViosSharedAdapter struct {
+	ID               string   `json:"id"`
+	Type             string   `json:"type"`
+	PhysicalLocation string   `json:"physicalLocation"`
+	ReceivedPackets  float64  `json:"receivedPackets"`
+	SentPackets      float64  `json:"sentPackets"`
+	DroppedPackets   float64  `json:"droppedPackets"`
+	SentBytes        float64  `json:"sentBytes"`
+	ReceivedBytes    float64  `json:"receivedBytes"`
+	BridgedAdapters  []string `json:"bridgedAdapters"`
+}
+
+// --- VIOS STORAGE TRACKING ---
+
+type LtmViosStorage struct {
+	GenericPhysicalAdapters []LtmViosGenericPhysicalAdapter `json:"genericPhysicalAdapters"`
+	GenericVirtualAdapters  []LtmViosGenericVirtualAdapter  `json:"genericVirtualAdapters"`
+	FiberChannelAdapters    []LtmViosFiberChannelAdapter    `json:"fiberChannelAdapters"`
+	SharedStoragePools      []LtmViosSharedStoragePool      `json:"sharedStoragePools"`
+}
+
+type LtmViosGenericPhysicalAdapter struct {
+	ID               string  `json:"id"`
+	Type             string  `json:"type"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	NumOfReads       float64 `json:"numOfReads"`
+	NumOfWrites      float64 `json:"numOfWrites"`
+	ReadBytes        float64 `json:"readBytes"`
+	WriteBytes       float64 `json:"writeBytes"`
+}
+
+type LtmViosGenericVirtualAdapter struct {
+	ID               string  `json:"id"`
+	Type             string  `json:"type"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	NumOfReads       float64 `json:"numOfReads"`
+	NumOfWrites      float64 `json:"numOfWrites"`
+	ReadBytes        float64 `json:"readBytes"`
+	WriteBytes       float64 `json:"writeBytes"`
+}
+
+type LtmViosFiberChannelAdapter struct {
+	ID               string                    `json:"id"`
+	Wwpn             string                    `json:"wwpn"`
+	PhysicalLocation string                    `json:"physicalLocation"`
+	NumOfReads       float64                   `json:"numOfReads"`
+	NumOfWrites      float64                   `json:"numOfWrites"`
+	ReadBytes        float64                   `json:"readBytes"`
+	WriteBytes       float64                   `json:"writeBytes"`
+	RunningSpeed     float64                   `json:"runningSpeed"`
+	Ports            []LtmViosFiberChannelPort `json:"ports"`
+}
+
+type LtmViosFiberChannelPort struct {
+	ID               string  `json:"id"`
+	Wwpn             string  `json:"wwpn"`
+	NumOfReads       float64 `json:"numOfReads"`
+	NumOfWrites      float64 `json:"numOfWrites"`
+	ReadBytes        float64 `json:"readBytes"`
+	WriteBytes       float64 `json:"writeBytes"`
+	RunningSpeed     float64 `json:"runningSpeed"`
+	PhysicalLocation string  `json:"physicalLocation"`
+}
+
+type LtmViosSharedStoragePool struct {
+	ID          string   `json:"id"`
+	PoolDisks   []string `json:"poolDisks"`
+	NumOfReads  float64  `json:"numOfReads"`
+	NumOfWrites float64  `json:"numOfWrites"`
+	TotalSpace  float64  `json:"totalSpace"`
+	UsedSpace   float64  `json:"usedSpace"`
+	ReadBytes   float64  `json:"readBytes"`
+	WriteBytes  float64  `json:"writeBytes"`
+}
+
+
+// =====================================================================
+// MANAGED SYSTEM PCM PREFERENCES SPECIFICATION
+// =====================================================================
+
+// ManagedSystemPcmPreference maps the HMC XML payload for metrics collection configurations.
+type ManagedSystemPcmPreference struct {
+	EnergyMonitoringCapable bool `xml:"EnergyMonitoringCapable"` // Read-Only
+	LongTermMonitorEnabled  bool `xml:"LongTermMonitorEnabled"`
+	AggregationEnabled      bool `xml:"AggregationEnabled"`
+	ShortTermMonitorEnabled bool `xml:"ShortTermMonitorEnabled"`
+	ComputeLTMEnabled       bool `xml:"ComputeLTMEnabled"`
+	EnergyMonitorEnabled    bool `xml:"EnergyMonitorEnabled"`
+}
+
+// =====================================================================
+// GLOBAL MANAGEMENT CONSOLE PCM PREFERENCES
+// =====================================================================
+
+// ManagementConsolePcmPreference represents the global PCM preferences for the entire HMC.
+type ManagementConsolePcmPreference struct {
+	AggregatedMetricsStorageDuration         int                          `xml:"AggregatedMetricsStorageDuration"`
+	MaximumManagedSystemsForLongTermMonitor  int                          `xml:"MaximumManagedSystemsForLongTermMonitor"`
+	MaximumManagedSystemsForComputeLTM       int                          `xml:"MaximumManagedSystemsForComputeLTM"`
+	MaximumManagedSystemsForAggregation      int                          `xml:"MaximumManagedSystemsForAggregation"`
+	MaximumManagedSystemsForShortTermMonitor int                          `xml:"MaximumManagedSystemsForShortTermMonitor"`
+	MaximumManagedSystemsForEnergyMonitor    int                          `xml:"MaximumManagedSystemsForEnergyMonitor"`
+	ManagedSystemPcmPreferences              []SystemPcmPreferenceElement `xml:"ManagedSystemPcmPreferences>ManagedSystemPcmPreference"`
+}
+
+// SystemPcmPreferenceElement represents a single system's PCM state within the global list.
+type SystemPcmPreferenceElement struct {
+	MetadataID              string `xml:"Metadata>Atom>AtomID"`
+	SystemName              string `xml:"SystemName"`
+	EnergyMonitoringCapable bool   `xml:"EnergyMonitoringCapable"`
+	LongTermMonitorEnabled  bool   `xml:"LongTermMonitorEnabled"`
+	AggregationEnabled      bool   `xml:"AggregationEnabled"`
+	ShortTermMonitorEnabled bool   `xml:"ShortTermMonitorEnabled"`
+	ComputeLTMEnabled       bool   `xml:"ComputeLTMEnabled"`
+	EnergyMonitorEnabled    bool   `xml:"EnergyMonitorEnabled"`
+}
+
+// LparProcessedMetricsOptions holds the query options for LPAR processed metric calls.
+type LparProcessedMetricsOptions struct {
+	StartTS     time.Time // Mandatory: Metrics after this time
+	EndTS       time.Time // Optional: Metrics on or before this time
+	NoOfSamples int       // Optional: Number of processed metrics to return (> 0)
+}
+
+
+
+
+// =====================================================================
+// LPAR PROCESSED METRICS JSON SPECIFICATION
+// =====================================================================
+
+type LparProcessedMetricsPayload struct {
+	SystemUtil LparProcessedSystemUtil `json:"systemUtil"`
+}
+
+type LparProcessedSystemUtil struct {
+	UtilInfo    LparProcessedUtilInfo    `json:"utilInfo"`
+	UtilSamples []LparProcessedUtilSample `json:"utilSamples"` // Array of 30-sec snapshot wrappers
+}
+
+type LparProcessedUtilInfo struct {
+	Version          string   `json:"version"`
+	MetricType       string   `json:"metricType"`
+	Frequency        int      `json:"frequency"` // Expected to be 30
+	StartTimeStamp   string   `json:"startTimeStamp"`
+	EndTimeStamp     string   `json:"endTimeStamp"`
+	MTMS             string   `json:"mtms"`
+	Name             string   `json:"name"`
+	UUID             string   `json:"uuid"`
+	MetricArrayOrder []string `json:"metricArrayOrder"` // Expected to be ["AVG"]
+}
+
+type LparProcessedUtilSample struct {
+	SampleType string                     `json:"sampleType"` // Expected: "LogicalPartition"
+	SampleInfo LparProcessedSampleInfo    `json:"sampleInfo"`
+	LparsUtil  []LparProcessedLparUtil    `json:"lparsUtil"`
+}
+
+type LparProcessedSampleInfo struct {
+	TimeStamp              string                     `json:"timeStamp"`
+	NumOfSamplesAggregated int                        `json:"numOfSamplesAggregated"`
+	Status                 int                        `json:"status"`
+	ErrorInfo              []LparProcessedErrorInfo   `json:"errorInfo"`
+}
+
+type LparProcessedErrorInfo struct {
+	ErrID          string `json:"errId"`
+	ErrMsg         string `json:"errMsg"`
+	UUID           string `json:"uuid"`
+	ReportedBy     string `json:"reportedBy"`
+	OccurenceCount int    `json:"occurenceCount"`
+}
+
+// --- CORE LPAR RESOURCE BLOCKS ---
+
+type LparProcessedLparUtil struct {
+	ID            int                        `json:"id"`
+	UUID          string                     `json:"uuid"`
+	Name          string                     `json:"name"`
+	State         string                     `json:"state"`
+	Type          string                     `json:"type"`
+	OSType        string                     `json:"osType"`
+	AffinityScore float64                    `json:"affinityScore"`
+	Memory        LparProcessedMemory        `json:"memory"`
+	Processor     LparProcessedProcessor     `json:"processor"`
+	Network       LparProcessedNetwork       `json:"network"`
+	Storage       LparProcessedStorage       `json:"storage"`
+}
+
+type LparProcessedMemory struct {
+	PoolID               int       `json:"poolId"`
+	Weight               int       `json:"weight"`
+	LogicalMem           []float64 `json:"logicalMem"`
+	BackedPhysicalMem    []float64 `json:"backedPhysicalMem"`
+	TotalIOMem           []float64 `json:"totalIOMem"`
+	MappedIOMem          []float64 `json:"mappedIOMem"`
+	VirtualPersistentMem []float64 `json:"virtualPersistentMem"`
+}
+
+type LparProcessedProcessor struct {
+	PoolID                      int       `json:"poolId"`
+	Weight                      int       `json:"weight"`
+	Mode                        string    `json:"mode"`
+	MaxVirtualProcessors        []float64 `json:"maxVirtualProcessors"`
+	CurrentVirtualProcessors    []float64 `json:"currentVirtualProcessors"`
+	MaxProcUnits                []float64 `json:"maxProcUnits"`
+	EntitledProcUnits           []float64 `json:"entitledProcUnits"`
+	UtilizedProcUnitsDeductIdle []float64 `json:"utilizedProcUnitsDeductIdle"`
+	UtilizedProcUnits           []float64 `json:"utilizedProcUnits"`
+	UtilizedCappedProcUnits     []float64 `json:"utilizedCappedProcUnits"`
+	UtilizedUncappedProcUnits   []float64 `json:"utilizedUncappedProcUnits"`
+	IdleProcUnits               []float64 `json:"idleProcUnits"`
+	DonatedProcUnits            []float64 `json:"donatedProcUnits"`
+	TimeSpentWaitingForDispatch []float64 `json:"timeSpentWaitingForDispatch"`
+	TimePerInstructionExecution []float64 `json:"timePerInstructionExecution"`
+}
+
+// --- LPAR NETWORK BLOCKS ---
+
+type LparProcessedNetwork struct {
+	VirtualEthernetAdapters []LparProcessedVirtualEthAdapter `json:"virtualEthernetAdapters"`
+	SriovLogicalPorts       []LparProcessedSriovLogicalPort  `json:"sriovLogicalPorts"`
+}
+
+type LparProcessedVirtualEthAdapter struct {
+	PhysicalLocation         string    `json:"physicalLocation"`
+	VlanID                   int       `json:"vlanId"`
+	VswitchID                int       `json:"vswitchId"`
+	IsPortVLANID             bool      `json:"isPortVLANID"`
+	ViosID                   int       `json:"viosId"`
+	SharedEthernetAdapterID  string    `json:"sharedEthernetAdapterId"`
+	ReceivedPackets          []float64 `json:"receivedPackets"`
+	SentPackets              []float64 `json:"sentPackets"`
+	DroppedPackets           []float64 `json:"droppedPackets"`
+	SentBytes                []float64 `json:"sentBytes"`
+	ReceivedBytes            []float64 `json:"receivedBytes"`
+	ReceivedPhysicalPackets  []float64 `json:"receivedPhysicalPackets"`
+	SentPhysicalPackets      []float64 `json:"sentPhysicalPackets"`
+	DroppedPhysicalPackets   []float64 `json:"droppedPhysicalPackets"`
+	SentPhysicalBytes        []float64 `json:"sentPhysicalBytes"`
+	ReceivedPhysicalBytes    []float64 `json:"receivedPhysicalBytes"`
+	TransferredBytes         []float64 `json:"transferredBytes"`
+	TransferredPhysicalBytes []float64 `json:"transferredPhysicalBytes"`
+}
+
+type LparProcessedSriovLogicalPort struct {
+	DrcIndex          string    `json:"drcIndex"`
+	PhysicalLocation  string    `json:"physicalLocation"`
+	PhysicalDrcIndex  string    `json:"physicalDrcIndex"`
+	PhysicalPortID    int       `json:"physicalPortId"`
+	VnicDeviceMode    string    `json:"vnicDeviceMode"`
+	ConfigurationType string    `json:"configurationType"`
+	ReceivedPackets   []float64 `json:"receivedPackets"`
+	SentPackets       []float64 `json:"sentPackets"`
+	DroppedPackets    []float64 `json:"droppedPackets"`
+	SentBytes         []float64 `json:"sentBytes"`
+	ReceivedBytes     []float64 `json:"receivedBytes"`
+	ErrorIn           []float64 `json:"errorIn"`
+	ErrorOut          []float64 `json:"errorOut"`
+	TransferredBytes  []float64 `json:"transferredBytes"`
+}
+
+// --- LPAR STORAGE BLOCKS ---
+
+type LparProcessedStorage struct {
+	GenericVirtualAdapters      []LparProcessedGenericVirtualAdapter `json:"genericVirtualAdapters"`
+	VirtualFiberChannelAdapters []LparProcessedVfcAdapter            `json:"virtualFiberChannelAdapters"`
+}
+
+type LparProcessedGenericVirtualAdapter struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	ViosID           int       `json:"viosId"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+type LparProcessedVfcAdapter struct {
+	ID               string    `json:"id"`
+	WWPN             string    `json:"wwpn"`
+	WWPN2            string    `json:"wwpn2"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	PhysicalPortWWPN string    `json:"physicalPortWWPN"`
+	ViosID           int       `json:"viosId"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	RunningSpeed     []float64 `json:"runningSpeed"` // Represented in GBPS
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+// =====================================================================
+// MANAGED SYSTEM PROCESSED / AGGREGATED METRICS JSON SPECIFICATION
+// =====================================================================
+
+type SysProcessedMetricsPayload struct {
+	SystemUtil SysProcessedSystemUtil `json:"systemUtil"`
+}
+
+type SysProcessedSystemUtil struct {
+	UtilInfo    SysProcessedUtilInfo     `json:"utilInfo"`
+	UtilSamples []SysProcessedUtilSample `json:"utilSamples"`
+}
+
+type SysProcessedUtilInfo struct {
+	Version          string   `json:"version"`
+	MetricType       string   `json:"metricType"`
+	Frequency        int      `json:"frequency"`
+	StartTimeStamp   string   `json:"startTimeStamp"`
+	EndTimeStamp     string   `json:"endTimeStamp"`
+	MTMS             string   `json:"mtms"`
+	Name             string   `json:"name"`
+	UUID             string   `json:"uuid"`
+	MetricArrayOrder []string `json:"metricArrayOrder"`
+}
+
+type SysProcessedUtilSample struct {
+	SampleType         string                   `json:"sampleType"`
+	SampleInfo         SysProcessedSampleInfo   `json:"sampleInfo"`
+	SystemFirmwareUtil SysProcessedFirmwareUtil `json:"systemFirmwareUtil"`
+	ServerUtil         SysProcessedServerUtil   `json:"serverUtil"`
+	ViosUtil           []SysProcessedViosUtil   `json:"viosUtil"`
+}
+
+type SysProcessedSampleInfo struct {
+	TimeStamp              string                  `json:"timeStamp"`
+	NumOfSamplesAggregated int                     `json:"numOfSamplesAggregated"`
+	Status                 int                     `json:"status"`
+	ErrorInfo              []SysProcessedErrorInfo `json:"errorInfo,omitempty"`
+}
+
+type SysProcessedErrorInfo struct {
+	ErrID          string `json:"errId"`
+	ErrMsg         string `json:"errMsg"`
+	UUID           string `json:"uuid"`
+	ReportedBy     string `json:"reportedBy"`
+	OccurenceCount int    `json:"occurenceCount"`
+}
+
+// --- SYSTEM RESOURCES (PHYP / HARDWARE) ---
+
+type SysProcessedFirmwareUtil struct {
+	UtilizedProcUnits []float64 `json:"utilizedProcUnits"`
+	AssignedMem       []float64 `json:"assignedMem"`
+}
+
+type SysProcessedServerUtil struct {
+	Processor             SysProcessedServerProc       `json:"processor"`
+	Memory                SysProcessedServerMem        `json:"memory"`
+	PhysicalProcessorPool SysProcessedPhysProcPool     `json:"physicalProcessorPool"`
+	SharedMemoryPool      []SysProcessedSharedMemPool  `json:"sharedMemoryPool"` // Standard IBM Spec
+	SharedProcessorPool   []SysProcessedSharedProcPool `json:"sharedProcessorPool"` // Standard IBM Spec
+	
+	ResourceGroup         []SysProcessedResourceGroup  `json:"resourceGroup"`
+	
+	Network               SysProcessedServerNetwork    `json:"network"`
+}
+
+type SysProcessedResourceGroup struct {
+	ID                   int                                 `json:"id"`
+	Name                 string                              `json:"name"`
+	AssignedProcUnits    []float64                           `json:"assignedProcUnits"`
+	UtilizedProcUnits    []float64                           `json:"utilizedProcUnits"`
+	AvailableProcUnits   []float64                           `json:"availableProcUnits"`
+	ConfiguredProcUnits  []float64                           `json:"configuredProcUnits"`
+	BorrowedProcUnits    []float64                           `json:"borrowedProcUnits"`
+	SharedProcessorPools []SysProcessedSharedProcPoolWrapper `json:"sharedProcessorPools"`
+}
+
+type SysProcessedSharedProcPoolWrapper struct {
+	SharedProcessorPools []SysProcessedSharedProcPool `json:"sharedProcessorPools"`
+}
+
+type SysProcessedServerProc struct {
+	TotalProcUnits              []float64 `json:"totalProcUnits"`
+	UtilizedProcUnits           []float64 `json:"utilizedProcUnits"`
+	UtilizedProcUnitsDeductIdle []float64 `json:"utilizedProcUnitsDeductIdle"`
+	AvailableProcUnits          []float64 `json:"availableProcUnits"`
+	ConfigurableProcUnits       []float64 `json:"configurableProcUnits"`
+}
+
+type SysProcessedServerMem struct {
+	TotalMem             []float64 `json:"totalMem"`
+	AvailableMem         []float64 `json:"availableMem"`
+	ConfigurableMem      []float64 `json:"configurableMem"`
+	AssignedMemToLpars   []float64 `json:"assignedMemToLpars"`
+	VirtualPersistentMem []float64 `json:"virtualPersistentMem"`
+}
+
+type SysProcessedPhysProcPool struct {
+	AssignedProcUnits   []float64 `json:"assignedProcUnits"`
+	UtilizedProcUnits   []float64 `json:"utilizedProcUnits"`
+	AvailableProcUnits  []float64 `json:"availableProcUnits"`
+	ConfiguredProcUnits []float64 `json:"configuredProcUnits"`
+	BorrowedProcUnits   []float64 `json:"borrowedProcUnits"`
+}
+
+type SysProcessedSharedMemPool struct {
+	ID                       int       `json:"id"`
+	TotalMem                 []float64 `json:"totalMem"`
+	AssignedMemToLpars       []float64 `json:"assignedMemToLpars"`
+	TotalIOMem               []float64 `json:"totalIOMem"`
+	MappedIOMemToLpars       []float64 `json:"mappedIOMemToLpars"`
+	AssignedMemToSysFirmware []float64 `json:"assignedMemToSysFirmware"`
+}
+
+type SysProcessedSharedProcPool struct {
+	ID                  int       `json:"id"`
+	Name                string    `json:"name"`
+	ResourceGroupID     int       `json:"resourceGroupId,omitempty"` // Traced from live payload
+	AssignedProcUnits   []float64 `json:"assignedProcUnits"`
+	UtilizedProcUnits   []float64 `json:"utilizedProcUnits"`
+	AvailableProcUnits  []float64 `json:"availableProcUnits"`
+	ConfiguredProcUnits []float64 `json:"configuredProcUnits"`
+	BorrowedProcUnits   []float64 `json:"borrowedProcUnits"`
+}
+
+type SysProcessedServerNetwork struct {
+	SriovAdapters []SysProcessedSriovAdapter `json:"sriovAdapters"`
+	HEAdapters    []SysProcessedHEAdapter    `json:"HEAdapters"`
+}
+
+type SysProcessedSriovAdapter struct {
+	DrcIndex      string                          `json:"drcIndex"`
+	PhysicalPorts []SysProcessedSriovPhysicalPort `json:"physicalPorts"`
+}
+
+type SysProcessedSriovPhysicalPort struct {
+	ID               int       `json:"id"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	ErrorIn          []float64 `json:"errorIn"`
+	ErrorOut         []float64 `json:"errorOut"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+}
+
+type SysProcessedHEAdapter struct {
+	DrcIndex      string                       `json:"drcIndex"`
+	PhysicalPorts []SysProcessedHEPhysicalPort `json:"physicalPorts"`
+}
+
+type SysProcessedHEPhysicalPort struct {
+	ID               int       `json:"id"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+}
+
+// --- VIOS TELEMETRY ---
+
+type SysProcessedViosUtil struct {
+	ID            int                     `json:"id"`
+	UUID          string                  `json:"uuid"`
+	Name          string                  `json:"name"`
+	State         string                  `json:"state"`
+	AffinityScore float64                 `json:"affinityScore"`
+	Memory        SysProcessedViosMem     `json:"memory"`
+	Processor     SysProcessedViosProc    `json:"processor"`
+	Network       SysProcessedViosNetwork `json:"network"`
+	Storage       SysProcessedViosStorage `json:"storage"`
+}
+
+type SysProcessedViosMem struct {
+	AssignedMem          []float64 `json:"assignedMem"`
+	UtilizedMem          []float64 `json:"utilizedMem"`
+	VirtualPersistentMem []float64 `json:"virtualPersistentMem"`
+}
+
+type SysProcessedViosProc struct {
+	PoolID                      int       `json:"poolId"`
+	Weight                      int       `json:"weight"`
+	Mode                        string    `json:"mode"`
+	MaxVirtualProcessors        []float64 `json:"maxVirtualProcessors"`
+	CurrentVirtualProcessors    []float64 `json:"currentVirtualProcessors"`
+	MaxProcUnits                []float64 `json:"maxProcUnits"`
+	EntitledProcUnits           []float64 `json:"entitledProcUnits"`
+	UtilizedProcUnits           []float64 `json:"utilizedProcUnits"`
+	UtilizedProcUnitsDeductIdle []float64 `json:"utilizedProcUnitsDeductIdle"`
+	UtilizedCappedProcUnits     []float64 `json:"utilizedCappedProcUnits"`
+	UtilizedUncappedProcUnits   []float64 `json:"utilizedUncappedProcUnits"`
+	IdleProcUnits               []float64 `json:"idleProcUnits"`
+	DonatedProcUnits            []float64 `json:"donatedProcUnits"`
+	TimeSpentWaitingForDispatch []float64 `json:"timeSpentWaitingForDispatch"`
+	TimePerInstructionExecution []float64 `json:"timePerInstructionExecution"`
+}
+
+type SysProcessedViosNetwork struct {
+	ClientLpars             []string                            `json:"clientLpars"`
+	GenericAdapters         []SysProcessedViosGenericAdapter    `json:"genericAdapters"`
+	SharedAdapters          []SysProcessedViosSharedAdapter     `json:"sharedAdapters"`
+	VirtualEthernetAdapters []SysProcessedViosVirtualEthAdapter `json:"virtualEthernetAdapters"`
+	SriovLogicalPorts       []SysProcessedViosSriovLogicalPort  `json:"sriovLogicalPorts"`
+}
+
+type SysProcessedViosGenericAdapter struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+}
+
+type SysProcessedViosSharedAdapter struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	ReceivedPackets  []float64 `json:"receivedPackets"`
+	SentPackets      []float64 `json:"sentPackets"`
+	DroppedPackets   []float64 `json:"droppedPackets"`
+	SentBytes        []float64 `json:"sentBytes"`
+	ReceivedBytes    []float64 `json:"receivedBytes"`
+	TransferredBytes []float64 `json:"transferredBytes"`
+	BridgedAdapters  []string  `json:"bridgedAdapters"`
+}
+
+type SysProcessedViosVirtualEthAdapter struct {
+	PhysicalLocation         string    `json:"physicalLocation"`
+	VlanID                   int       `json:"vlanId"`
+	VswitchID                int       `json:"vswitchId"`
+	IsPortVLANID             bool      `json:"isPortVLANID"`
+	ReceivedPackets          []float64 `json:"receivedPackets"`
+	SentPackets              []float64 `json:"sentPackets"`
+	DroppedPackets           []float64 `json:"droppedPackets"`
+	SentBytes                []float64 `json:"sentBytes"`
+	ReceivedBytes            []float64 `json:"receivedBytes"`
+	ReceivedPhysicalPackets  []float64 `json:"receivedPhysicalPackets"`
+	SentPhysicalPackets      []float64 `json:"sentPhysicalPackets"`
+	DroppedPhysicalPackets   []float64 `json:"droppedPhysicalPackets"`
+	SentPhysicalBytes        []float64 `json:"sentPhysicalBytes"`
+	ReceivedPhysicalBytes    []float64 `json:"receivedPhysicalBytes"`
+	TransferredBytes         []float64 `json:"transferredBytes"`
+	TransferredPhysicalBytes []float64 `json:"transferredPhysicalBytes"`
+}
+
+type SysProcessedViosSriovLogicalPort struct {
+	DrcIndex            string    `json:"drcIndex"`
+	PhysicalLocation    string    `json:"physicalLocation"`
+	PhysicalDrcIndex    string    `json:"physicalDrcIndex"`
+	PhysicalPortID      int       `json:"physicalPortId"`
+	ClientPartitionUUID string    `json:"clientPartitionUUID"`
+	VnicDeviceMode      string    `json:"vnicDeviceMode"`
+	ConfigurationType   string    `json:"configurationType"`
+	ReceivedPackets     []float64 `json:"receivedPackets"`
+	SentPackets         []float64 `json:"sentPackets"`
+	DroppedPackets      []float64 `json:"droppedPackets"`
+	SentBytes           []float64 `json:"sentBytes"`
+	ReceivedBytes       []float64 `json:"receivedBytes"`
+	ErrorIn             []float64 `json:"errorIn"`
+	ErrorOut            []float64 `json:"errorOut"`
+	TransferredBytes    []float64 `json:"transferredBytes"`
+}
+
+type SysProcessedViosStorage struct {
+	ClientLpars             []string                            `json:"clientLpars"`
+	GenericVirtualAdapters  []SysProcessedViosStorageGeneric    `json:"genericVirtualAdapters"`
+	GenericPhysicalAdapters []SysProcessedViosStorageGeneric    `json:"genericPhysicalAdapters"`
+	FiberChannelAdapters    []SysProcessedViosFCAdapter         `json:"fiberChannelAdapters"`
+	SharedStoragePools      []SysProcessedViosSharedStoragePool `json:"sharedStoragePools"`
+}
+
+type SysProcessedViosStorageGeneric struct {
+	ID               string    `json:"id"`
+	Type             string    `json:"type"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+type SysProcessedViosFCAdapter struct {
+	ID               string    `json:"id"`
+	WWPN             string    `json:"wwpn"`
+	PhysicalLocation string    `json:"physicalLocation"`
+	NumOfPorts       int       `json:"numOfPorts"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	RunningSpeed     []float64 `json:"runningSpeed"` // In GBPS
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+type SysProcessedViosSharedStoragePool struct {
+	ID               string    `json:"id"`
+	TotalSpace       []float64 `json:"totalSpace"`
+	UsedSpace        []float64 `json:"usedSpace"`
+	NumOfReads       []float64 `json:"numOfReads"`
+	NumOfWrites      []float64 `json:"numOfWrites"`
+	ReadBytes        []float64 `json:"readBytes"`
+	WriteBytes       []float64 `json:"writeBytes"`
+	TransmittedBytes []float64 `json:"transmittedBytes"`
+}
+
+// ShortTermMetricsOptions holds the query options for Short Term Monitor (STM) metric calls.
+type ShortTermMetricsOptions struct {
+	StartTS time.Time
+	EndTS   time.Time
+}
+
+// =====================================================================
+// SHORT TERM MONITOR (STM) RAW METRICS JSON SPECIFICATION
+// =====================================================================
+
+type StmRawMetricsPayload struct {
+	SystemUtil StmSystemUtil `json:"systemUtil"`
+}
+
+type StmSystemUtil struct {
+	UtilInfo   StmUtilInfo   `json:"utilInfo"`
+	UtilSample StmUtilSample `json:"utilSample"` // Note: Not an array in STM! Just a single object per file.
+}
+
+type StmUtilInfo struct {
+	Version        string `json:"version"`
+	MetricType     string `json:"metricType"`     // E.g., "Raw"
+	MonitoringType string `json:"monitoringType"` // E.g., "STM"
+	MTMS           string `json:"mtms"`
+	Name           string `json:"name"`
+}
+
+type StmUtilSample struct {
+	TimeStamp             string                     `json:"timeStamp"`
+	Status                int                        `json:"status"`
+	ErrorInfo             []StmErrorInfo             `json:"errorInfo,omitempty"`
+	TimeBasedCycles       float64                    `json:"timeBasedCycles"`
+	SystemFirmware        StmSystemFirmware          `json:"systemFirmware"`
+	Processor             StmSystemProcessor         `json:"processor"`
+	Memory                StmSystemMemory            `json:"memory"`
+	SharedMemoryPool      []StmSharedMemoryPool      `json:"sharedMemoryPool"`
+	PhysicalProcessorPool StmPhysicalProcessorPool   `json:"physicalProcessorPool"`
+	SharedProcessorPool   []StmSharedProcessorPool   `json:"sharedProcessorPool"`
+	Network               StmSystemNetwork           `json:"network"`
+	LparsUtil             []StmLparUtil              `json:"lparsUtil"`
+	ViosUtil              []StmViosUtil              `json:"viosUtil"`
+}
+
+type StmErrorInfo struct {
+	ErrID  string `json:"errId"`
+	ErrMsg string `json:"errMsg"`
+}
+
+// --- PHYP SYSTEM-LEVEL BLOCKS ---
+
+type StmSystemFirmware struct {
+	UtilizedProcCycles float64 `json:"utilizedProcCycles"`
+	AssignedMem        float64 `json:"assignedMem"`
+}
+
+type StmSystemProcessor struct {
+	TotalProcUnits        float64 `json:"totalProcUnits"`
+	AvailableProcUnits    float64 `json:"availableProcUnits"`
+	ConfigurableProcUnits float64 `json:"configurableProcUnits"`
+	ProcCyclesPerSecond   float64 `json:"procCyclesPerSecond"`
+}
+
+type StmSystemMemory struct {
+	TotalMem             float64 `json:"totalMem"`
+	AvailableMem         float64 `json:"availableMem"`
+	ConfigurableMem      float64 `json:"configurableMem"`
+	VirtualPersistentMem float64 `json:"virtualPersistentMem"`
+}
+
+type StmSharedMemoryPool struct {
+	ID                       int     `json:"id"`
+	Name                     string  `json:"name"`
+	TotalMem                 float64 `json:"totalMem"`
+	AssignedMemToLpars       float64 `json:"assignedMemToLpars"`
+	AssignedMemToSysFirmware float64 `json:"assignedMemToSysFirmware"`
+	TotalIOMem               float64 `json:"totalIOMem"`
+	MappedIOMemToLpars       float64 `json:"mappedIOMemToLpars"`
+	PageFaults               float64 `json:"pageFaults"`
+	PageDelays               float64 `json:"pageDelays"`
+	DedupedMemInPool         float64 `json:"dedupedMemInPool"`
+	UtilizedProcCyclesForDedup float64 `json:"utilizedProcCyclesForDedup"`
+}
+
+type StmPhysicalProcessorPool struct {
+	TotalPoolCycles            float64 `json:"totalPoolCycles"`
+	UtilizedPoolCycles         float64 `json:"utilizedPoolCycles"`
+	ConfigurablePoolProcUnits  float64 `json:"configurablePoolProcUnits"`
+	CurrAvailablePoolProcUnits float64 `json:"currAvailablePoolProcUnits"`
+	BorrowedPoolProcUnits      float64 `json:"borrowedPoolProcUnits"`
+}
+
+type StmSharedProcessorPool struct {
+	ID                 int     `json:"id"`
+	Name               string  `json:"name"`
+	AssignedProcCycles float64 `json:"assignedProcCycles"`
+	UtilizedProcCycles float64 `json:"utilizedProcCycles"`
+	MaxProcUnits       float64 `json:"maxProcUnits"`
+	BorrowedProcUnits  float64 `json:"borrowedProcUnits"`
+}
+
+type StmSystemNetwork struct {
+	HEAdapters []StmHEAdapter `json:"HEAdapters"`
+}
+
+type StmHEAdapter struct {
+	DrcIndex      string               `json:"drcIndex"`
+	PhysicalPorts []StmHEPhysicalPort  `json:"physicalPorts"`
+}
+
+type StmHEPhysicalPort struct {
+	ID               int     `json:"id"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	ReceivedPackets  float64 `json:"receivedPackets"`
+	SentPackets      float64 `json:"sentPackets"`
+	DroppedPackets   float64 `json:"droppedPackets"`
+	SentBytes        float64 `json:"sentBytes"`
+	ReceivedBytes    float64 `json:"receivedBytes"`
+}
+
+// --- LPAR TELEMETRY BLOCK ---
+
+type StmLparUtil struct {
+	ID             int              `json:"id"`
+	UUID           string           `json:"uuid"`
+	Type           string           `json:"type"`
+	Name           string           `json:"name"`
+	State          string           `json:"state"`
+	MigrationState string           `json:"migrationState"`
+	AffinityScore  float64          `json:"affinityScore"`
+	Memory         StmLparMemory    `json:"memory"`
+	Processor      StmLparProcessor `json:"processor"`
+	Network        StmLparNetwork   `json:"network"`
+	Storage        StmLparStorage   `json:"Storage"` // Note the uppercase 'S' as per IBM JSON Spec
+}
+
+type StmLparMemory struct {
+	PoolID               int     `json:"poolId"`
+	Weight               int     `json:"weight"`
+	LogicalMem           float64 `json:"logicalMem"`
+	BackedPhysicalMem    float64 `json:"backedPhysicalMem"`
+	TotalIOMem           float64 `json:"totalIOMem"`
+	MappedIOMem          float64 `json:"mappedIOMem"`
+	DedupedMem           float64 `json:"dedupedMem"`
+	VirtualPersistentMem float64 `json:"virtualPersistentMem"`
+}
+
+type StmLparProcessor struct {
+	PoolID                         int     `json:"poolId"`
+	Mode                           string  `json:"mode"`
+	MaxVirtualProcessors           float64 `json:"maxVirtualProcessors"`
+	MaxProcUnits                   float64 `json:"maxProcUnits"`
+	Weight                         int     `json:"weight"`
+	EntitledProcCycles             float64 `json:"entitledProcCycles"`
+	UtilizedCappedProcCycles       float64 `json:"utilizedCappedProcCycles"`
+	UtilizedUnCappedProcCycles     float64 `json:"utilizedUnCappedProcCycles"`
+	IdleProcCycles                 float64 `json:"idleProcCycles"`
+	DonatedProcCycles              float64 `json:"donatedProcCycles"`
+	RunLatchInstructions           float64 `json:"runLatchInstructions,omitempty"`
+	RunLatchProcCycles             float64 `json:"runLatchProcCycles,omitempty"`
+	TotalInstructions              float64 `json:"totalInstructions,omitempty"`
+	TotalInstructionsExecutionTime float64 `json:"totalInstructionsExecutionTime,omitempty"`
+	TimeSpentWaitingForProcessor   float64 `json:"timeSpentWaitingForProcessor"`
+	NumOfTimesWaitedForProcessor   float64 `json:"numOfTimesWaitedForProcessor"`
+	TimeSpentWaitingForDispatch    float64 `json:"timeSpentWaitingForDispatch"`
+	NumOfTimesDispatched           float64 `json:"numOfTimesDispatched"`
+}
+
+type StmLparNetwork struct {
+	VirtualEthernetAdapters []StmVirtualEthernetAdapter `json:"virtualEthernetAdapters"`
+}
+
+type StmVirtualEthernetAdapter struct {
+	VlanID                   int     `json:"vlanId"`
+	VswitchID                int     `json:"vswitchId"`
+	PhysicalLocation         string  `json:"physicalLocation"`
+	IsPortVLANID             bool    `json:"isPortVLANID"`
+	ReceivedPackets          float64 `json:"receivedPackets"`
+	SentPackets              float64 `json:"sentPackets"`
+	DroppedPackets           float64 `json:"droppedPackets"`
+	SentBytes                float64 `json:"sentBytes"`
+	ReceivedBytes            float64 `json:"receivedBytes"`
+	ReceivedPhysicalPackets  float64 `json:"receivedPhysicalPackets"`
+	SentPhysicalPackets      float64 `json:"sentPhysicalPackets"`
+	DroppedPhysicalPackets   float64 `json:"droppedPhysicalPackets"`
+	SentPhysicalBytes        float64 `json:"sentPhysicalBytes"`
+	ReceivedPhysicalBytes    float64 `json:"receivedPhysicalBytes"`
+}
+
+type StmLparStorage struct {
+	VirtualFiberChannelAdapters []StmVirtualFCAdapter `json:"virtualFiberChannelAdapters"`
+	GenericVirtualAdapters      []StmGenericVAdapter  `json:"genericVirtualAdapters"`
+}
+
+type StmVirtualFCAdapter struct {
+	ViosID           int      `json:"viosId"`
+	WWPNPair         []string `json:"wwpnPair"`
+	PhysicalLocation string   `json:"physicalLocation"`
+}
+
+type StmGenericVAdapter struct {
+	ViosID            int    `json:"viosId"`
+	PhysicalLocation  string `json:"physicalLocation"`
+	ViosAdapterSlotID int    `json:"viosAdapterSlotId"`
+}
+
+// --- VIOS TELEMETRY BLOCK ---
+
+type StmViosUtil struct {
+	ID            int               `json:"id"`
+	UUID          string            `json:"uuid"`
+	Name          string            `json:"name"`
+	State         string            `json:"state"`
+	AffinityScore float64           `json:"affinityScore"`
+	Memory        StmViosMemory     `json:"memory"`
+	Processor     StmLparProcessor  `json:"processor"` // Reuses LPAR structure
+	Network       StmLparNetwork    `json:"network"`   // Reuses LPAR structure
+}
+
+type StmViosMemory struct {
+	AssignedMem          float64 `json:"assignedMem"`
+	VirtualPersistentMem float64 `json:"virtualPersistentMem"`
+}
+
+// =====================================================================
+// SHORT TERM MONITOR (STM) RAW METRICS - VIOS JSON SPECIFICATION
+// =====================================================================
+
+type StmRawViosMetricsPayload struct {
+	SystemUtil StmRawViosSystemUtil `json:"systemUtil"`
+}
+
+type StmRawViosSystemUtil struct {
+	UtilInfo   StmRawViosUtilInfo   `json:"utilInfo"`
+	UtilSample StmRawViosUtilSample `json:"utilSample"`
+}
+
+type StmRawViosUtilInfo struct {
+	Version        string `json:"version"`
+	MetricType     string `json:"metricType"`
+	MonitoringType string `json:"monitoringType"`
+	MTMS           string `json:"mtms"`
+}
+
+type StmRawViosUtilSample struct {
+	TimeStamp string             `json:"timeStamp"`
+	Status    int                `json:"status"`
+	ErrorInfo []StmErrorInfo     `json:"errorInfo,omitempty"` // Reusing StmErrorInfo from PHYP
+	ViosUtil  []StmRawViosDetail `json:"viosUtil"`
+}
+
+type StmRawViosDetail struct {
+	ID        interface{}         `json:"id"`
+	Name      string              `json:"name"`
+	Processor StmRawViosProcessor `json:"processor"`
+	Memory    StmRawViosMemory    `json:"memory"`
+	Network   StmRawViosNetwork   `json:"network"`
+	Storage   StmRawViosStorage   `json:"storage"`
+}
+
+// --- VIOS COMPUTE ---
+
+type StmRawViosProcessor struct {
+	UserCounter     float64 `json:"userCounter"`
+	KernelCounter   float64 `json:"kernelCounter"`
+	PurrCounter     float64 `json:"purrCounter"`
+	SpurrCounter    float64 `json:"spurrCounter"`
+	TimeBaseCounter float64 `json:"timeBaseCounter"`
+}
+
+type StmRawViosMemory struct {
+	UtilizedMem            float64 `json:"utilizedMem"`
+	UsedForNetworkBuffer   float64 `json:"usedForNetworkBuffer"`
+	UsedForOtherOperations float64 `json:"usedForOtherOperations"`
+	SwapSpaceUsed          float64 `json:"swapSpaceUsed"`
+}
+
+// --- VIOS NETWORK ---
+
+type StmRawViosNetwork struct {
+	GenericAdapters []StmRawViosGenericAdapter `json:"genericAdapters"`
+	SharedAdapters  []StmRawViosSharedAdapter  `json:"sharedAdapters"`
+}
+
+type StmRawViosGenericAdapter struct {
+	ID               string  `json:"id"`
+	Type             string  `json:"type"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	ReceivedPackets  float64 `json:"receivedPackets"`
+	SentPackets      float64 `json:"sentPackets"`
+	DroppedPackets   float64 `json:"droppedPackets"`
+	SentBytes        float64 `json:"sentBytes"`
+	ReceivedBytes    float64 `json:"receivedBytes"`
+}
+
+type StmRawViosSharedAdapter struct {
+	ID               string   `json:"id"`
+	Type             string   `json:"type"`
+	PhysicalLocation string   `json:"physicalLocation"`
+	ReceivedPackets  float64  `json:"receivedPackets"`
+	SentPackets      float64  `json:"sentPackets"`
+	DroppedPackets   float64  `json:"droppedPackets"`
+	SentBytes        float64  `json:"sentBytes"`
+	ReceivedBytes    float64  `json:"receivedBytes"`
+	BridgedAdapters  []string `json:"bridgedAdapters"`
+}
+
+// --- VIOS STORAGE ---
+
+type StmRawViosStorage struct {
+	GenericPhysicalAdapters []StmRawViosStorageGeneric   `json:"genericPhysicalAdapters"`
+	GenericVirtualAdapters  []StmRawViosStorageGeneric   `json:"genericVirtualAdapters"`
+	FiberChannelAdapters    []StmRawViosFCAdapter        `json:"fiberChannelAdapters"`
+	SharedStoragePools      []StmRawViosSharedStoragePool `json:"sharedStoragePools"`
+	PhysicalDevices         []StmRawViosPhysicalDevice   `json:"physicalDevices"`
+	VirtualDevices          []StmRawViosVirtualDevice    `json:"virtualDevices"`
+}
+
+type StmRawViosStorageGeneric struct {
+	ID               string  `json:"id"`
+	Type             string  `json:"type"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	NumOfReads       float64 `json:"numOfReads"`
+	NumOfWrites      float64 `json:"numOfWrites"`
+	ReadBytes        float64 `json:"readBytes"`
+	WriteBytes       float64 `json:"writeBytes"`
+}
+
+type StmRawViosFCAdapter struct {
+	ID               string             `json:"id"`
+	WWPN             string             `json:"wwpn"`
+	PhysicalLocation string             `json:"physicalLocation"`
+	NumOfReads       float64            `json:"numOfReads"`
+	NumOfWrites      float64            `json:"numOfWrites"`
+	ReadBytes        float64            `json:"readBytes"`
+	WriteBytes       float64            `json:"writeBytes"`
+	RunningSpeed     float64            `json:"runningSpeed"` // In GBPS
+	Ports            []StmRawViosFCPort `json:"ports"`
+}
+
+type StmRawViosFCPort struct {
+	ID               string  `json:"id"`
+	WWPN             string  `json:"wwpn"`
+	PhysicalLocation string  `json:"physicalLocation"`
+	NumOfReads       float64 `json:"numOfReads"`
+	NumOfWrites      float64 `json:"numOfWrites"`
+	ReadBytes        float64 `json:"readBytes"`
+	WriteBytes       float64 `json:"writeBytes"`
+	RunningSpeed     float64 `json:"runningSpeed"`
+}
+
+type StmRawViosSharedStoragePool struct {
+	ID                 string   `json:"id"`
+	PoolDisks          []string `json:"poolDisks"`
+	PoolVirtualDevices []string `json:"poolVirtualDevices"`
+	NumOfReads         float64  `json:"numOfReads"`
+	NumOfWrites        float64  `json:"numOfWrites"`
+	TotalSpace         float64  `json:"totalSpace"`
+	UsedSpace          float64  `json:"usedSpace"`
+	ReadBytes          float64  `json:"readBytes"`
+	WriteBytes         float64  `json:"writeBytes"`
+}
+
+type StmRawViosPhysicalDevice struct {
+	ID                           string  `json:"id"`
+	UID                          string  `json:"uid"`
+	DiskAdapterID                string  `json:"diskAdapterId"`
+	PoolID                       string  `json:"poolId"`
+	NumOfReads                   float64 `json:"numOfReads"`
+	NumOfWrites                  float64 `json:"numOfWrites"`
+	ReadBytes                    float64 `json:"readBytes"`
+	WriteBytes                   float64 `json:"writeBytes"`
+	ReadServiceTime              float64 `json:"readServiceTime"`
+	WriteServiceTime             float64 `json:"writeServiceTime"`
+	TimeSpentInWaitQueue         float64 `json:"timeSpentInWaitQueue"`
+	WaitQueueSize                float64 `json:"waitQueueSize"`
+	NumOfTimesServiceQueueIsFull float64 `json:"numOfTimesServiceQueueIsFull"`
+}
+
+type StmRawViosVirtualDevice struct {
+	ID                           string  `json:"id"`
+	UID                          string  `json:"uid"`
+	PoolID                       string  `json:"poolId"`
+	TotalSpace                   float64 `json:"totalSpace"`
+	UsedSpace                    float64 `json:"usedSpace"`
+	NumOfReads                   float64 `json:"numOfReads"`
+	NumOfWrites                  float64 `json:"numOfWrites"`
+	ReadBytes                    float64 `json:"readBytes"`
+	WriteBytes                   float64 `json:"writeBytes"`
+	ReadServiceTime              float64 `json:"readServiceTime"`
+	WriteServiceTime             float64 `json:"writeServiceTime"`
+	TimeSpentInWaitQueue         float64 `json:"timeSpentInWaitQueue"`
+	WaitQueueSize                float64 `json:"waitQueueSize"`
+	NumOfTimesServiceQueueIsFull float64 `json:"numOfTimesServiceQueueIsFull"`
 }
