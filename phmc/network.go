@@ -298,7 +298,7 @@ func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID
 
 	return adapters, nil
 }
-// GetNetworkBootDevices retrieves network boot devices from an LPAR's profile using the HMC REST API job.
+// GetNetworkBootDevicesForLpar retrieves network boot devices from an LPAR's profile using the HMC REST API job.
 //
 // WARNING: This operation will power off the LPAR if it is currently running.
 // The HMC GetNetworkBootDevices job requires the LPAR to be in a powered-off state

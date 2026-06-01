@@ -136,6 +136,7 @@ func createJobRequestPayload(operation map[string]string, params map[string]stri
 	return xmlStr, nil
 }
 
+// AddVSCSIPayload generates XML payload for a Virtual SCSI client adapter associated with a physical volume.
 func AddVSCSIPayload(volConfig VolumeConfig, volumeName string, debug bool) string {
 	if volumeName == "" {
 		if debug {
@@ -409,6 +410,7 @@ func (c *HmcRestClient) UpdateProcMemSettingsToDom(templateXML *etree.Element, c
 
 	return nil
 }
+// UpdateVirtualNWSettingsToDom adds client network adapter configurations to the partition template XML.
 func (c *HmcRestClient) UpdateVirtualNWSettingsToDom(templateXML *etree.Element, configDictList []VirtualNetworkConfig) error {
 	vnPayload := ""
 	for _, eachVN := range configDictList {
@@ -575,6 +577,7 @@ func (c *HmcRestClient) GetLogicalPartition(ctx context.Context, systemUUID, par
 }
 
 
+// ParseIOAdapters extracts IO adapter information from XML elements and returns a slice of IOAdapterInfo structs.
 func ParseIOAdapters(adapters []*etree.Element) []IOAdapterInfo {
 	var info []IOAdapterInfo
 
@@ -791,10 +794,11 @@ func (c *HmcRestClient) GetAttachedVolumes(ctx context.Context, systemUUID, lpar
 	return attachedStorage, nil
 }
 
-func (c *HmcRestClient) GetSvcUidFixed(viosId string) string {
+// GetSvcUIDFixed extracts and returns the 32-character SVC UID from a VIOS ID string with a 33213 header prefix.
+func (c *HmcRestClient) GetSvcUIDFixed(viosID string) string {
 	// Logic for 33213: Header is 5 chars, 32-char UID follows
-	if len(viosId) >= 37 && viosId[0:5] == "33213" {
-		return strings.ToUpper(viosId[5 : 5+32])
+	if len(viosID) >= 37 && viosID[0:5] == "33213" {
+		return strings.ToUpper(viosID[5 : 5+32])
 	}
 	return ""
 }

@@ -299,7 +299,7 @@ func (c *HmcRestClient) GetManagedSystems(ctx context.Context, debug bool) (*etr
 	return managedSystems, nil
 }
 
-// GetManagedSystemsQuickAll fetches all systems using the high-performance JSON endpoint.
+// GetManagedSystemQuickAll fetches all systems using the high-performance JSON endpoint.
 func (c *HmcRestClient) GetManagedSystemQuickAll(ctx context.Context, debug bool) ([]ManagedSystemQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/quick/All", c.hmcIP)
 

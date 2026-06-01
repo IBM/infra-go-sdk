@@ -14,7 +14,7 @@ import (
 	"github.com/beevik/etree"
 )
 
-// / ConfigDevice submits a job request to configure a device on a Virtual I/O Server.
+// ConfigDevice submits a job request to configure a device on a Virtual I/O Server.
 // If devName is empty, it attempts to configure all devices.
 // It waits for the job to complete and checks for success.
 func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName string, debug bool) error {
@@ -1897,7 +1897,7 @@ func (c *HmcRestClient) ChangeMediaRepository(ctx context.Context, sysName, vios
 	return nil
 }
 
-/// CreatePhysicalVolumeMaps maps one or more physical disks (e.g., hdisk) on the VIOS to a target LPAR.
+// CreatePhysicalVolumeMaps maps one or more physical disks (e.g., hdisk) on the VIOS to a target LPAR.
 // It uses a pristine GET-Modify-POST pattern and is 100% idempotent.
 func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
@@ -2400,7 +2400,7 @@ func (c *HmcRestClient) AddVirtualOpticalMedia(ctx context.Context, viosUUID str
 
 	return results, nil
 }
-// CreateVirtualOpticalMapsAuto maps ISOs using the HMC's auto-slot assignment.
+// CreateVirtualOpticalMaps maps ISOs using the HMC's auto-slot assignment.
 // It is fully idempotent and safely skips already-mapped media.
 func (c *HmcRestClient) CreateVirtualOpticalMaps(ctx context.Context, sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
@@ -3063,7 +3063,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, v
 	return "SUCCESS", nil
 }
 
-// CreateVirtualFibreChannelMappings creates multiple Virtual Fibre Channel (NPIV) mappings between a VIOS and an LPAR.
+// CreateVirtualFibreChannelMaps creates multiple Virtual Fibre Channel (NPIV) mappings between a VIOS and an LPAR.
 // It uses a pristine GET-Modify-POST pattern and safely handles DLPAR timeouts for non-RMC operating systems like CoreOS.
 func (c *HmcRestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID string, fcPortNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
@@ -3379,7 +3379,7 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 	return "SUCCESS", nil
 }
 
-// GetVirtualFibreChannelMappingsForLPAR fetches NPIV mappings for a specific LPAR on a VIOS,
+// GetVirtualFibreChannelMaps fetches NPIV mappings for a specific LPAR on a VIOS,
 // unmarshaling the data directly into your native VirtualFibreChannelMapping structs.
 func (c *HmcRestClient) GetVirtualFibreChannelMaps(ctx context.Context, viosUUID, lparUUID string, debug bool) ([]VirtualFibreChannelMapping, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosFCMapping", c.hmcIP, viosUUID)

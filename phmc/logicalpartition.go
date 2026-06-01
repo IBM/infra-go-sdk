@@ -598,6 +598,7 @@ func (c *HmcRestClient) DeleteLogicalPartition(partitionUUID string, debug bool)
 	return nil
 }
 
+// GetLogicalPartitionsAdv retrieves logical partitions for a managed system with Advanced group attributes as a slice of deeply parsed Go structs.
 func (c *HmcRestClient) GetLogicalPartitionsAdv(systemUUID string, debug bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
 	

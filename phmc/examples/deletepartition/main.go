@@ -245,7 +245,7 @@ func main() {
 					continue // Skip if it's not a physical volume (e.g. optical media)
 				}
 
-				targetUID := restClient.GetSvcUidFixed(m.VolumeUDID)
+				targetUID := restClient.GetSvcUIDFixed(m.VolumeUDID)
 				svcVolName := ""
 				for _, vd := range vdisks {
 					if strings.ToUpper(vd.VdiskUID) == targetUID {

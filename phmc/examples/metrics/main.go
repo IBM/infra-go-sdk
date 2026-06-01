@@ -21,11 +21,14 @@ import (
 // =========================================================================
 // UNIVERSAL LOCAL XML STRUCTS FOR FEED PARSING
 // =========================================================================
+
+// LocalAtomFeed represents an Atom feed containing multiple entries
 type LocalAtomFeed struct {
 	XMLName xml.Name         `xml:"feed"`
 	Entries []LocalAtomEntry `xml:"entry"`
 }
 
+// LocalAtomEntry represents a single entry in an Atom feed with publication metadata
 type LocalAtomEntry struct {
 	Published string            `xml:"published"`
 	Updated   string            `xml:"updated"`
@@ -33,10 +36,12 @@ type LocalAtomEntry struct {
 	Links     []LocalAtomLink   `xml:"link"`
 }
 
+// LocalAtomCategory represents the category information of an Atom entry
 type LocalAtomCategory struct {
 	Term string `xml:"term,attr"`
 }
 
+// LocalAtomLink represents a link element in an Atom entry
 type LocalAtomLink struct {
 	Href string `xml:"href,attr"`
 	Type string `xml:"type,attr"`
@@ -101,8 +106,8 @@ func main() {
 	// =========================================================================
 	var startTS time.Time
 	var endTS time.Time = time.Now()
-	var endpointType string 
-	var expectedFreq string 
+	var endpointType string
+	var expectedFreq string
 
 	// Shift the window back slightly to ensure we only query committed database files
 	now := time.Now().Add(-5 * time.Minute)
@@ -178,7 +183,7 @@ func main() {
 	insecureClient := &http.Client{
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 	}
-	
+
 	req, _ := http.NewRequest("GET", targetFeedURL, nil)
 	req.Header.Set("X-API-Session", restClient.Session())
 	req.Header.Set("Accept", "application/atom+xml") // Demanding specific XML feed wrapper
@@ -237,12 +242,12 @@ func main() {
 		sysMinAvailMem                          float64 = -1.0
 
 		// LPAR Data Accumulators
-		lparEntitled                float64
-		lparSumCpu, lparMaxCpu      float64
-		lparMaxMem, lparDesiredMem  float64
+		lparEntitled               float64
+		lparSumCPU, lparMaxCPU     float64
+		lparMaxMem, lparDesiredMem float64
 
 		// VIOS Data Accumulators
-		viosSumMem, viosMaxMem      float64
+		viosSumMem, viosMaxMem       float64
 		viosSumNetBuf, viosMaxNetBuf float64
 	)
 
@@ -339,10 +344,10 @@ func main() {
 				// Extract Timestamp
 				if sampleInfo, ok := sample["sampleInfo"].(map[string]interface{}); ok {
 					if ts, ok := sampleInfo["timeStamp"].(string); ok {
-                        if firstSampleTime == "" {
-                            firstSampleTime = ts
-                        }
-                        lastSampleTime = ts
+						if firstSampleTime == "" {
+							firstSampleTime = ts
+						}
+						lastSampleTime = ts
 					}
 				}
 				sampleCount++
@@ -369,9 +374,9 @@ func main() {
 						// Note: util[0] seamlessly grabs the "Average" metric from the [Avg, Min, Max] array!
 						if util, ok := proc["utilizedProcUnits"].([]interface{}); ok && len(util) > 0 {
 							if val, ok := util[0].(float64); ok {
-								lparSumCpu += val
-								if val > lparMaxCpu {
-									lparMaxCpu = val
+								lparSumCPU += val
+								if val > lparMaxCPU {
+									lparMaxCPU = val
 								}
 							}
 						}
@@ -416,12 +421,12 @@ func main() {
 
 	switch scope {
 	case "SYSTEM":
-		avgCpu := sysSumCores / float64(sampleCount)
+		avgCPU := sysSumCores / float64(sampleCount)
 		avgMemUsed := sysTotalMem - (sysSumAvailMem / float64(sampleCount))
 		maxMemUsed := sysTotalMem - sysMinAvailMem
-		
+
 		fmt.Fprintf(w, "   Physical CPU Core Capacity         :\t%.2f Cores\n", sysTotalCores)
-		fmt.Fprintf(w, "   Average Global CPU Allocation      :\t%.2f Cores (%.1f%% efficiency)\n", avgCpu, (avgCpu/sysTotalCores)*100)
+		fmt.Fprintf(w, "   Average Global CPU Allocation      :\t%.2f Cores (%.1f%% efficiency)\n", avgCPU, (avgCPU/sysTotalCores)*100)
 		fmt.Fprintf(w, "   Absolute Peak Server Core Draw     :\t%.2f Cores (%.1f%% pool stress)\n", sysMaxCores, (sysMaxCores/sysTotalCores)*100)
 		fmt.Fprintln(w, "   -------------------------------------------------------------------------")
 		fmt.Fprintf(w, "   Installed Hardware Memory          :\t%.1f GB\n", sysTotalMem)
@@ -429,21 +434,21 @@ func main() {
 		fmt.Fprintf(w, "   Absolute Hardware Peak RAM Draw    :\t%.1f GB (%.1f%% cap boundaries)\n", maxMemUsed, (maxMemUsed/sysTotalMem)*100)
 
 	case "LPAR":
-		avgLparCpu := lparSumCpu / float64(sampleCount)
+		avgLparCPU := lparSumCPU / float64(sampleCount)
 		fmt.Fprintf(w, "   Partition Core Entitlement         :\t%.2f Cores\n", lparEntitled)
-		fmt.Fprintf(w, "   Average Runtime Compute Footprint  :\t%.2f Cores (%.1f%% entitlement match)\n", avgLparCpu, (avgLparCpu/lparEntitled)*100)
-		fmt.Fprintf(w, "   Absolute Workload Core Spike Peak  :\t%.2f Cores (%.1f%% sizing ratio)\n", lparMaxCpu, (lparMaxCpu/lparEntitled)*100)
+		fmt.Fprintf(w, "   Average Runtime Compute Footprint  :\t%.2f Cores (%.1f%% entitlement match)\n", avgLparCPU, (avgLparCPU/lparEntitled)*100)
+		fmt.Fprintf(w, "   Absolute Workload Core Spike Peak  :\t%.2f Cores (%.1f%% sizing ratio)\n", lparMaxCPU, (lparMaxCPU/lparEntitled)*100)
 		fmt.Fprintln(w, "   -------------------------------------------------------------------------")
 		fmt.Fprintf(w, "   Profile Assigned Memory Bounds     :\t%.1f GB Desired\n", lparDesiredMem)
 		fmt.Fprintf(w, "   Peak Physical RAM Allocation       :\t%.1f GB Backed Physical Pool Alloc\n", lparMaxMem)
 
 	case "VIOS":
-		avgViosMem := viosSumMem / float64(sampleCount)
+		avgVIOSMem := viosSumMem / float64(sampleCount)
 		fmt.Fprintf(w, "   Target Virtual I/O Domain Name     :\t%s\n", *viosName)
-		fmt.Fprintf(w, "   Average Shared Core Workspace RAM  :\t%.2f MB Used\n", avgViosMem)
+		fmt.Fprintf(w, "   Average Shared Core Workspace RAM  :\t%.2f MB Used\n", avgVIOSMem)
 		fmt.Fprintf(w, "   Peak Workspace Memory Allocation   :\t%.2f MB\n", viosMaxMem)
 	}
-	
+
 	fmt.Fprintln(w, "=========================================================================")
 	w.Flush()
 }

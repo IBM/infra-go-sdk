@@ -67,7 +67,7 @@ func (l *Logger) EnableDebug() {
     l.SetLevel(log.DebugLevel)
 }
 
-// Optional: If you ever need to toggle it back off programmatically
+// DisableDebug switches the logger back to warn-level messages
 func (l *Logger) DisableDebug() {
     l.SetLevel(log.WarnLevel) // Or InfoLevel, depending on your baseline preference
 }
