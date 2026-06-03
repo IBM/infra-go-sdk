@@ -27,7 +27,7 @@ func main() {
 	}
 
 	// 1. CONNECT & LOGON
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
@@ -42,7 +42,7 @@ func main() {
 	// 3. FORCE REFRESH METRIC STREAM (Ensures raw engines are firing)
 	fmt.Printf("\n⚙️  Verifying active 30-second telemetry streaming status on '%s'...\n", *sysName)
 	pcmCmd := fmt.Sprintf("chlparutil -m %s -r config -s 30", *sysName)
-	_, err = hmc.CliRunnerViaSsh(*hmcIP, *username, *password, pcmCmd, false)
+	_, err = hmc.CliRunnerViaSSH(*hmcIP, *username, *password, pcmCmd, false)
 	if err != nil {
 		log.Printf("⚠️ Configuration notice: %v", err)
 	}

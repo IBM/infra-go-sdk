@@ -60,7 +60,7 @@ func main() {
 	// 3. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	cliLogger.Info("Logging into HMC", "ip", *hmcIP)
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 
 	if *verbose {
 		restClient.EnableVerboseLogging()

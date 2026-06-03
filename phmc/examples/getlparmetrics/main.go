@@ -109,7 +109,7 @@ func main() {
     // =========================================================================
     // AUTHENTICATION
     // =========================================================================
-    restClient := hmc.NewHmcRestClient(*hmcIP)
+    restClient := hmc.NewRestClient(*hmcIP)
 
     if *verbose {
         log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
@@ -164,7 +164,7 @@ func main() {
     fmt.Printf("\n⚙️  Ensuring PCM data collection is enabled on '%s'...\n", *sysName)
     pcmCmd := fmt.Sprintf("chlparutil -m %s -r config -s 30", *sysName)
     
-    output, err := hmc.CliRunnerViaSsh(*hmcIP, *username, *password, pcmCmd, *verbose)
+    output, err := hmc.CliRunnerViaSSH(*hmcIP, *username, *password, pcmCmd, *verbose)
     if err != nil {
         log.Printf("⚠️ Warning: Failed to enable PCM via CLI: %v\nOutput: %s", err, output)
     } else {

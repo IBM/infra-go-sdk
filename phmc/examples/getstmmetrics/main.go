@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// 1. CONNECT & LOGON
-	restClient := hmc.NewHmcRestClient(*hmcIP) // Initializes insecure TLS client [cite: 128]
+	restClient := hmc.NewRestClient(*hmcIP) // Initializes insecure TLS client [cite: 128]
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil { // Authenticates with session token [cite: 106, 118]
 		log.Fatalf("❌ Logon failed: %v", err)
 	}

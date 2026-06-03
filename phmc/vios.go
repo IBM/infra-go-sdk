@@ -17,7 +17,7 @@ import (
 // ConfigDevice submits a job request to configure a device on a Virtual I/O Server.
 // If devName is empty, it attempts to configure all devices.
 // It waits for the job to complete and checks for success.
-func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName string, debug bool) error {
+func (c *RestClient) ConfigDevice(ctx context.Context, viosID string, devName string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/ConfigDevice", c.hmcIP, viosID)
 	if debug {
 		c.Logger.Debug("Submitting ConfigDevice job", "viosID", viosID, "url", url)
@@ -149,9 +149,9 @@ func (c *HmcRestClient) ConfigDevice(ctx context.Context,viosID string, devName 
 }
 
 // GetVirtualIOServersQuick retrieves the exhaustive quick list of Virtual I/O Servers for a given managed system UUID.
-func (c *HmcRestClient) GetVirtualIOServersQuick(ctx context.Context, systemUUID string, debug bool) ([]VIOSQuick, error) {
+func (c *RestClient) GetVirtualIOServersQuick(ctx context.Context, systemUUID string, debug bool) ([]VIOSQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer/quick/All", c.hmcIP, systemUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Fetching quick VIOS list", "systemUUID", systemUUID)
 	}
@@ -160,7 +160,7 @@ func (c *HmcRestClient) GetVirtualIOServersQuick(ctx context.Context, systemUUID
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
-	
+
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/json")
 
@@ -214,7 +214,7 @@ func (c *HmcRestClient) GetVirtualIOServersQuick(ctx context.Context, systemUUID
 }
 
 // GetFreePhyVolume retrieves free physical volumes for a given VIOS UUID
-func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]PhysicalVolume, error) {
+func (c *RestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]PhysicalVolume, error) {
 	if debug {
 		c.Logger.Debug("Fetching free physical volumes", "viosUUID", viosUUID)
 	}
@@ -346,7 +346,7 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]Physica
 		}
 		return nil, fmt.Errorf("result not found in job response")
 	}
-	
+
 	if debug {
 		c.Logger.Debug("resultElem content parsed", "content", pvXML)
 	}
@@ -379,13 +379,13 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]Physica
 	if debug {
 		c.Logger.Info("Found free physical volumes", "count", len(listPv), "viosUUID", viosUUID)
 		for i, pv := range listPv {
-			c.Logger.Debug(fmt.Sprintf("Physical Volume %d", i+1), 
-				"Name", pv.VolumeName, 
-				"VolumeUniqueID", pv.VolumeUniqueID, 
-				"UniqueDeviceID", pv.UniqueDeviceID, 
-				"StorageLabel", pv.StorageLabel, 
-				"Capacity", pv.VolumeCapacity, 
-				"LocationCode", pv.LocationCode, 
+			c.Logger.Debug(fmt.Sprintf("Physical Volume %d", i+1),
+				"Name", pv.VolumeName,
+				"VolumeUniqueID", pv.VolumeUniqueID,
+				"UniqueDeviceID", pv.UniqueDeviceID,
+				"StorageLabel", pv.StorageLabel,
+				"Capacity", pv.VolumeCapacity,
+				"LocationCode", pv.LocationCode,
 				"State", pv.VolumeState)
 		}
 	}
@@ -393,9 +393,9 @@ func (c *HmcRestClient) GetFreePhyVolume(viosUUID string, debug bool) ([]Physica
 }
 
 // removeDeviceViaJob removes a specific device from VIOS using the RemoveDevice job operation
-func (c *HmcRestClient) removeDeviceViaJob(viosUUID, deviceName string, debug bool) error {
+func (c *RestClient) removeDeviceViaJob(viosUUID, deviceName string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/RemoveDevice", c.hmcIP, viosUUID)
-	
+
 	operation := map[string]string{
 		"OperationName": "RemoveDevice",
 		"GroupName":     "VirtualIOServer",
@@ -404,11 +404,13 @@ func (c *HmcRestClient) removeDeviceViaJob(viosUUID, deviceName string, debug bo
 
 	// devName MUST be the vtscsi mapping name, not the hdisk!
 	params := map[string]string{
-		"devName": deviceName, 
+		"devName": deviceName,
 	}
 
 	payload, err := createJobRequestPayload(operation, params, "V1_1_0", debug, true)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
@@ -421,7 +423,9 @@ func (c *HmcRestClient) removeDeviceViaJob(viosUUID, deviceName string, debug bo
 	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(req.WithContext(ctx))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
@@ -439,10 +443,11 @@ func (c *HmcRestClient) removeDeviceViaJob(viosUUID, deviceName string, debug bo
 	}
 	return fmt.Errorf("JobID not found")
 }
+
 // RemoveVIOSDevice executes the RemoveDevice job on the VIOS to delete a physical volume (e.g., hdisk3)
-func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, debug bool) error {
+func (c *RestClient) RemoveVIOSDevice(viosUUID, deviceName string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/RemoveDevice", c.hmcIP, viosUUID)
-	
+
 	operation := map[string]string{
 		"OperationName": "RemoveDevice",
 		"GroupName":     "VirtualIOServer",
@@ -450,11 +455,13 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, debug bool
 	}
 
 	params := map[string]string{
-		"devName": deviceName, 
+		"devName": deviceName,
 	}
 
 	payload, err := createJobRequestPayload(operation, params, "V1_1_0", debug, true)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
@@ -467,7 +474,9 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, debug bool
 	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(req.WithContext(ctx))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
@@ -483,17 +492,16 @@ func (c *HmcRestClient) RemoveVIOSDevice(viosUUID, deviceName string, debug bool
 
 	doc, _ := xmlStripNamespace(body)
 	if jobIDElem := doc.FindElement("//JobID"); jobIDElem != nil {
-		if debug { c.Logger.Info("Removing device from VIOS", "deviceName", deviceName, "jobID", jobIDElem.Text()) }
+		if debug {
+			c.Logger.Info("Removing device from VIOS", "deviceName", deviceName, "jobID", jobIDElem.Text())
+		}
 		// Wait for the VIOS to finish deleting the disk
 		_, err = c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 5, debug)
 		return err
 	}
-	
+
 	return fmt.Errorf("JobID not found in RemoveDevice response")
 }
-
-
-
 
 // =====================================================================
 // HELPER FUNCTIONS
@@ -515,11 +523,11 @@ func getElementText(root *etree.Element, path string) string {
 // VIOS METHODS
 // =====================================================================
 
-// GetVirtualIOServers retrieves detailed, comprehensive information for all Virtual I/O Servers 
+// GetVirtualIOServers retrieves detailed, comprehensive information for all Virtual I/O Servers
 // of a managed system using exhaustive Go struct unmarshaling.
-func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, debug bool) ([]VirtualIOServerDetailed, error) {
+func (c *RestClient) GetVirtualIOServers(systemUUID string, debug bool) ([]VirtualIOServerDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Fetching exhaustive VIOS details", "systemUUID", systemUUID)
 	}
@@ -594,8 +602,9 @@ func (c *HmcRestClient) GetVirtualIOServers(systemUUID string, debug bool) ([]Vi
 
 	return viosList, nil
 }
+
 // GetVirtualIOServer retrieves detailed information for a specific Virtual I/O Server using its UUID.
-func (c *HmcRestClient) GetVirtualIOServer(ctx context.Context, viosUUID string, debug bool) (*VirtualIOServerDetailed, error) {
+func (c *RestClient) GetVirtualIOServer(ctx context.Context, viosUUID string, debug bool) (*VirtualIOServerDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
 	if debug {
 		c.Logger.Debug("Fetching VIOS details", "viosUUID", viosUUID, "url", url)
@@ -665,9 +674,9 @@ func (c *HmcRestClient) GetVirtualIOServer(ctx context.Context, viosUUID string,
 }
 
 // GetVirtualSCSIServerAdapters retrieves a list of all Virtual SCSI Server Adapters (vhost) configured on a specific VIOS.
-func (c *HmcRestClient) GetVirtualSCSIServerAdapters(viosUUID string, debug bool) ([]VirtualSCSIServerAdapter, error) {
+func (c *RestClient) GetVirtualSCSIServerAdapters(viosUUID string, debug bool) ([]VirtualSCSIServerAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VirtualSCSIServerAdapter", c.hmcIP, viosUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Fetching Virtual SCSI Server Adapters", "viosUUID", viosUUID, "url", url)
 	}
@@ -729,11 +738,11 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapters(viosUUID string, debug bool
 
 		// Use XML unmarshaling to automatically populate the struct
 		var adapter VirtualSCSIServerAdapter
-		
+
 		// Create a new document with the VirtualSCSIServerAdapter element as root
 		adapterDoc := etree.NewDocument()
 		adapterDoc.SetRoot(adapterElem.Copy())
-		
+
 		adapterBytes, err := adapterDoc.WriteToBytes()
 		if err != nil {
 			if debug {
@@ -771,9 +780,9 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapters(viosUUID string, debug bool
 }
 
 // GetVirtualSCSIServerAdapter retrieves the details of a specific Virtual SCSI Server Adapter (vhost) using its UUID.
-func (c *HmcRestClient) GetVirtualSCSIServerAdapter(viosUUID, adapterUUID string, debug bool) (*VirtualSCSIServerAdapter, error) {
+func (c *RestClient) GetVirtualSCSIServerAdapter(viosUUID, adapterUUID string, debug bool) (*VirtualSCSIServerAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VirtualSCSIServerAdapter/%s", c.hmcIP, viosUUID, adapterUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Fetching specific Virtual SCSI Server Adapter", "url", url)
 	}
@@ -828,11 +837,11 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapter(viosUUID, adapterUUID string
 
 	// Use XML unmarshaling to automatically populate the struct
 	var adapter VirtualSCSIServerAdapter
-	
+
 	// Create a new document with the VirtualSCSIServerAdapter element as root
 	adapterDoc := etree.NewDocument()
 	adapterDoc.SetRoot(adapterElem.Copy())
-	
+
 	adapterBytes, err := adapterDoc.WriteToBytes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize VirtualSCSIServerAdapter element: %v", err)
@@ -844,7 +853,7 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapter(viosUUID, adapterUUID string
 
 	// Set the Link field (we already know the direct URL)
 	adapter.Link = url
-	
+
 	// Populate deprecated ID field for backward compatibility
 	adapter.ID = adapter.UUID
 
@@ -852,9 +861,9 @@ func (c *HmcRestClient) GetVirtualSCSIServerAdapter(viosUUID, adapterUUID string
 }
 
 // DeleteVirtualSCSIServerAdapter removes a specific Virtual SCSI Server Adapter (vhost) from a VIOS.
-func (c *HmcRestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID string, debug bool) error {
+func (c *RestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VirtualSCSIServerAdapter/%s", c.hmcIP, viosUUID, adapterUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Deleting Virtual SCSI Server Adapter", "url", url)
 	}
@@ -875,7 +884,7 @@ func (c *HmcRestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID str
 	if err != nil {
 		return fmt.Errorf("HTTP request failed: %v", err)
 	}
-	
+
 	// Read the body even if it's empty to ensure the connection is freed properly
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -901,7 +910,7 @@ func (c *HmcRestClient) DeleteVirtualSCSIServerAdapter(viosUUID, adapterUUID str
 }
 
 // GetViosSCSIMappings retrieves and fully parses all VSCSI mappings for a specific VIOS.
-func (c *HmcRestClient) GetViosSCSIMappings(ctx context.Context, viosUUID string, debug bool) ([]VirtualSCSIMapping, error) {
+func (c *RestClient) GetViosSCSIMappings(ctx context.Context, viosUUID string, debug bool) ([]VirtualSCSIMapping, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
 
 	if debug {
@@ -953,19 +962,19 @@ func (c *HmcRestClient) GetViosSCSIMappings(ctx context.Context, viosUUID string
 		// Create a new document with mappingElem as root for serialization
 		mappingDoc := etree.NewDocument()
 		mappingDoc.SetRoot(mappingElem.Copy())
-		
+
 		// Serialize to bytes
 		mappingBytes, err := mappingDoc.WriteToBytes()
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize VirtualSCSIMapping element: %v", err)
 		}
-		
+
 		// Unmarshal into VirtualSCSIMapping struct
 		var mapping VirtualSCSIMapping
 		if err := xml.Unmarshal(mappingBytes, &mapping); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal VirtualSCSIMapping: %v", err)
 		}
-		
+
 		mappingsList = append(mappingsList, mapping)
 	}
 
@@ -981,168 +990,169 @@ func (c *HmcRestClient) GetViosSCSIMappings(ctx context.Context, viosUUID string
 // =====================================================================
 
 // GetVolumeGroups retrieves a list of all Volume Groups configured on a specific VIOS.
-func (c *HmcRestClient) GetVolumeGroups(ctx context.Context, viosUUID string, debug bool) ([]VolumeGroup, error) {
-    url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup", c.hmcIP, viosUUID)
+func (c *RestClient) GetVolumeGroups(ctx context.Context, viosUUID string, debug bool) ([]VolumeGroup, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup", c.hmcIP, viosUUID)
 
-    if debug {
-        c.Logger.Debug("Fetching Volume Groups", "viosUUID", viosUUID, "url", url)
-    }
+	if debug {
+		c.Logger.Debug("Fetching Volume Groups", "viosUUID", viosUUID, "url", url)
+	}
 
-    req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create request: %v", err)
-    }
-    req.Header.Set("X-API-Session", c.session)
-    req.Header.Set("Accept", "application/atom+xml")
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
 
-    ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
-    defer cancel()
-    req = req.WithContext(ctxWithTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req = req.WithContext(ctxWithTimeout)
 
-    c.logRawTraffic("REQUEST (GET)", url, "")
+	c.logRawTraffic("REQUEST (GET)", url, "")
 
-    resp, err := c.client.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("HTTP request failed: %v", err)
-    }
-    defer resp.Body.Close()
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
 
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to read response body: %v", err)
-    }
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
 
-    c.logRawTraffic("RESPONSE", url, string(body))
+	c.logRawTraffic("RESPONSE", url, string(body))
 
-    if resp.StatusCode != http.StatusOK {
-        if debug {
-            return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
-        }
-        return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
-    }
+	if resp.StatusCode != http.StatusOK {
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
+	}
 
-    doc, err := xmlStripNamespace(body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
-    }
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
 
-    var volumeGroups []VolumeGroup
+	var volumeGroups []VolumeGroup
 
-    entries := doc.FindElements("//entry")
-    for _, entry := range entries {
-        vgElem := entry.FindElement(".//VolumeGroup")
-        if vgElem == nil {
-            continue
-        }
+	entries := doc.FindElements("//entry")
+	for _, entry := range entries {
+		vgElem := entry.FindElement(".//VolumeGroup")
+		if vgElem == nil {
+			continue
+		}
 
-        // Use XML unmarshaling to automatically populate the struct
-        var vg VolumeGroup
-        
-        // Create a new document with the VolumeGroup element as root
-        vgDoc := etree.NewDocument()
-        vgDoc.SetRoot(vgElem.Copy())
-        
-        vgBytes, err := vgDoc.WriteToBytes()
-        if err != nil {
-            if debug {
-                c.Logger.Warn("Warning: failed to serialize VolumeGroup element", "error", err)
-            }
-            continue
-        }
+		// Use XML unmarshaling to automatically populate the struct
+		var vg VolumeGroup
 
-        if err := xml.Unmarshal(vgBytes, &vg); err != nil {
-            if debug {
-                c.Logger.Warn("Warning: failed to unmarshal VolumeGroup", "error", err)
-            }
-            continue
-        }
+		// Create a new document with the VolumeGroup element as root
+		vgDoc := etree.NewDocument()
+		vgDoc.SetRoot(vgElem.Copy())
 
-        volumeGroups = append(volumeGroups, vg)
-    }
+		vgBytes, err := vgDoc.WriteToBytes()
+		if err != nil {
+			if debug {
+				c.Logger.Warn("Warning: failed to serialize VolumeGroup element", "error", err)
+			}
+			continue
+		}
 
-    return volumeGroups, nil
+		if err := xml.Unmarshal(vgBytes, &vg); err != nil {
+			if debug {
+				c.Logger.Warn("Warning: failed to unmarshal VolumeGroup", "error", err)
+			}
+			continue
+		}
+
+		volumeGroups = append(volumeGroups, vg)
+	}
+
+	return volumeGroups, nil
 }
 
 // GetVolumeGroup retrieves the details of a specific Volume Group on a Virtual I/O Server.
-func (c *HmcRestClient) GetVolumeGroup(viosUUID, vgUUID string, debug bool) (*VolumeGroup, error) {
-    url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup/%s", c.hmcIP, viosUUID, vgUUID)
+func (c *RestClient) GetVolumeGroup(viosUUID, vgUUID string, debug bool) (*VolumeGroup, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup/%s", c.hmcIP, viosUUID, vgUUID)
 
-    if debug {
-        c.Logger.Debug("Fetching Volume Group", "vgUUID", vgUUID, "viosUUID", viosUUID, "url", url)
-    }
+	if debug {
+		c.Logger.Debug("Fetching Volume Group", "vgUUID", vgUUID, "viosUUID", viosUUID, "url", url)
+	}
 
-    req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create request: %v", err)
-    }
-    req.Header.Set("X-API-Session", c.session)
-    req.Header.Set("Accept", "application/atom+xml")
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml")
 
-    ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-    defer cancel()
-    req = req.WithContext(ctx)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
 
-    c.logRawTraffic("REQUEST (GET)", url, "")
+	c.logRawTraffic("REQUEST (GET)", url, "")
 
-    resp, err := c.client.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("HTTP request failed: %v", err)
-    }
-    defer resp.Body.Close()
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
 
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to read response body: %v", err)
-    }
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
 
-    c.logRawTraffic("RESPONSE", url, string(body))
+	c.logRawTraffic("RESPONSE", url, string(body))
 
-    if resp.StatusCode != http.StatusOK {
-        if debug {
-            return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
-        }
-        return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
-    }
+	if resp.StatusCode != http.StatusOK {
+		if debug {
+			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
+	}
 
-    doc, err := xmlStripNamespace(body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
-    }
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
 
-    vgElem := doc.FindElement("//VolumeGroup")
-    if vgElem == nil {
-        return nil, fmt.Errorf("VolumeGroup node not found in response")
-    }
+	vgElem := doc.FindElement("//VolumeGroup")
+	if vgElem == nil {
+		return nil, fmt.Errorf("VolumeGroup node not found in response")
+	}
 
-    // Use XML unmarshaling to automatically populate the struct
-    var vg VolumeGroup
-    
-    // Create a new document with the VolumeGroup element as root
-    vgDoc := etree.NewDocument()
-    vgDoc.SetRoot(vgElem.Copy())
-    
-    vgBytes, err := vgDoc.WriteToBytes()
-    if err != nil {
-        return nil, fmt.Errorf("failed to serialize VolumeGroup element: %v", err)
-    }
-    
-    if err := xml.Unmarshal(vgBytes, &vg); err != nil {
-        return nil, fmt.Errorf("failed to unmarshal VolumeGroup: %v", err)
-    }
+	// Use XML unmarshaling to automatically populate the struct
+	var vg VolumeGroup
 
-    if debug {
-        c.Logger.Info("Successfully parsed Volume Group", "groupName", vg.GroupName, "uuid", vg.UUID)
-        c.Logger.Debug("Volume Group Contents", "VirtualDisks", len(vg.VirtualDisks), "OpticalMedia", len(vg.OpticalMedia), "PhysicalVolumes", len(vg.PhysicalVolumes))
-    }
+	// Create a new document with the VolumeGroup element as root
+	vgDoc := etree.NewDocument()
+	vgDoc.SetRoot(vgElem.Copy())
 
-    return &vg, nil
+	vgBytes, err := vgDoc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize VolumeGroup element: %v", err)
+	}
+
+	if err := xml.Unmarshal(vgBytes, &vg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal VolumeGroup: %v", err)
+	}
+
+	if debug {
+		c.Logger.Info("Successfully parsed Volume Group", "groupName", vg.GroupName, "uuid", vg.UUID)
+		c.Logger.Debug("Volume Group Contents", "VirtualDisks", len(vg.VirtualDisks), "OpticalMedia", len(vg.OpticalMedia), "PhysicalVolumes", len(vg.PhysicalVolumes))
+	}
+
+	return &vg, nil
 }
+
 // =====================================================================
 // CREATE VOLUME GROUP
 // =====================================================================
 
 // CreateVolumeGroup creates a new Volume Group on a VIOS using the specified physical volumes.
-func (c *HmcRestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolumes []string, debug bool) error {
+func (c *RestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolumes []string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VolumeGroup", c.hmcIP, viosUUID)
 
 	if debug {
@@ -1171,7 +1181,7 @@ func (c *HmcRestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolum
 	}
 
 	// 3. Create the HTTP Request
-	// Note: While standard REST uses POST for creation, some HMC versions expect PUT here. 
+	// Note: While standard REST uses POST for creation, some HMC versions expect PUT here.
 	// If you get a 405 Method Not Allowed, switch this to "POST".
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
 	if err != nil {
@@ -1242,7 +1252,7 @@ func (c *HmcRestClient) CreateVolumeGroup(viosUUID, vgName string, physicalVolum
 
 // CreateVirtualDisk safely creates a Logical Volume (Virtual Disk) inside a standard Volume Group.
 // It verifies the host Volume Group has enough free space and checks for naming collisions before executing.
-func (c *HmcRestClient) CreateVirtualDisk(ctx context.Context, sysName, viosUUID, viosName, vgName, diskName string, capacityMB int, debug bool) error {
+func (c *RestClient) CreateVirtualDisk(ctx context.Context, sysName, viosUUID, viosName, vgName, diskName string, capacityMB int, debug bool) error {
 	requiredGB := float64(capacityMB) / 1024.0
 
 	if debug {
@@ -1318,7 +1328,7 @@ func (c *HmcRestClient) CreateVirtualDisk(ctx context.Context, sysName, viosUUID
 
 // DeleteVirtualDisk safely removes a Logical Volume (Virtual Disk) from a VIOS.
 // It uses the native VIOS rmlv command with the -f flag to bypass confirmation prompts.
-func (c *HmcRestClient) DeleteVirtualDisk(ctx context.Context, sysName, viosName, diskName string, debug bool) error {
+func (c *RestClient) DeleteVirtualDisk(ctx context.Context, sysName, viosName, diskName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Safely deleting Virtual Disk via CLI", "diskName", diskName, "viosName", viosName)
 	}
@@ -1326,7 +1336,7 @@ func (c *HmcRestClient) DeleteVirtualDisk(ctx context.Context, sysName, viosName
 	// Syntax: rmlv -f <diskName>
 	// The -f flag is required for automation so the OS does not wait for user input.
 	rmlvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmlv -f %s"`, sysName, viosName, diskName)
-	
+
 	if debug {
 		c.Logger.Debug("Executing", "command", rmlvCmd)
 	}
@@ -1349,7 +1359,7 @@ func (c *HmcRestClient) DeleteVirtualDisk(ctx context.Context, sysName, viosName
 
 // ExtendVirtualDisk safely increases the size of an existing Logical Volume (Virtual Disk).
 // It automatically queries the HMC to verify the host Volume Group has enough free space before executing.
-func (c *HmcRestClient) ExtendVirtualDisk(ctx context.Context, sysName, viosUUID, viosName, diskName string, additionalMB int, debug bool) error {
+func (c *RestClient) ExtendVirtualDisk(ctx context.Context, sysName, viosUUID, viosName, diskName string, additionalMB int, debug bool) error {
 	requiredGB := float64(additionalMB) / 1024.0
 
 	if debug {
@@ -1367,7 +1377,7 @@ func (c *HmcRestClient) ExtendVirtualDisk(ctx context.Context, sysName, viosUUID
 		for _, vd := range vg.VirtualDisks {
 			if strings.EqualFold(vd.DiskName, diskName) {
 				foundVgName = vg.GroupName
-				
+
 				freeSpaceGB, parseErr := strconv.ParseFloat(vg.FreeSpace, 64)
 				if parseErr != nil {
 					return fmt.Errorf("failed to parse FreeSpace for VG '%s': %v", vg.GroupName, parseErr)
@@ -1399,7 +1409,7 @@ func (c *HmcRestClient) ExtendVirtualDisk(ctx context.Context, sysName, viosUUID
 	}
 
 	extendlvCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "extendlv %s %dM"`, sysName, viosName, diskName, additionalMB)
-	
+
 	output, err := c.CliRunner(ctx, extendlvCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to extend Virtual Disk via extendlv: %v\nOutput: %s", err, output)
@@ -1411,15 +1421,16 @@ func (c *HmcRestClient) ExtendVirtualDisk(ctx context.Context, sysName, viosUUID
 
 	return nil
 }
+
 // =====================================================================
 // VIRTUAL OPTICAL MEDIA (ISO) - SMART CLI METHODS (viosvrcmd)
 // =====================================================================
 
 // CreateVirtualOpticalMedia creates a Virtual Optical Media (ISO) in the VIOS Media Repository.
-// If sourceFile is provided, it imports an existing ISO. 
+// If sourceFile is provided, it imports an existing ISO.
 // If nfsLink is true (only valid with sourceFile), it links to the file instead of copying it.
 // If readOnly is true, the media is created with the -ro flag to prevent accidental overwrites.
-func (c *HmcRestClient) CreateVirtualOpticalMedia(ctx context.Context, sysName, viosUUID, viosName, mediaName, sourceFile string, sizeMB int, readOnly, nfsLink, debug bool) error {
+func (c *RestClient) CreateVirtualOpticalMedia(ctx context.Context, sysName, viosUUID, viosName, mediaName, sourceFile string, sizeMB int, readOnly, nfsLink, debug bool) error {
 	if nfsLink && sourceFile == "" {
 		return fmt.Errorf("ABORT: The -nfslink flag can only be used when providing a sourceFile")
 	}
@@ -1454,7 +1465,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMedia(ctx context.Context, sysName, 
 		if nfsLink {
 			nfsFlag = " -nfslink"
 		}
-		
+
 		if debug {
 			c.Logger.Info("Pre-flight passed. Importing ISO from file", "sourceFile", sourceFile, "readOnly", readOnly, "nfsLink", nfsLink)
 		}
@@ -1495,14 +1506,14 @@ func (c *HmcRestClient) CreateVirtualOpticalMedia(ctx context.Context, sysName, 
 
 // DeleteVirtualOpticalMedia safely removes a Virtual Optical Media (ISO) from a VIOS Media Repository.
 // It uses the native VIOS rmvopt command. Note: The media must be unloaded/unmapped from all LPARs before it can be deleted.
-func (c *HmcRestClient) DeleteVirtualOpticalMedia(ctx context.Context, sysName, viosName, mediaName string, debug bool) error {
+func (c *RestClient) DeleteVirtualOpticalMedia(ctx context.Context, sysName, viosName, mediaName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Safely deleting Virtual Optical Media via CLI", "mediaName", mediaName, "viosName", viosName)
 	}
 
 	// Syntax: rmvopt -name <mediaName>
 	rmvoptCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmvopt -name %s"`, sysName, viosName, mediaName)
-	
+
 	if debug {
 		c.Logger.Debug("Executing", "command", rmvoptCmd)
 	}
@@ -1519,16 +1530,16 @@ func (c *HmcRestClient) DeleteVirtualOpticalMedia(ctx context.Context, sysName, 
 	return nil
 }
 
-// GetVirtualOpticalMedias retrieves a list of all Virtual Optical Media (ISO files) 
+// GetVirtualOpticalMedias retrieves a list of all Virtual Optical Media (ISO files)
 // currently physically present in the VIOS Media Repository using the native VIOS CLI (lsrep).
-func (c *HmcRestClient) GetVirtualOpticalMedias(ctx context.Context, sysName, viosName string, debug bool) ([]VirtualOpticalMedia, error) {
+func (c *RestClient) GetVirtualOpticalMedias(ctx context.Context, sysName, viosName string, debug bool) ([]VirtualOpticalMedia, error) {
 	if debug {
 		c.Logger.Debug("Fetching Virtual Optical Media from repository via CLI", "viosName", viosName, "sysName", sysName)
 	}
 
 	// Syntax: lsrep
 	lsrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lsrep"`, sysName, viosName)
-	
+
 	output, err := c.CliRunner(ctx, lsrepCmd, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list media repository via lsrep: %v\nOutput: %s", err, output)
@@ -1550,7 +1561,7 @@ func (c *HmcRestClient) GetVirtualOpticalMedias(ctx context.Context, sysName, vi
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		// Skip empty lines
 		if line == "" {
 			continue
@@ -1573,7 +1584,7 @@ func (c *HmcRestClient) GetVirtualOpticalMedias(ctx context.Context, sysName, vi
 			fields := strings.Fields(line)
 			if len(fields) > 0 {
 				mediaName := fields[0]
-				
+
 				size := ""
 				if len(fields) >= 2 {
 					size = fields[1]
@@ -1605,7 +1616,7 @@ func (c *HmcRestClient) GetVirtualOpticalMedias(ctx context.Context, sysName, vi
 // GetVirtualOpticalMedia retrieves the details of a specific Virtual Optical Media (ISO)
 // by searching the physical VIOS media repository via the CLI.
 // Returns an error if the specified media is not found.
-func (c *HmcRestClient) GetVirtualOpticalMedia(ctx context.Context, sysName, viosName, mediaName string, debug bool) (*VirtualOpticalMedia, error) {
+func (c *RestClient) GetVirtualOpticalMedia(ctx context.Context, sysName, viosName, mediaName string, debug bool) (*VirtualOpticalMedia, error) {
 	if debug {
 		c.Logger.Debug("Fetching specific Virtual Optical Media via CLI", "mediaName", mediaName, "viosName", viosName)
 	}
@@ -1620,8 +1631,8 @@ func (c *HmcRestClient) GetVirtualOpticalMedia(ctx context.Context, sysName, vio
 	for _, media := range mediaList {
 		if media.MediaName == mediaName {
 			if debug {
-				c.Logger.Info("Successfully found optical media in repository", 
-					"mediaName", media.MediaName, 
+				c.Logger.Info("Successfully found optical media in repository",
+					"mediaName", media.MediaName,
 					"size", media.Size,
 					"mountType", media.MountType,
 				)
@@ -1638,14 +1649,14 @@ func (c *HmcRestClient) GetVirtualOpticalMedia(ctx context.Context, sysName, vio
 }
 
 // LoadVirtualOpticalMedia loads a virtual optical media (ISO) into an existing Virtual Target Device (VTD) on the VIOS.
-func (c *HmcRestClient) LoadVirtualOpticalMedia(ctx context.Context, sysName, viosName, vtdName, mediaName string, debug bool) error {
+func (c *RestClient) LoadVirtualOpticalMedia(ctx context.Context, sysName, viosName, vtdName, mediaName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Loading Virtual Optical Media into VTD via CLI", "mediaName", mediaName, "vtdName", vtdName, "viosName", viosName)
 	}
 
 	// Syntax: loadopt -disk <mediaName> -vtd <vtdName>
 	loadoptCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "loadopt -disk %s -vtd %s"`, sysName, viosName, mediaName, vtdName)
-	
+
 	if debug {
 		c.Logger.Debug("Executing", "command", loadoptCmd)
 	}
@@ -1663,14 +1674,14 @@ func (c *HmcRestClient) LoadVirtualOpticalMedia(ctx context.Context, sysName, vi
 }
 
 // UnloadVirtualOpticalMedia unloads a virtual optical media (ISO) from a Virtual Target Device (VTD) on the VIOS.
-func (c *HmcRestClient) UnloadVirtualOpticalMedia(ctx context.Context, sysName, viosName, vtdName string, debug bool) error {
+func (c *RestClient) UnloadVirtualOpticalMedia(ctx context.Context, sysName, viosName, vtdName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Unloading Virtual Optical Media from VTD via CLI", "vtdName", vtdName, "viosName", viosName)
 	}
 
 	// Syntax: unloadopt -vtd <vtdName>
 	unloadoptCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "unloadopt -vtd %s"`, sysName, viosName, vtdName)
-	
+
 	if debug {
 		c.Logger.Debug("Executing", "command", unloadoptCmd)
 	}
@@ -1693,7 +1704,7 @@ func (c *HmcRestClient) UnloadVirtualOpticalMedia(ctx context.Context, sysName, 
 
 // CreateMediaRepository safely creates the Virtual Media Repository on a VIOS.
 // It verifies that no repository currently exists on the VIOS, and that the target VG has enough space.
-func (c *HmcRestClient) CreateMediaRepository(ctx context.Context, sysName, viosUUID, viosName, vgName string, sizeMB int, debug bool) error {
+func (c *RestClient) CreateMediaRepository(ctx context.Context, sysName, viosUUID, viosName, vgName string, sizeMB int, debug bool) error {
 	requiredGB := float64(sizeMB) / 1024.0
 
 	if debug {
@@ -1767,7 +1778,7 @@ func (c *HmcRestClient) CreateMediaRepository(ctx context.Context, sysName, vios
 
 // DeleteMediaRepository removes the Virtual Media Repository from a VIOS.
 // It verifies the repo exists, checks for media if force is false, and warns if force is true.
-func (c *HmcRestClient) DeleteMediaRepository(ctx context.Context, sysName, viosUUID, viosName, repoName string, force, debug bool) error {
+func (c *RestClient) DeleteMediaRepository(ctx context.Context, sysName, viosUUID, viosName, repoName string, force, debug bool) error {
 	if debug {
 		c.Logger.Debug("Pre-flight check: Looking for Media Repository", "repoName", repoName, "viosName", viosName)
 	}
@@ -1817,7 +1828,7 @@ func (c *HmcRestClient) DeleteMediaRepository(ctx context.Context, sysName, vios
 	}
 
 	rmrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rmrep%s"`, sysName, viosName, forceFlag)
-	
+
 	output, err := c.CliRunner(ctx, rmrepCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to delete Media Repository via CLI: %v\nOutput: %s", err, output)
@@ -1829,6 +1840,7 @@ func (c *HmcRestClient) DeleteMediaRepository(ctx context.Context, sysName, vios
 
 	return nil
 }
+
 // =====================================================================
 // CHANGE MEDIA REPOSITORY (EXTEND) - SMART CLI METHOD
 // =====================================================================
@@ -1836,7 +1848,7 @@ func (c *HmcRestClient) DeleteMediaRepository(ctx context.Context, sysName, vios
 // ChangeMediaRepository increases the size of the Virtual Media Repository.
 // additionalMB is the amount of NEW space to add (incremental).
 // It identifies the hosting Volume Group and verifies free space before executing.
-func (c *HmcRestClient) ChangeMediaRepository(ctx context.Context, sysName, viosUUID, viosName string, additionalMB int, debug bool) error {
+func (c *RestClient) ChangeMediaRepository(ctx context.Context, sysName, viosUUID, viosName string, additionalMB int, debug bool) error {
 	requiredGB := float64(additionalMB) / 1024.0
 
 	if debug {
@@ -1873,7 +1885,7 @@ func (c *HmcRestClient) ChangeMediaRepository(ctx context.Context, sysName, vios
 	}
 
 	if freeSpaceGB < requiredGB {
-		return fmt.Errorf("INSUFFICIENT SPACE: VG '%s' only has %.2f GB free, cannot add %.2f GB", 
+		return fmt.Errorf("INSUFFICIENT SPACE: VG '%s' only has %.2f GB free, cannot add %.2f GB",
 			hostingVG.GroupName, freeSpaceGB, requiredGB)
 	}
 
@@ -1884,7 +1896,7 @@ func (c *HmcRestClient) ChangeMediaRepository(ctx context.Context, sysName, vios
 
 	// Syntax: chrep -size <Size>M
 	chrepCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "chrep -size %dM"`, sysName, viosName, additionalMB)
-	
+
 	output, err := c.CliRunner(ctx, chrepCmd, debug)
 	if err != nil {
 		return fmt.Errorf("failed to extend Media Repository via chrep: %v\nOutput: %s", err, output)
@@ -1899,7 +1911,7 @@ func (c *HmcRestClient) ChangeMediaRepository(ctx context.Context, sysName, vios
 
 // CreatePhysicalVolumeMaps maps one or more physical disks (e.g., hdisk) on the VIOS to a target LPAR.
 // It uses a pristine GET-Modify-POST pattern and is 100% idempotent.
-func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
+func (c *RestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(diskNames)
 	diskNames = deduplicateAndClean(diskNames)
@@ -1912,7 +1924,7 @@ func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 
 	// 1. Raw GET - Fetch pristine VIOS XML to preserve all native namespaces and attributes
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Fetching pristine VIOS XML for Physical Volume mapping...", "viosUUID", viosUUID)
 	}
@@ -2013,7 +2025,7 @@ func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 
 		mappingsList.AddChild(newMappingDoc.Root())
 		mappedCount++
-		
+
 		if debug {
 			c.Logger.Debug("Injected mapping for Physical Volume into payload", "diskName", trimmedDiskName)
 		}
@@ -2032,7 +2044,7 @@ func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 	postXML, _ := postDoc.WriteToString()
 
 	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
-	
+
 	if debug {
 		c.Logger.Info("POSTing updated VIOS XML back to HMC...")
 		c.Logger.Debug(fmt.Sprintf("Payload:\n%s", postXML))
@@ -2086,9 +2098,10 @@ func (c *HmcRestClient) CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 
 	return "SUCCESS", nil
 }
+
 // CreateVirtualDiskMaps maps one or more Logical Volumes (Virtual Disks) on the VIOS to a target LPAR.
 // It uses a pristine GET-Modify-POST pattern and is 100% idempotent (safe to run multiple times).
-func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
+func (c *RestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(diskNames)
 	diskNames = deduplicateAndClean(diskNames)
@@ -2193,7 +2206,7 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 
 		mappingsList.AddChild(newMappingDoc.Root())
 		mappedCount++
-		
+
 		if debug {
 			c.Logger.Debug("Injected mapping for virtual disk into payload", "diskName", diskName)
 		}
@@ -2213,14 +2226,13 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 
 	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
 	if debug {
-        c.Logger.Info("POSTing updated VIOS XML back to HMC...")
-        c.Logger.Debug(fmt.Sprintf("Payload:\n%s", postXML))
-    }
+		c.Logger.Info("POSTing updated VIOS XML back to HMC...")
+		c.Logger.Debug(fmt.Sprintf("Payload:\n%s", postXML))
+	}
 	postReq, _ := http.NewRequest("POST", postURL, strings.NewReader(postXML))
 	postReq.Header.Set("X-API-Session", c.session)
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
 	postReq.Header.Set("Accept", "application/atom+xml")
-
 
 	postResp, err := c.client.Do(postReq)
 	if err != nil {
@@ -2268,14 +2280,14 @@ func (c *HmcRestClient) CreateVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 // mediaFiles is a map where keys are media names and values are file paths.
 // Returns a map of results for each media (nil for success, error for failure).
 // Note: This requires HMC V10.3.1061.0 or later.
-func (c *HmcRestClient) AddVirtualOpticalMedia(ctx context.Context, viosUUID string, mediaFiles map[string]string, debug bool) (map[string]error, error) {
+func (c *RestClient) AddVirtualOpticalMedia(ctx context.Context, viosUUID string, mediaFiles map[string]string, debug bool) (map[string]error, error) {
 	if len(mediaFiles) == 0 {
 		return nil, fmt.Errorf("at least one media file is required")
 	}
 
 	results := make(map[string]error)
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/AddOpticalMedia", c.hmcIP, viosUUID)
-	
+
 	if debug {
 		c.Logger.Info("Adding Virtual Optical Media to VIOS", "count", len(mediaFiles), "viosUUID", viosUUID)
 	}
@@ -2332,7 +2344,7 @@ func (c *HmcRestClient) AddVirtualOpticalMedia(ctx context.Context, viosUUID str
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		cancel()
-		
+
 		c.logRawTraffic("RESPONSE", url, string(body))
 
 		if err != nil {
@@ -2366,7 +2378,7 @@ func (c *HmcRestClient) AddVirtualOpticalMedia(ctx context.Context, viosUUID str
 			continue
 		}
 		jobID := jobIDElem.Text()
-		
+
 		if debug {
 			c.Logger.Debug("Extracted JobID. Waiting for ISO import to complete...", "jobID", jobID, "mediaName", mediaName)
 		}
@@ -2400,9 +2412,10 @@ func (c *HmcRestClient) AddVirtualOpticalMedia(ctx context.Context, viosUUID str
 
 	return results, nil
 }
+
 // CreateVirtualOpticalMaps maps ISOs using the HMC's auto-slot assignment.
 // It is fully idempotent and safely skips already-mapped media.
-func (c *HmcRestClient) CreateVirtualOpticalMaps(ctx context.Context, sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
+func (c *RestClient) CreateVirtualOpticalMaps(ctx context.Context, sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(mediaNames)
 	mediaNames = deduplicateAndClean(mediaNames)
@@ -2451,7 +2464,9 @@ func (c *HmcRestClient) CreateVirtualOpticalMaps(ctx context.Context, sysUUID, v
 		}
 
 		if alreadyMapped {
-			if debug { c.Logger.Info("Media already mapped; skipping", "mediaName", mediaName) }
+			if debug {
+				c.Logger.Info("Media already mapped; skipping", "mediaName", mediaName)
+			}
 			continue
 		}
 
@@ -2482,18 +2497,19 @@ func (c *HmcRestClient) CreateVirtualOpticalMaps(ctx context.Context, sysUUID, v
 	postDoc.SetRoot(viosElem.Copy())
 	postXML, _ := postDoc.WriteToString()
 	if debug {
-        c.Logger.Info("POSTing updated VIOS XML back to HMC...")
-        c.Logger.Debug(fmt.Sprintf("Payload:\n%s", postXML))
-    }
+		c.Logger.Info("POSTing updated VIOS XML back to HMC...")
+		c.Logger.Debug(fmt.Sprintf("Payload:\n%s", postXML))
+	}
 
 	postReq, _ := http.NewRequest("POST", url, strings.NewReader(postXML))
 	postReq.Header.Set("X-API-Session", c.session)
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
 	postReq.Header.Set("Accept", "application/atom+xml")
-	
 
 	postResp, err := c.client.Do(postReq)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer postResp.Body.Close()
 
 	body, _ := io.ReadAll(postResp.Body)
@@ -2511,9 +2527,10 @@ func (c *HmcRestClient) CreateVirtualOpticalMaps(ctx context.Context, sysUUID, v
 
 	return "SUCCESS", nil
 }
+
 // DeletePhysicalVolumeMaps removes multiple physical disk (e.g., hdisk) mappings from a VIOS to an LPAR in a single atomic transaction.
 // It uses a pristine GET-Modify-POST pattern and is completely idempotent.
-func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
+func (c *RestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(diskNames)
 	diskNames = deduplicateAndClean(diskNames)
@@ -2586,7 +2603,7 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 	// 5. Find all specific mappings to delete
 	var mappingsToRemove []*etree.Element
 	for _, mapping := range mappingsList.FindElements(".//*[local-name()='VirtualSCSIMapping']") {
-		
+
 		// 5a. Check LPAR Association
 		lparRef := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
 		if lparRef == nil {
@@ -2597,10 +2614,10 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 			continue // Not our target LPAR
 		}
 
-		// 5b. Find the disk name. 
+		// 5b. Find the disk name.
 		// We check BOTH the standard REST location (Storage/PhysicalVolume) AND the legacy CLI location (ServerAdapter/BackingDeviceName)
 		diskName := ""
-		
+
 		if volElem := mapping.FindElement(".//*[local-name()='PhysicalVolume']/*[local-name()='VolumeName']"); volElem != nil {
 			diskName = volElem.Text()
 		} else if backingElem := mapping.FindElement(".//*[local-name()='ServerAdapter']/*[local-name()='BackingDeviceName']"); backingElem != nil {
@@ -2610,7 +2627,7 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 		if diskName == "" {
 			continue
 		}
-		
+
 		// 5c. Compare against our target list
 		cleanDiskName := strings.ToLower(strings.TrimSpace(diskName))
 		if targetDisks[cleanDiskName] {
@@ -2643,7 +2660,7 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 
 	// 8. POST the complete update back to the VIOS API
 	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
-	
+
 	if debug {
 		c.Logger.Info("POSTing updated VIOS XML back to HMC...")
 		c.Logger.Debug(fmt.Sprintf("Payload:\n%s", postXML))
@@ -2699,9 +2716,10 @@ func (c *HmcRestClient) DeletePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID str
 
 	return "SUCCESS", nil
 }
+
 // DeleteVirtualDiskMaps removes multiple virtual disk mappings from a VIOS to an LPAR in a single operation.
 // It uses a pristine GET-Modify-POST pattern and is completely idempotent.
-func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
+func (c *RestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string, diskNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(diskNames)
 	diskNames = deduplicateAndClean(diskNames)
@@ -2775,7 +2793,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 	// 5. Find all specific mappings to delete
 	var mappingsToRemove []*etree.Element
 	for _, mapping := range mappingsList.FindElements(".//*[local-name()='VirtualSCSIMapping']") {
-		
+
 		// Check LPAR Association
 		lparRef := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
 		if lparRef == nil {
@@ -2791,7 +2809,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 		if diskNameElem == nil {
 			continue
 		}
-		
+
 		diskName := strings.ToLower(strings.TrimSpace(diskNameElem.Text()))
 		if targetDisks[diskName] {
 			if debug {
@@ -2823,7 +2841,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 
 	// 8. POST the complete update back to the VIOS API
 	postURL := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
-	
+
 	if debug {
 		c.Logger.Info("POSTing updated VIOS XML back to HMC...")
 		c.Logger.Debug(fmt.Sprintf("Payload:\n%s", postXML))
@@ -2879,6 +2897,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 
 	return "SUCCESS", nil
 }
+
 // DeleteVirtualOpticalMaps removes multiple virtual optical media mappings from a VIOS to an LPAR in a single operation.
 //
 // Parameters:
@@ -2895,7 +2914,7 @@ func (c *HmcRestClient) DeleteVirtualDiskMaps(sysUUID, viosUUID, lparUUID string
 //
 // Note: Strict HTTP error checking is disabled (Option 2 behavior).
 // DeleteVirtualOpticalMaps removes multiple virtual optical media mappings from a VIOS to an LPAR in a single operation.
-func (c *HmcRestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
+func (c *RestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, viosUUID, lparUUID string, mediaNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(mediaNames)
 	mediaNames = deduplicateAndClean(mediaNames)
@@ -2919,7 +2938,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, v
 	}
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
-	
+
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 	getReq = getReq.WithContext(ctxWithTimeout)
@@ -2969,7 +2988,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, v
 	// 5. Find all specific mappings to delete
 	var mappingsToRemove []*etree.Element
 	for _, mapping := range mappingsList.FindElements(".//*[local-name()='VirtualSCSIMapping']") {
-		
+
 		// Check LPAR Association
 		lparRef := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
 		if lparRef == nil {
@@ -2985,7 +3004,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, v
 		if mediaNameElem == nil {
 			continue
 		}
-		
+
 		mediaName := strings.ToLower(strings.TrimSpace(mediaNameElem.Text()))
 		if targetMedia[mediaName] {
 			mappingsToRemove = append(mappingsToRemove, mapping)
@@ -3065,7 +3084,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMaps(ctx context.Context, sysUUID, v
 
 // CreateVirtualFibreChannelMaps creates multiple Virtual Fibre Channel (NPIV) mappings between a VIOS and an LPAR.
 // It uses a pristine GET-Modify-POST pattern and safely handles DLPAR timeouts for non-RMC operating systems like CoreOS.
-func (c *HmcRestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID string, fcPortNames []string, debug bool) (string, error) {
+func (c *RestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID string, fcPortNames []string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION
 	originalCount := len(fcPortNames)
 	fcPortNames = deduplicateAndClean(fcPortNames)
@@ -3078,7 +3097,7 @@ func (c *HmcRestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 
 	// 1. Raw GET - Fetch pristine VIOS XML
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosFCMapping", c.hmcIP, viosUUID)
-	
+
 	getReq, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -3129,24 +3148,24 @@ func (c *HmcRestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 	// 4. Inject mappings
 	for _, fcPortName := range fcPortNames {
 		trimmedPort := strings.TrimSpace(fcPortName)
-	/*	alreadyMapped := false
+		/*	alreadyMapped := false
 
-		// Idempotency Check
-		for _, mapping := range mappingsList.FindElements(".//*[local-name()='VirtualFibreChannelMapping']") {
-			assoc := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
-			if assoc != nil && strings.HasSuffix(strings.ToLower(assoc.SelectAttrValue("href", "")), targetLparLower) {
-				existingPort := mapping.FindElement(".//*[local-name()='Port']/*[local-name()='PortName']")
-				if existingPort != nil && strings.EqualFold(strings.TrimSpace(existingPort.Text()), trimmedPort) {
-					alreadyMapped = true
-					break
+			// Idempotency Check
+			for _, mapping := range mappingsList.FindElements(".//*[local-name()='VirtualFibreChannelMapping']") {
+				assoc := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
+				if assoc != nil && strings.HasSuffix(strings.ToLower(assoc.SelectAttrValue("href", "")), targetLparLower) {
+					existingPort := mapping.FindElement(".//*[local-name()='Port']/*[local-name()='PortName']")
+					if existingPort != nil && strings.EqualFold(strings.TrimSpace(existingPort.Text()), trimmedPort) {
+						alreadyMapped = true
+						break
+					}
 				}
 			}
-		}
 
-		if alreadyMapped {
-			if debug { c.Logger.Info("FC Port already mapped; skipping", "port", trimmedPort) }
-			continue
-		} */
+			if alreadyMapped {
+				if debug { c.Logger.Info("FC Port already mapped; skipping", "port", trimmedPort) }
+				continue
+			} */
 
 		newMappingXML := fmt.Sprintf(`
 		<VirtualFibreChannelMapping schemaVersion="V1_3_0">
@@ -3226,30 +3245,35 @@ func (c *HmcRestClient) CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 
 	return "SUCCESS", nil
 }
+
 // DeleteVirtualFibreChannelMaps removes one or more NPIV mappings using Smart Targets.
-// The 'targets' slice can contain Physical Ports (e.g., "fcs0"), Client WWPNs (e.g., "c050760b2e4a014a"), 
+// The 'targets' slice can contain Physical Ports (e.g., "fcs0"), Client WWPNs (e.g., "c050760b2e4a014a"),
 // or Client Virtual Slot IDs (e.g., "4").
-func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID string, targets []string, debug bool) (string, error) {
+func (c *RestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID string, targets []string, debug bool) (string, error) {
 	if len(targets) == 0 {
 		return "NO_TARGETS_SPECIFIED", nil
 	}
 
 	// 1. Raw GET - Fetch pristine VIOS XML
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosFCMapping", c.hmcIP, viosUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Fetching pristine VIOS XML to remove vFC mappings", "viosUUID", viosUUID, "targets", targets)
 	}
 
 	getReq, err := http.NewRequest("GET", url, nil)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
 	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	getResp, err := c.client.Do(getReq)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer getResp.Body.Close()
 
 	rawXML, _ := io.ReadAll(getResp.Body)
@@ -3288,13 +3312,15 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 	// 3. Find specific mappings to delete using Smart Match
 	var mappingsToRemove []*etree.Element
 	for _, mapping := range mappingsList.FindElements(".//*[local-name()='VirtualFibreChannelMapping']") {
-		
+
 		// Ensure this mapping belongs to our LPAR
 		assoc := mapping.FindElement(".//*[local-name()='AssociatedLogicalPartition']")
-		if assoc == nil { continue }
+		if assoc == nil {
+			continue
+		}
 		href := strings.ToLower(strings.TrimSpace(assoc.SelectAttrValue("href", "")))
 		if !strings.HasSuffix(href, targetLparLower) {
-			continue 
+			continue
 		}
 
 		// Extract identifying data safely
@@ -3353,7 +3379,9 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 	c.logRawTraffic("REQUEST (POST)", postURL, postXML)
 
 	postResp, err := c.client.Do(postReq)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer postResp.Body.Close()
 
 	body, _ := io.ReadAll(postResp.Body)
@@ -3369,7 +3397,7 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 	}
 
 	// 7. Await Background Job
-	respDoc, err := xmlStripNamespace(body) 
+	respDoc, err := xmlStripNamespace(body)
 	if err == nil {
 		if jobIDElem := respDoc.FindElement("//JobID"); jobIDElem != nil {
 			c.FetchJobStatus(context.Background(), jobIDElem.Text(), false, 10, debug)
@@ -3381,7 +3409,7 @@ func (c *HmcRestClient) DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUI
 
 // GetVirtualFibreChannelMaps fetches NPIV mappings for a specific LPAR on a VIOS,
 // unmarshaling the data directly into your native VirtualFibreChannelMapping structs.
-func (c *HmcRestClient) GetVirtualFibreChannelMaps(ctx context.Context, viosUUID, lparUUID string, debug bool) ([]VirtualFibreChannelMapping, error) {
+func (c *RestClient) GetVirtualFibreChannelMaps(ctx context.Context, viosUUID, lparUUID string, debug bool) ([]VirtualFibreChannelMapping, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosFCMapping", c.hmcIP, viosUUID)
 
 	if debug {
@@ -3435,7 +3463,7 @@ func (c *HmcRestClient) GetVirtualFibreChannelMaps(ctx context.Context, viosUUID
 // GetPhysicalFibreChannelPorts slices through the VIOS hardware topology using XPath to return all physical FC ports.
 // This approach is highly resilient to IBM schema changes and memory efficient.
 // It dynamically maps the hardware elements directly into the existing 'Port' struct.
-func (c *HmcRestClient) GetPhysicalFibreChannelPorts(ctx context.Context, viosUUID string, debug bool) ([]Port, error) {
+func (c *RestClient) GetPhysicalFibreChannelPorts(ctx context.Context, viosUUID string, debug bool) ([]Port, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
 
 	if debug {
@@ -3493,43 +3521,43 @@ func (c *HmcRestClient) GetPhysicalFibreChannelPorts(ctx context.Context, viosUU
 
 // AcquireVIOSMountLock creates a lock file on VIOS to serialize /mnt access
 // Uses only commands allowed in padmin restricted shell (echo, test, rm)
-func (c *HmcRestClient) AcquireVIOSMountLock(ctx context.Context, systemName, viosName string, timeoutSeconds int, debug bool) error {
+func (c *RestClient) AcquireVIOSMountLock(ctx context.Context, systemName, viosName string, timeoutSeconds int, debug bool) error {
 	lockFile := "/home/padmin/mnt.lock"
 	checkInterval := 5 * time.Second
 	maxRetries := timeoutSeconds / 5
-	
+
 	if debug {
 		c.Logger.Info("Attempting to acquire VIOS mount lock",
 			"vios", viosName,
 			"timeout", timeoutSeconds)
 	}
-	
+
 	for i := 0; i < maxRetries; i++ {
 		// Check if lock exists using 'test' command (allowed in restricted shell)
 		checkCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "test -f %s && echo EXISTS || echo NOTFOUND"`,
 			systemName, viosName, lockFile)
 		output, err := c.CliRunner(ctx, checkCmd, debug)
-		
+
 		if err != nil || strings.Contains(output, "NOTFOUND") {
 			// Lock doesn't exist - try to create it atomically
 			// Use echo with PID and timestamp for debugging (echo is allowed)
 			createCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "echo lock_\$\$_\$(date +%%s) > %s"`,
 				systemName, viosName, lockFile)
 			_, err := c.CliRunner(ctx, createCmd, debug)
-			
+
 			if err == nil {
 				if debug {
 					c.Logger.Info("✓ Acquired VIOS mount lock", "vios", viosName)
 				}
 				return nil
 			}
-			
+
 			// Race condition - another process created it first, retry
 			if debug {
 				c.Logger.Debug("Lock creation race detected, retrying...")
 			}
 		}
-		
+
 		// Lock exists, wait and retry
 		if debug {
 			c.Logger.Debug("VIOS mount lock held by another process",
@@ -3537,38 +3565,40 @@ func (c *HmcRestClient) AcquireVIOSMountLock(ctx context.Context, systemName, vi
 				"maxRetries", maxRetries,
 				"waitingSeconds", int(checkInterval.Seconds()))
 		}
-		
+
 		time.Sleep(checkInterval)
 	}
-	
+
 	return fmt.Errorf("timeout waiting for VIOS mount lock after %d seconds (another deployment may be stuck)", timeoutSeconds)
 }
 
 // ReleaseVIOSMountLock removes the lock file from VIOS
-func (c *HmcRestClient) ReleaseVIOSMountLock(ctx context.Context, systemName, viosName string, debug bool) error {
+func (c *RestClient) ReleaseVIOSMountLock(ctx context.Context, systemName, viosName string, debug bool) error {
 	lockFile := "/home/padmin/mnt.lock"
-	
+
 	// Use 'rm' which is allowed in restricted shell
 	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "rm -f %s"`, systemName, viosName, lockFile)
 	_, err := c.CliRunner(ctx, cmd, debug)
-	
+
 	if err != nil {
 		c.Logger.Warn("Failed to release VIOS mount lock", "vios", viosName, "error", err)
 		return err
 	}
-	
+
 	if debug {
 		c.Logger.Info("✓ Released VIOS mount lock", "vios", viosName)
 	}
 	return nil
 }
+
 // MediaRepositoryInfo holds the total and free space of a VIOS media repository
 type MediaRepositoryInfo struct {
 	SizeMB int
 	FreeMB int
 }
+
 // GetMediaRepositoryInfo parses the VIOS lsrep command to extract exact capacity and free space
-func (c *HmcRestClient) GetMediaRepositoryInfo(ctx context.Context, sysName, viosName string, debug bool) (*MediaRepositoryInfo, error) {
+func (c *RestClient) GetMediaRepositoryInfo(ctx context.Context, sysName, viosName string, debug bool) (*MediaRepositoryInfo, error) {
 	if debug {
 		c.Logger.Debug("Fetching Media Repository capacity via CLI", "viosName", viosName)
 	}
@@ -3601,8 +3631,9 @@ func (c *HmcRestClient) GetMediaRepositoryInfo(ctx context.Context, sysName, vio
 	}
 	return nil, fmt.Errorf("could not parse repository size from lsrep output")
 }
+
 // CreateVirtualSCSIServerAdapter adds a vSCSI Server Adapter to a VIOS at a specific slot, locking it to a specific Client LPAR and Client Slot.
-func (c *HmcRestClient) CreateVirtualSCSIServerAdapter(viosUUID string, clientLparID int, viosSlot int, clientSlot int, debug bool) (string, error) {
+func (c *RestClient) CreateVirtualSCSIServerAdapter(viosUUID string, clientLparID int, viosSlot int, clientSlot int, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/VirtualSCSIServerAdapter", c.hmcIP, viosUUID)
 
 	if debug {
@@ -3660,9 +3691,10 @@ func (c *HmcRestClient) CreateVirtualSCSIServerAdapter(viosUUID string, clientLp
 
 	return atomID.Text(), nil
 }
+
 // GetRawViosXML fetches the raw XML string for a specific VIOS extended group (e.g., "ViosSCSIMapping").
 // This is primarily used for debugging and diffing payload changes.
-func (c *HmcRestClient) GetRawViosXML(viosUUID string, group string, debug bool) (string, error) {
+func (c *RestClient) GetRawViosXML(viosUUID string, group string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=%s", c.hmcIP, viosUUID, group)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -3692,9 +3724,10 @@ func (c *HmcRestClient) GetRawViosXML(viosUUID string, group string, debug bool)
 
 	return string(body), nil
 }
+
 // ReduceVolumeGroup removes one or more physical volumes (e.g., "hdisk2") from an existing Volume Group.
 // It implements the POST method on the VolumeGroup endpoint with the ReduceVolumeGroup action payload.
-func (c *HmcRestClient) ReduceVolumeGroup(ctx context.Context, sysName, viosUUID, viosName, vgName string, pvNames []string, debug bool) error {
+func (c *RestClient) ReduceVolumeGroup(ctx context.Context, sysName, viosUUID, viosName, vgName string, pvNames []string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Initiating ReduceVolumeGroup", "vios", viosName, "vg", vgName, "pvs", pvNames)
 	}
@@ -3736,7 +3769,7 @@ func (c *HmcRestClient) ReduceVolumeGroup(ctx context.Context, sysName, viosUUID
 				break
 			}
 		}
-		
+
 		if found {
 			validPVs = append(validPVs, cleanPV)
 		} else {
@@ -3819,7 +3852,7 @@ func (c *HmcRestClient) ReduceVolumeGroup(ctx context.Context, sysName, viosUUID
 
 // ExtendVolumeGroup adds one or more physical volumes (e.g., "hdisk5") to an existing Volume Group.
 // It implements the POST method on the VolumeGroup endpoint with the ExtendVolumeGroup action payload.
-func (c *HmcRestClient) ExtendVolumeGroup(ctx context.Context, sysName, viosUUID, viosName, vgName string, pvNames []string, debug bool) error {
+func (c *RestClient) ExtendVolumeGroup(ctx context.Context, sysName, viosUUID, viosName, vgName string, pvNames []string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Initiating ExtendVolumeGroup", "vios", viosName, "vg", vgName, "pvs", pvNames)
 	}
@@ -3861,7 +3894,7 @@ func (c *HmcRestClient) ExtendVolumeGroup(ctx context.Context, sysName, viosUUID
 				break
 			}
 		}
-		
+
 		if alreadyExists {
 			c.Logger.Info("Physical volume is already in the Volume Group. Skipping.", "pv", cleanPV, "vg", vgName)
 		} else {
@@ -3944,7 +3977,7 @@ func (c *HmcRestClient) ExtendVolumeGroup(ctx context.Context, sysName, viosUUID
 
 // CreateVirtualIOServer creates a new VIOS using the direct UOM PUT method.
 // Returns the UUID of the newly created VIOS on success.
-func (c *HmcRestClient) CreateVirtualIOServer(ctx context.Context, sysUUID string, req CreateViosRequest, debug bool) (string, error) {
+func (c *RestClient) CreateVirtualIOServer(ctx context.Context, sysUUID string, req CreateViosRequest, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, sysUUID)
 
 	// Transparently handle IBM's schema typos for sharing modes
@@ -4113,7 +4146,7 @@ func (c *HmcRestClient) CreateVirtualIOServer(ctx context.Context, sysUUID strin
 
 // DeleteVirtualIOServer permanently removes a VIOS from the Managed System.
 // Note: The VIOS must be powered off before this operation can succeed.
-func (c *HmcRestClient) DeleteVirtualIOServer(ctx context.Context, sysUUID, viosUUID string, debug bool) error {
+func (c *RestClient) DeleteVirtualIOServer(ctx context.Context, sysUUID, viosUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer/%s", c.hmcIP, sysUUID, viosUUID)
 
 	if debug {
@@ -4174,9 +4207,10 @@ func (c *HmcRestClient) DeleteVirtualIOServer(ctx context.Context, sysUUID, vios
 
 	return nil
 }
+
 // CreateVirtualOpticalMapsMultiLpar maps ISOs to multiple LPARs in a single API call.
 // It accepts a map where the key is the lparUUID and the value is a slice of ISO names.
-func (c *HmcRestClient) CreateVirtualOpticalMapsMultiLpar(ctx context.Context, sysUUID, viosUUID string, lparMediaMap map[string][]string, debug bool) (string, error) {
+func (c *RestClient) CreateVirtualOpticalMapsMultiLpar(ctx context.Context, sysUUID, viosUUID string, lparMediaMap map[string][]string, debug bool) (string, error) {
 	// 1. Fetch pristine VIOS XML (Only 1 GET request needed!)
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s?group=ViosSCSIMapping", c.hmcIP, viosUUID)
 	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
@@ -4204,7 +4238,9 @@ func (c *HmcRestClient) CreateVirtualOpticalMapsMultiLpar(ctx context.Context, s
 		originalCount := len(mediaNames)
 		mediaNames = deduplicateAndClean(mediaNames)
 		if len(mediaNames) == 0 {
-			if debug { c.Logger.Debug("Skipping LPAR due to empty/invalid media names", "lparUUID", lparUUID) }
+			if debug {
+				c.Logger.Debug("Skipping LPAR due to empty/invalid media names", "lparUUID", lparUUID)
+			}
 			continue
 		}
 		if debug && len(mediaNames) < originalCount {
@@ -4229,7 +4265,9 @@ func (c *HmcRestClient) CreateVirtualOpticalMapsMultiLpar(ctx context.Context, s
 			}
 
 			if alreadyMapped {
-				if debug { c.Logger.Info("Media already mapped; skipping", "lparUUID", lparUUID, "mediaName", mediaName) }
+				if debug {
+					c.Logger.Info("Media already mapped; skipping", "lparUUID", lparUUID, "mediaName", mediaName)
+				}
 				continue
 			}
 
@@ -4260,7 +4298,7 @@ func (c *HmcRestClient) CreateVirtualOpticalMapsMultiLpar(ctx context.Context, s
 	postDoc := etree.NewDocument()
 	postDoc.SetRoot(viosElem.Copy())
 	postXML, _ := postDoc.WriteToString()
-	
+
 	if debug {
 		c.Logger.Info(fmt.Sprintf("POSTing updated VIOS XML with %d new mappings back to HMC...", mappedCount))
 	}
@@ -4271,7 +4309,9 @@ func (c *HmcRestClient) CreateVirtualOpticalMapsMultiLpar(ctx context.Context, s
 	postReq.Header.Set("Accept", "application/atom+xml")
 
 	postResp, err := c.client.Do(postReq)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer postResp.Body.Close()
 
 	body, _ := io.ReadAll(postResp.Body)
@@ -4289,9 +4329,10 @@ func (c *HmcRestClient) CreateVirtualOpticalMapsMultiLpar(ctx context.Context, s
 
 	return "SUCCESS", nil
 }
+
 // DeleteVirtualOpticalMapsMultiLpar removes multiple virtual optical media mappings from a VIOS to multiple LPARs in a single atomic operation.
 // It accepts a map where the key is the lparUUID and the value is a slice of ISO names to unmap.
-func (c *HmcRestClient) DeleteVirtualOpticalMapsMultiLpar(ctx context.Context, sysUUID, viosUUID string, lparMediaMap map[string][]string, debug bool) (string, error) {
+func (c *RestClient) DeleteVirtualOpticalMapsMultiLpar(ctx context.Context, sysUUID, viosUUID string, lparMediaMap map[string][]string, debug bool) (string, error) {
 	// 0. SDK-LEVEL SANITIZATION & LOOKUP MAP GENERATION
 	// We create a nested map for highly efficient O(1) lookups: map[lparUUID]map[mediaName]bool
 	targetLookups := make(map[string]map[string]bool)
@@ -4477,7 +4518,7 @@ func (c *HmcRestClient) DeleteVirtualOpticalMapsMultiLpar(ctx context.Context, s
 }
 
 // MapPhysicalIOAdaptersToVios dynamically assigns Physical I/O Adapters to a VIOS.
-func (c *HmcRestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID, viosUUID, viosName string, targets []string, inventory *ManagedSystemDetailed, debug bool) ([]string, []string, error) {
+func (c *RestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID, viosUUID, viosName string, targets []string, inventory *ManagedSystemDetailed, debug bool) ([]string, []string, error) {
 	if inventory == nil {
 		return nil, nil, fmt.Errorf("inventory is required for pre-flight validation")
 	}
@@ -4507,7 +4548,7 @@ func (c *HmcRestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID
 
 				if strings.ToLower(actualLocCode) == cleanTarget || strings.ToLower(slot.PCAdapterID) == cleanTarget || strings.ToLower(slot.ConnectorIndex) == cleanTarget {
 					found = true
-					
+
 					if slot.PartitionID > 0 {
 						if !strings.EqualFold(slot.PartitionName, viosName) {
 							return nil, nil, fmt.Errorf("ABORT: Target '%s' is currently assigned to a DIFFERENT Partition ('%s', ID: %d)", target, slot.PartitionName, slot.PartitionID)
@@ -4523,7 +4564,9 @@ func (c *HmcRestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID
 					break
 				}
 			}
-			if found { break }
+			if found {
+				break
+			}
 		}
 		if !found {
 			return nil, nil, fmt.Errorf("ABORT: Target '%s' does not exist on the Managed System", target)
@@ -4539,28 +4582,40 @@ func (c *HmcRestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID
 	// =====================================================================
 	// ✨ CHANGE 1: Use the VirtualIOServer endpoint
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
-	
+
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
 	getResp, err := c.client.Do(getReq)
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	defer getResp.Body.Close()
 	rawXML, _ := io.ReadAll(getResp.Body)
 
-	if getResp.StatusCode != 200 { return nil, nil, fmt.Errorf("GET failed: %s", string(rawXML)) }
+	if getResp.StatusCode != 200 {
+		return nil, nil, fmt.Errorf("GET failed: %s", string(rawXML))
+	}
 
 	doc := etree.NewDocument()
-	if err := doc.ReadFromBytes(rawXML); err != nil { return nil, nil, err }
-	
+	if err := doc.ReadFromBytes(rawXML); err != nil {
+		return nil, nil, err
+	}
+
 	// ✨ CHANGE 2: Target the VirtualIOServer root node
 	viosElem := doc.FindElement(".//*[local-name()='VirtualIOServer']")
-	if viosElem == nil { return nil, nil, fmt.Errorf("VirtualIOServer element not found") }
+	if viosElem == nil {
+		return nil, nil, fmt.Errorf("VirtualIOServer element not found")
+	}
 
 	ioConfig := viosElem.FindElement(".//*[local-name()='PartitionIOConfiguration']")
-	if ioConfig == nil { return nil, nil, fmt.Errorf("PartitionIOConfiguration not found") }
+	if ioConfig == nil {
+		return nil, nil, fmt.Errorf("PartitionIOConfiguration not found")
+	}
 
 	profileSlots := ioConfig.FindElement(".//*[local-name()='ProfileIOSlots']")
 	if profileSlots == nil {
@@ -4579,7 +4634,7 @@ func (c *HmcRestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID
 				break
 			}
 		}
-		
+
 		if duplicate {
 			skipped = append(skipped, slotInfo.TargetName)
 			continue
@@ -4593,11 +4648,11 @@ func (c *HmcRestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID
 				</AssociatedIOSlot>
 				<IsRequired>false</IsRequired>
 			</ProfileIOSlot>`, slotInfo.DRCIndex, slotInfo.LocationCode)
-		
+
 		slotDoc := etree.NewDocument()
 		slotDoc.ReadFromString(newSlotXML)
 		profileSlots.AddChild(slotDoc.Root())
-		
+
 		attached = append(attached, slotInfo.TargetName)
 	}
 
@@ -4613,25 +4668,31 @@ func (c *HmcRestClient) MapPhysicalIOAdaptersToVios(ctx context.Context, sysUUID
 	postXML, _ := postDoc.WriteToString()
 
 	postReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(postXML))
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	postReq.Header.Set("X-API-Session", c.session)
-	
+
 	// ✨ CHANGE 3: Update Content-Type
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
 	postReq.Header.Set("Accept", "application/atom+xml")
 
 	postResp, err := c.client.Do(postReq)
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	defer postResp.Body.Close()
 	body, _ := io.ReadAll(postResp.Body)
 
-	if postResp.StatusCode >= 400 { return nil, nil, fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body)) }
+	if postResp.StatusCode >= 400 {
+		return nil, nil, fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
+	}
 
 	return attached, skipped, nil
 }
 
 // UnmapPhysicalIOAdaptersFromVios dynamically detaches Physical I/O Adapters from a VIOS.
-func (c *HmcRestClient) UnmapPhysicalIOAdaptersFromVios(ctx context.Context, sysUUID, viosUUID, viosName string, targets []string, inventory *ManagedSystemDetailed, debug bool) ([]string, []string, error) {
+func (c *RestClient) UnmapPhysicalIOAdaptersFromVios(ctx context.Context, sysUUID, viosUUID, viosName string, targets []string, inventory *ManagedSystemDetailed, debug bool) ([]string, []string, error) {
 	if inventory == nil {
 		return nil, nil, fmt.Errorf("inventory is required for pre-flight validation")
 	}
@@ -4650,7 +4711,9 @@ func (c *HmcRestClient) UnmapPhysicalIOAdaptersFromVios(ctx context.Context, sys
 		for _, bus := range inventory.IOConfig.IOBuses {
 			for _, slot := range bus.IOSlots {
 				actualLocCode := slot.PhysicalLocationCode
-				if slot.RelatedIOAdapter.DeviceName != "" { actualLocCode = slot.RelatedIOAdapter.DeviceName }
+				if slot.RelatedIOAdapter.DeviceName != "" {
+					actualLocCode = slot.RelatedIOAdapter.DeviceName
+				}
 
 				if strings.ToLower(actualLocCode) == cleanTarget || strings.ToLower(slot.PCAdapterID) == cleanTarget || strings.ToLower(slot.ConnectorIndex) == cleanTarget {
 					if strings.EqualFold(slot.PartitionName, viosName) {
@@ -4664,9 +4727,11 @@ func (c *HmcRestClient) UnmapPhysicalIOAdaptersFromVios(ctx context.Context, sys
 					break
 				}
 			}
-			if foundAndAttached { break }
+			if foundAndAttached {
+				break
+			}
 		}
-		
+
 		if !foundAndAttached {
 			skipped = append(skipped, target)
 		}
@@ -4681,31 +4746,45 @@ func (c *HmcRestClient) UnmapPhysicalIOAdaptersFromVios(ctx context.Context, sys
 	// =====================================================================
 	// ✨ CHANGE 1: Use the VirtualIOServer endpoint
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s", c.hmcIP, viosUUID)
-	
+
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	getReq.Header.Set("X-API-Session", c.session)
 	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
 	getResp, err := c.client.Do(getReq)
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	defer getResp.Body.Close()
 	rawXML, _ := io.ReadAll(getResp.Body)
 
-	if getResp.StatusCode != 200 { return nil, nil, fmt.Errorf("GET failed: %s", string(rawXML)) }
+	if getResp.StatusCode != 200 {
+		return nil, nil, fmt.Errorf("GET failed: %s", string(rawXML))
+	}
 
 	doc := etree.NewDocument()
-	if err := doc.ReadFromBytes(rawXML); err != nil { return nil, nil, err }
-	
+	if err := doc.ReadFromBytes(rawXML); err != nil {
+		return nil, nil, err
+	}
+
 	// ✨ CHANGE 2: Target the VirtualIOServer root node
 	viosElem := doc.FindElement(".//*[local-name()='VirtualIOServer']")
-	if viosElem == nil { return nil, nil, fmt.Errorf("VirtualIOServer element not found") }
+	if viosElem == nil {
+		return nil, nil, fmt.Errorf("VirtualIOServer element not found")
+	}
 
 	ioConfig := viosElem.FindElement(".//*[local-name()='PartitionIOConfiguration']")
-	if ioConfig == nil { return detached, skipped, nil }
+	if ioConfig == nil {
+		return detached, skipped, nil
+	}
 
 	profileSlots := ioConfig.FindElement(".//*[local-name()='ProfileIOSlots']")
-	if profileSlots == nil { return detached, skipped, nil }
+	if profileSlots == nil {
+		return detached, skipped, nil
+	}
 
 	// =====================================================================
 	// 3. REMOVE NODES
@@ -4732,25 +4811,31 @@ func (c *HmcRestClient) UnmapPhysicalIOAdaptersFromVios(ctx context.Context, sys
 	postXML, _ := postDoc.WriteToString()
 
 	postReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(postXML))
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	postReq.Header.Set("X-API-Session", c.session)
-	
+
 	// ✨ CHANGE 3: Update Content-Type
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualIOServer")
 	postReq.Header.Set("Accept", "application/atom+xml")
 
 	postResp, err := c.client.Do(postReq)
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	defer postResp.Body.Close()
 	body, _ := io.ReadAll(postResp.Body)
 
-	if postResp.StatusCode >= 400 { return nil, nil, fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body)) }
+	if postResp.StatusCode >= 400 {
+		return nil, nil, fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
+	}
 
 	return detached, skipped, nil
 }
 
 // PowerOnVios powers on a Virtual I/O Server (VIOS) using standard or network boot options.
-func (c *HmcRestClient) PowerOnVios(ctx context.Context, viosUUID string, options *PowerOnOptions, debug bool) (string, error) {
+func (c *RestClient) PowerOnVios(ctx context.Context, viosUUID string, options *PowerOnOptions, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/PowerOn", c.hmcIP, viosUUID)
 
 	if debug {
@@ -4908,7 +4993,7 @@ func (c *HmcRestClient) PowerOnVios(ctx context.Context, viosUUID string, option
 }
 
 // PowerOffVios powers off a Virtual I/O Server (VIOS) directly by its UUID.
-func (c *HmcRestClient) PowerOffVios(ctx context.Context, viosUUID, shutdownOption string, restart bool, debug bool) (string, error) {
+func (c *RestClient) PowerOffVios(ctx context.Context, viosUUID, shutdownOption string, restart bool, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/PowerOff", c.hmcIP, viosUUID)
 	if debug {
 		c.Logger.Debug("Powering off VIOS", "viosUUID", viosUUID, "url", url)
@@ -4939,11 +5024,11 @@ func (c *HmcRestClient) PowerOffVios(ctx context.Context, viosUUID, shutdownOpti
 	case "Dump":
 		immediate = "false"
 		operation = "dumprestart"
-		restart = false 
+		restart = false
 	case "DumpRetry":
 		immediate = "false"
 		operation = "retrydump"
-		restart = false 
+		restart = false
 	default:
 		return "", fmt.Errorf("invalid shutdownOption: %s", shutdownOption)
 	}
@@ -4958,7 +5043,7 @@ func (c *HmcRestClient) PowerOffVios(ctx context.Context, viosUUID, shutdownOpti
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %v", err)
@@ -5007,4 +5092,101 @@ func (c *HmcRestClient) PowerOffVios(ctx context.Context, viosUUID, shutdownOpti
 	}
 
 	return jobResp.Status, nil
+}
+
+// SaveCurrentViosConfig saves the current active configuration of a Virtual I/O Server (VIOS) to a profile.
+// If force is true, it will overwrite an existing profile with the same name.
+func (c *RestClient) SaveCurrentViosConfig(ctx context.Context, viosUUID, profileName string, force, debug bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/SaveCurrentConfig", c.hmcIP, viosUUID)
+
+	if debug {
+		c.Logger.Debug("Saving current config for VIOS", "viosUUID", viosUUID, "profileName", profileName, "force", force)
+	}
+
+	// 1. Define operation details for the JobRequest
+	reqdOperation := map[string]string{
+		"OperationName": "SaveCurrentConfig",
+		"GroupName":     "VirtualIOServer", // Changed from LogicalPartition
+		"ProgressType":  "DISCRETE",
+	}
+
+	// 2. Build job parameters matching the HMC schema
+	jobParams := map[string]string{
+		"PartitionProfileName": profileName,
+		"force":                fmt.Sprintf("%t", force),
+	}
+
+	// 3. Generate the XML payload using your existing helper
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
+	if err != nil {
+		return fmt.Errorf("failed to create job request payload: %v", err)
+	}
+
+	// 4. Create and configure the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	req = req.WithContext(ctxWithTimeout)
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
+	// 5. Send the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if debug {
+		c.Logger.Debug("SaveCurrentConfig Response Status", "status", resp.Status)
+	}
+
+	// 6. Check for non-success status codes (Usually 200, 201, or 202 for Jobs)
+	if resp.StatusCode >= 400 {
+		c.Logger.Error("SaveCurrentConfig job submission failed", "status", resp.Status)
+		if debug {
+			return fmt.Errorf("SaveCurrentConfig job submission failed with status %s: %s", resp.Status, string(body))
+		}
+		return fmt.Errorf("SaveCurrentConfig job submission failed with status %s. Enable debug mode to see full response", resp.Status)
+	}
+
+	// 7. Strip namespaces to find the JobID
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return fmt.Errorf("failed to strip namespaces from XML response: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return fmt.Errorf("JobID not found in response: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+
+	if debug {
+		c.Logger.Info("Extracted JobID. Waiting for completion...", "jobID", jobID)
+	}
+
+	// 8. Wait for the background job to finish
+	_, err = c.FetchJobStatus(ctx, jobID, false, 5, debug)
+	if err != nil {
+		return fmt.Errorf("failed during SaveCurrentConfig job execution: %v", err)
+	}
+
+	return nil
 }

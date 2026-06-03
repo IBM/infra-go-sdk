@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	client := hmc.NewHmcRestClient("192.0.2.1")
+	client := hmc.NewRestClient("192.0.2.1")
 	client.Login(context.Background(), "REDACTED_HMC_USER<==", "REDACTED_HMC_PASS<==", false)
 	defer client.Logoff(context.Background())
 

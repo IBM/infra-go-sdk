@@ -40,7 +40,7 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if *verbose {
 		restClient.EnableVerboseLogging()
 	}

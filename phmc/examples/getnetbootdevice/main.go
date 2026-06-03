@@ -42,7 +42,7 @@ func main() {
 
 	// 1. Initialize & Login
 	fmt.Println("Step 1: Connecting to HMC...")
-	client := hmc.NewHmcRestClient(*hmcIP)
+	client := hmc.NewRestClient(*hmcIP)
 	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}

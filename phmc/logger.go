@@ -9,11 +9,6 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-// Logger wraps charmbracelet/log for structured logging
-type Logger struct {
-	*log.Logger
-}
-
 // Debug logs a debug message with key-value pairs
 func (l *Logger) Debug(msg string, keysAndValues ...interface{}) {
 	l.Logger.Debug(msg, keysAndValues...)
@@ -62,18 +57,19 @@ func NewDefaultLogger() *Logger {
 func NewDebugLogger() *Logger {
 	return NewLogger(log.DebugLevel, os.Stderr)
 }
+
 // EnableDebug switches the logger to output debug-level messages
 func (l *Logger) EnableDebug() {
-    l.SetLevel(log.DebugLevel)
+	l.SetLevel(log.DebugLevel)
 }
 
 // DisableDebug switches the logger back to warn-level messages
 func (l *Logger) DisableDebug() {
-    l.SetLevel(log.WarnLevel) // Or InfoLevel, depending on your baseline preference
+	l.SetLevel(log.WarnLevel) // Or InfoLevel, depending on your baseline preference
 }
 
 // logRawTraffic safely logs HTTP requests and responses, masking sensitive data.
-func (c *HmcRestClient) logRawTraffic(direction, url, payload string) {
+func (c *RestClient) logRawTraffic(direction, url, payload string) {
 	// Don't waste CPU cycles masking strings if we aren't in debug mode
 	if c.Logger.GetLevel() != log.DebugLevel {
 		return
@@ -95,9 +91,10 @@ func (c *HmcRestClient) logRawTraffic(direction, url, payload string) {
 		"payload", "\n"+safePayload,
 	)
 }
+
 // SetLogger replaces the default instance logger with a custom configured logger.
 // This is critical for downstream applications that want to route HTTP payloads to files.
-func (c *HmcRestClient) SetLogger(l *Logger) {
+func (c *RestClient) SetLogger(l *Logger) {
 	if l != nil {
 		c.Logger = l
 	}

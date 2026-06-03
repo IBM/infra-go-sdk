@@ -39,7 +39,7 @@ func main() {
 
 	// Create HMC client
 	fmt.Printf("Connecting to HMC at %s...\n", *hmcIP)
-	client := hmc.NewHmcRestClient(*hmcIP)
+	client := hmc.NewRestClient(*hmcIP)
 
 	// Login to HMC
 	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
@@ -59,7 +59,7 @@ func main() {
 			fmt.Println("Falling back to SSH method...")
 			
 			// Try SSH method
-			if err := client.CloseVirtualTerminalViaSsh(*hmcIP, *username, *password, *systemName, *lparName, *verbose); err != nil {
+			if err := client.CloseVirtualTerminalViaSSH(*hmcIP, *username, *password, *systemName, *lparName, *verbose); err != nil {
 				log.Fatalf("Failed to close virtual terminal via SSH: %v", err)
 			}
 			fmt.Println("✓ Virtual terminal closed successfully via SSH")

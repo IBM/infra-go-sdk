@@ -76,7 +76,7 @@ func main() {
 	// =========================================================================
 	// 2. CONNECT AND AUTHENTICATE TO HMC NETWORK
 	// =========================================================================
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ Logon transaction rejected: %v", err)
 	}

@@ -97,7 +97,7 @@ func main() {
 	log.Println("")
 	log.Println("🔀 Phase 1: Authentication...")
 
-	var restClient *hmc.HmcRestClient
+	var restClient *hmc.RestClient
 	var svcclient *svc.Client
 	var wg sync.WaitGroup
 	var hmcErr, svcErr error
@@ -107,7 +107,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Println("[Auth-HMC] Connecting to HMC...")
-		restClient = hmc.NewHmcRestClient(*hmcIP)
+		restClient = hmc.NewRestClient(*hmcIP)
 		if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 			hmcErr = fmt.Errorf("HMC login failed: %v", err)
 			return
@@ -602,7 +602,7 @@ func parseStorageTypes(storageStr string) map[string]bool {
 	return result
 }
 
-func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
+func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bool) string {
 	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
@@ -619,7 +619,7 @@ func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose
 	return ""
 }
 
-func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName string, verbose bool) {
+func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
 	if verbose {
 		log.Printf("[HMC] Verifying LPAR name '%s' is unique...", vmName)
 	}
@@ -629,7 +629,7 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 	}
 }
 
-func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string, error) {
+func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string, error) {
 	viosList, err := restClient.GetVirtualIOServers(systemUUID, verbose)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch VIOS details: %v", err)
@@ -803,7 +803,7 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 	return targetVol, selectedViosName, nil
 }
 
-func identifyFreeVolume(ctx context.Context, restClient *hmc.HmcRestClient, viosUUID string, viosName string, VdiskUID string, verbose bool) (string, error) {
+func identifyFreeVolume(ctx context.Context, restClient *hmc.RestClient, viosUUID string, viosName string, VdiskUID string, verbose bool) (string, error) {
 	pvList, err := restClient.GetFreePhyVolume(viosUUID, verbose)
 	if err != nil {
 		pvList = []hmc.PhysicalVolume{}
@@ -821,7 +821,7 @@ func identifyFreeVolume(ctx context.Context, restClient *hmc.HmcRestClient, vios
 }
 
 // provisionVirtualDisk performs Smart Capacity Discovery to find the best VG, then creates the disk.
-func provisionVirtualDisk(restClient *hmc.HmcRestClient, sysName, sysUUID, diskName, targetVios, targetVg string, diskSizeMB int, verbose bool) (string, string, error) {
+func provisionVirtualDisk(restClient *hmc.RestClient, sysName, sysUUID, diskName, targetVios, targetVg string, diskSizeMB int, verbose bool) (string, string, error) {
 	requiredGB := float64(diskSizeMB) / 1024.0
 
 	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)

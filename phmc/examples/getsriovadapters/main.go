@@ -29,7 +29,7 @@ func main() {
 	// AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}

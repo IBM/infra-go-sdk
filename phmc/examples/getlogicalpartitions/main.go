@@ -32,7 +32,7 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 
 	if *verbose {
 		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)

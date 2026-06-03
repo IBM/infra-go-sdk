@@ -46,7 +46,7 @@ func main() {
 	// =========================================================================
 	// STEP 1: Login to HMC
 	// =========================================================================
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *hmcUser, *hmcPass, *verbose); err != nil {
 		log.Fatalf("HMC Login failed: %v", err)
 	}

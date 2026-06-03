@@ -15,7 +15,7 @@ import (
 )
 
 // GetVirtualSwitchQuickAll retrieves a JSON array of all Virtual Switches on a Managed System.
-func (c *HmcRestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID string, debug bool) ([]VirtualSwitchQuick, error) {
+func (c *RestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID string, debug bool) ([]VirtualSwitchQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/quick/All", c.hmcIP, sysUUID)
 
 	if debug {
@@ -70,7 +70,7 @@ func (c *HmcRestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID st
 }
 
 // GetVirtualSwitchQuick retrieves JSON details for a specific Virtual Switch.
-func (c *HmcRestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchUUID string, debug bool) (*VirtualSwitchQuick, error) {
+func (c *RestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchUUID string, debug bool) (*VirtualSwitchQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s/quick", c.hmcIP, sysUUID, switchUUID)
 
 	if debug {
@@ -129,7 +129,7 @@ func (c *HmcRestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, swit
 }
 
 // GetVirtualSwitches retrieves the comprehensive XML feed of Virtual Switches on a Managed System.
-func (c *HmcRestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, debug bool) ([]VirtualSwitch, error) {
+func (c *RestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, debug bool) ([]VirtualSwitch, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch", c.hmcIP, sysUUID)
 
 	if debug {
@@ -214,9 +214,9 @@ func (c *HmcRestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, 
 }
 
 // GetClientNetworkAdapters retrieves all ClientNetworkAdapter details for a partition as parsed Go structs.
-func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, lparUUID string, debug bool) ([]ClientNetworkAdapter, error) {
+func (c *RestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, lparUUID string, debug bool) ([]ClientNetworkAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Fetching ClientNetworkAdapters", "systemUUID", systemUUID, "lparUUID", lparUUID, "url", url)
 	}
@@ -273,7 +273,7 @@ func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID
 
 	// Extract the core elements and natively unmarshal them into structs
 	adapterElements := doc.FindElements("//ClientNetworkAdapter")
-	
+
 	for _, elem := range adapterElements {
 		adapterDoc := etree.NewDocument()
 		adapterDoc.SetRoot(elem.Copy())
@@ -288,7 +288,7 @@ func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID
 			c.Logger.Warn("Failed to unmarshal adapter XML", "error", err)
 			return nil, fmt.Errorf("failed to unmarshal adapter XML: %v", err)
 		}
-		
+
 		adapters = append(adapters, adapter)
 	}
 
@@ -298,6 +298,7 @@ func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID
 
 	return adapters, nil
 }
+
 // GetNetworkBootDevicesForLpar retrieves network boot devices from an LPAR's profile using the HMC REST API job.
 //
 // WARNING: This operation will power off the LPAR if it is currently running.
@@ -314,7 +315,7 @@ func (c *HmcRestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID
 //   - error: Error if the operation fails
 //
 // Reference: HMC REST API - GetNetworkBootDevices job operation
-func (c *HmcRestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
+func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/GetNetworkBootDevices", c.hmcIP, lparUUID)
 
 	if debug {
@@ -463,9 +464,189 @@ func (c *HmcRestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUU
 	return bootDevices, nil
 }
 
+// GetNetworkBootDevicesForVios retrieves network boot devices from a VIOS profile
+// using the HMC REST API job.
+//
+// WARNING: This operation will power off the VIOS if it is currently running.
+// The HMC GetNetworkBootDevices job requires the partition to be in a powered-off state.
+//
+// WARNING: IBM documentation for the VirtualIOServer GetNetworkBootDevices job
+// shows LogicalPartitionProfileUUID as a required job parameter, and this helper
+// sends that documented payload. However, on the HMCs validated during testing,
+// the job fails with FAILED_TO_START and reports that
+// LogicalPartitionProfileUUID is not allowed for this job. In other words, this
+// API currently does not behave as documented for the tested environments.
+//
+// Parameters:
+//   - viosUUID: UUID of the Virtual I/O Server
+//   - profileUUID: UUID of the partition profile to query
+//   - debug: Enable detailed logging
+//
+// Returns:
+//   - []NetworkBootDevice: List of network boot devices configured in the profile
+//   - error: Error if the operation fails
+func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID, profileUUID string, debug bool) ([]NetworkBootDevice, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/GetNetworkBootDevices", c.hmcIP, viosUUID)
+
+	if debug {
+		c.Logger.Debug("Getting network boot devices for VIOS", "viosUUID", viosUUID, "profileUUID", profileUUID)
+	}
+
+	// IBM documentation for the VIOS GetNetworkBootDevices job requires
+	// LogicalPartitionProfileUUID in the request body.
+	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<JobRequest:JobRequest xmlns:JobRequest="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2" schemaVersion="V1_1_0">
+	   <Metadata>
+	       <Atom/>
+	   </Metadata>
+	   <RequestedOperation kb="CUR" kxe="false" schemaVersion="V1_1_0">
+	       <Metadata>
+	           <Atom/>
+	       </Metadata>
+	       <OperationName kb="ROR" kxe="false">GetNetworkBootDevices</OperationName>
+	       <GroupName kb="ROR" kxe="false">VirtualIOServer</GroupName>
+	   </RequestedOperation>
+	   <JobParameters kb="CUR" kxe="false" schemaVersion="V1_1_0">
+	       <Metadata>
+	           <Atom/>
+	       </Metadata>
+	       <JobParameter schemaVersion="V1_1_0">
+	           <Metadata>
+	               <Atom/>
+	           </Metadata>
+	           <ParameterName kb="ROR" kxe="false">LogicalPartitionProfileUUID</ParameterName>
+	           <ParameterValue kxe="false" kb="CUR">%s</ParameterValue>
+	       </JobParameter>
+	   </JobParameters>
+</JobRequest:JobRequest>`, profileUUID)
+
+	// Create and execute HTTP request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml;type=JobRequest")
+	req.Header.Set("Accept", "*/*")
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	req = req.WithContext(timeoutCtx)
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		c.Logger.Error("HTTP request failed", "error", err)
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	c.logRawTraffic("RESPONSE", url, string(respBody))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
+		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse response to extract JobID
+	doc, err := xmlStripNamespace(respBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip namespaces from XML: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response")
+	}
+	jobID := jobIDElem.Text()
+
+	if debug {
+		c.Logger.Debug("GetNetworkBootDevices job submitted", "jobID", jobID)
+	}
+
+	// Wait for job completion
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, 5, debug)
+	if err != nil {
+		return nil, fmt.Errorf("GetNetworkBootDevices job failed: %v", err)
+	}
+
+	// Parse job results to extract network boot devices
+	var bootDevices []NetworkBootDevice
+
+	for _, param := range jobResp.Results.Parameters {
+		if param.ParameterName == "result" {
+			xmlContent := param.ParameterValue
+
+			// 1. Clean the CDATA wrapper and unescape any HTML entities
+			xmlContent = strings.TrimSpace(xmlContent)
+			xmlContent = strings.TrimPrefix(xmlContent, "<![CDATA[")
+			xmlContent = strings.TrimSuffix(xmlContent, "]]>")
+			xmlContent = html.UnescapeString(strings.TrimSpace(xmlContent))
+
+			if debug {
+				c.Logger.Debug("Parsing cleaned XML content", "bytes", len(xmlContent))
+			}
+
+			// 2. Strip Namespaces to make Unmarshaling easy
+			cleanDoc, err := xmlStripNamespace([]byte(xmlContent))
+			if err != nil {
+				if debug {
+					c.Logger.Warn("Failed to strip namespaces from result XML", "error", err)
+				}
+				continue
+			}
+			strippedXML, _ := cleanDoc.WriteToBytes()
+
+			// 3. Use an inline struct to map IBM's XML directly using standard encoding/xml
+			var collection struct {
+				Devices []struct {
+					BootDevice       string `xml:"BootDevice"`
+					IsPhysicalDevice bool   `xml:"IsPhysicalDevice"`
+					LocationCode     string `xml:"LocationCode"`
+					MACAddressValue  string `xml:"MACAddressValue"`
+				} `xml:"NetworkBootDevice"`
+			}
+
+			if err := xml.Unmarshal(strippedXML, &collection); err != nil {
+				if debug {
+					c.Logger.Warn("Failed to unmarshal NetworkBootDevices XML", "error", err)
+				}
+				continue
+			}
+
+			// 4. Map the unmarshaled data to your SDK's return struct
+			for _, d := range collection.Devices {
+				deviceType := "virtual"
+				if d.IsPhysicalDevice {
+					deviceType = "physical"
+				}
+
+				bootDevices = append(bootDevices, NetworkBootDevice{
+					DeviceName:   d.BootDevice,
+					DeviceType:   deviceType,
+					LocationCode: d.LocationCode,
+					MACAddress:   d.MACAddressValue,
+				})
+			}
+		}
+	}
+
+	if debug {
+		c.Logger.Info("Retrieved network boot device(s) for VIOS", "count", len(bootDevices))
+	}
+
+	return bootDevices, nil
+}
+
 // CreateClientNetworkAdapter adds a new Virtual Ethernet Adapter to an LPAR and connects it to a Virtual Switch.
 // Returns the complete ClientNetworkAdapter structure with all details.
-func (c *HmcRestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID, lparUUID, vswitchUUID string, vlanID int, debug bool) (*ClientNetworkAdapter, error) {
+func (c *RestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID, lparUUID, vswitchUUID string, vlanID int, debug bool) (*ClientNetworkAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, lparUUID)
 
 	if debug {
@@ -482,7 +663,7 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID,
     <AssociatedVirtualSwitch>
         <link href="https://%s:443/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s" rel="related"/>
     </AssociatedVirtualSwitch>
-</ClientNetworkAdapter:ClientNetworkAdapter>`, 
+</ClientNetworkAdapter:ClientNetworkAdapter>`,
 		vlanID, c.hmcIP, sysUUID, vswitchUUID)
 
 	httpReq, err := http.NewRequest("PUT", url, strings.NewReader(payload))
@@ -508,13 +689,13 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID,
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	
+
 	c.logRawTraffic("RESPONSE", url, string(body))
-	
+
 	if debug {
 		c.Logger.Debug("CreateClientNetworkAdapter response", "status", resp.Status, "body", string(body))
 	}
-	
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		c.Logger.Error("Adapter creation failed", "status", resp.Status)
 		if debug {
@@ -562,7 +743,7 @@ func (c *HmcRestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID,
 }
 
 // DeleteClientNetworkAdapter removes a specific Virtual Ethernet Adapter from an LPAR.
-func (c *HmcRestClient) DeleteClientNetworkAdapter(ctx context.Context, lparUUID, adapterUUID string, debug bool) error {
+func (c *RestClient) DeleteClientNetworkAdapter(ctx context.Context, lparUUID, adapterUUID string, debug bool) error {
 	// The specific endpoint for the adapter we want to delete
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter/%s", c.hmcIP, lparUUID, adapterUUID)
 
@@ -593,9 +774,9 @@ func (c *HmcRestClient) DeleteClientNetworkAdapter(ctx context.Context, lparUUID
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	
+
 	c.logRawTraffic("RESPONSE", url, string(body))
-	
+
 	// A successful DELETE operation typically returns 200 OK or 204 No Content
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		c.Logger.Error("Failed to delete adapter", "status", resp.Status)

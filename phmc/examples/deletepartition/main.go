@@ -47,7 +47,7 @@ func main() {
 	// =========================================================================
 	// PHASE 1: HMC RESOLUTION & SHUTDOWN
 	// =========================================================================
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *hmcUser, *hmcPass, *verbose); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}

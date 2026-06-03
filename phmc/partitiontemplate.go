@@ -14,7 +14,7 @@ import (
 )
 
 // DeployPartitionTemplate deploys a partition template to a managed system
-func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug bool) (string, error) {
+func (c *RestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/deploy", c.hmcIP, draftUUID)
 	if debug {
 		c.Logger.Debug("Deploying partition template", "draftUUID", draftUUID, "cecUUID", cecUUID, "url", url)
@@ -52,11 +52,11 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug
 	req.Header.Set("Accept", "*/*")
 	// Enable basic auth to match Python's force_basic_auth=True
 	req.SetBasicAuth("", "") // Credentials handled by session token
-	
+
 	if debug {
 		c.Logger.Debug("Deploy request headers", "headers", req.Header)
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -78,9 +78,9 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %v", err)
 	}
-	
+
 	c.logRawTraffic("RESPONSE", url, string(body))
-	
+
 	if debug {
 		c.Logger.Debug("DeployPartitionTemplate response body", "body", string(body))
 	}
@@ -147,7 +147,7 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug
 			return partUUID, nil
 		}
 	}
-	
+
 	if jobResp.Status == "FAILED" || jobResp.Status == "COMPLETED_WITH_ERROR" {
 		c.Logger.Fatal("Partition creation failed", "status", jobResp.Status)
 	}
@@ -156,7 +156,7 @@ func (c *HmcRestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug
 }
 
 // GetPartitionTemplateID retrieves the AtomID for a partition template by name
-func (c *HmcRestClient) GetPartitionTemplateID(name string, debug bool) (string, error) {
+func (c *RestClient) GetPartitionTemplateID(name string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
 	if debug {
 		c.Logger.Debug("Requesting template ID for name", "name", name, "url", url)
@@ -218,7 +218,7 @@ func (c *HmcRestClient) GetPartitionTemplateID(name string, debug bool) (string,
 }
 
 // ListPartitionTemplateIDs retrieves all PartitionTemplate AtomIDs
-func (c *HmcRestClient) ListPartitionTemplateIDs(debug bool) ([]string, error) {
+func (c *RestClient) ListPartitionTemplateIDs(debug bool) ([]string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
 	if debug {
 		c.Logger.Debug("Listing Partition Template IDs", "url", url)
@@ -278,7 +278,7 @@ func (c *HmcRestClient) ListPartitionTemplateIDs(debug bool) ([]string, error) {
 }
 
 // GetPartitionTemplate retrieves the full PartitionTemplate XML by UUID or name
-func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, debug bool) (*etree.Element, error) {
+func (c *RestClient) GetPartitionTemplate(uuid, name string, debug bool) (*etree.Element, error) {
 	if uuid == "" && name != "" {
 		var err error
 		uuid, err = c.GetPartitionTemplateID(name, debug)
@@ -345,7 +345,7 @@ func (c *HmcRestClient) GetPartitionTemplate(uuid, name string, debug bool) (*et
 }
 
 // CopyPartitionTemplate copies a partition template from one name to another
-func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, debug bool) error {
+func (c *RestClient) CopyPartitionTemplate(fromName, toName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Copying template", "fromName", fromName, "toName", toName)
 	}
@@ -424,7 +424,7 @@ func (c *HmcRestClient) CopyPartitionTemplate(fromName, toName string, debug boo
 }
 
 // UpdatePartitionTemplate updates an existing partition template with the provided XML
-func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Element, debug bool) error {
+func (c *RestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Element, debug bool) error {
 	if uuid == "" {
 		return fmt.Errorf("UUID cannot be empty")
 	}
@@ -438,7 +438,7 @@ func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.
 	}
 
 	// Replace the PartitionTemplate tag with the namespace, mimicking the Python behavior
-	xmlStr = strings.Replace(xmlStr, "<PartitionTemplate>", "<"+LPAR_TEMPLATE_NS+">", 1)
+	xmlStr = strings.Replace(xmlStr, "<PartitionTemplate>", "<"+LparTemplateNS+">", 1)
 
 	if debug {
 		c.Logger.Debug("Updating partition template XML", "uuid", uuid, "xmlStr", xmlStr)
@@ -494,7 +494,7 @@ func (c *HmcRestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.
 }
 
 // CreatePartition creates a partition using a template UUID
-func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string, debug bool) (string, error) {
+func (c *RestClient) CreatePartition(systemUUID, templateUUID, osType string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/do/CreatePartitionFromTemplate", c.hmcIP, systemUUID)
 	if debug {
 		c.Logger.Debug("Creating partition from template", "systemUUID", systemUUID, "templateUUID", templateUUID, "osType", osType)
@@ -572,7 +572,7 @@ func (c *HmcRestClient) CreatePartition(systemUUID, templateUUID, osType string,
 }
 
 // DeletePartitionTemplate deletes a partition template by name
-func (c *HmcRestClient) DeletePartitionTemplate(templateName string, debug bool) error {
+func (c *RestClient) DeletePartitionTemplate(templateName string, debug bool) error {
 	if debug {
 		c.Logger.Debug("Deleting partition template", "templateName", templateName)
 	}
@@ -645,7 +645,7 @@ func (c *HmcRestClient) DeletePartitionTemplate(templateName string, debug bool)
 
 // TransformPartitionTemplate transforms a draft partition template for a managed system
 // Returns a TransformResult struct with the transformation details
-func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, debug bool) (*TransformResult, error) {
+func (c *RestClient) TransformPartitionTemplate(draftUUID, cecUUID string, debug bool) (*TransformResult, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/transform", c.hmcIP, draftUUID)
 	if debug {
 		c.Logger.Debug("Transforming partition template", "draftUUID", draftUUID, "cecUUID", cecUUID, "url", url)
@@ -770,7 +770,7 @@ func (c *HmcRestClient) TransformPartitionTemplate(draftUUID, cecUUID string, de
 
 // CheckPartitionTemplate checks a partition template for a managed system
 // Returns a TemplateValidationResult struct with validation details
-func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, debug bool) (*TemplateValidationResult, error) {
+func (c *RestClient) CheckPartitionTemplate(templateName, cecUUID string, debug bool) (*TemplateValidationResult, error) {
 	if debug {
 		c.Logger.Debug("Checking partition template", "templateName", templateName, "cecUUID", cecUUID)
 	}
@@ -893,11 +893,11 @@ func (c *HmcRestClient) CheckPartitionTemplate(templateName, cecUUID string, deb
 
 	// Build TemplateValidationResult from job response
 	result := &TemplateValidationResult{
-		JobID:        jobID,
-		Status:       jobResp.Status,
-		IsValid:      jobResp.Status == "COMPLETED_OK",
-		Errors:       []string{},
-		Warnings:     []string{},
+		JobID:    jobID,
+		Status:   jobResp.Status,
+		IsValid:  jobResp.Status == "COMPLETED_OK",
+		Errors:   []string{},
+		Warnings: []string{},
 	}
 
 	// Parse validation results from job response

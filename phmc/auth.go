@@ -12,7 +12,7 @@ import (
 )
 
 // Login performs the logon operation to the HMC REST API
-func (c *HmcRestClient) Login(ctx context.Context, username, password string, debug bool) error {
+func (c *RestClient) Login(ctx context.Context, username, password string, debug bool) error {
 	// Optional: If you still want to pass 'verbose' through the function signature,
 	// you can toggle the logger level right here.
 	if debug {
@@ -26,7 +26,7 @@ func (c *HmcRestClient) Login(ctx context.Context, username, password string, de
 		UserID:        username,
 		Password:      password,
 	}
-	
+
 	xmlData, err := xml.Marshal(payload)
 	if err != nil {
 		c.Logger.Error("XML marshal failed", "error", err)
@@ -34,7 +34,7 @@ func (c *HmcRestClient) Login(ctx context.Context, username, password string, de
 	}
 
 	url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
-	
+
 	// LOOK HOW CLEAN THIS IS! No more "if verbose { ... }" blocks!
 	// We pass the URL and Username as structured key-value pairs.
 	c.Logger.Debug("Sending logon request",
@@ -89,68 +89,68 @@ func (c *HmcRestClient) Login(ctx context.Context, username, password string, de
 }
 
 // Logoff performs the logoff operation from the HMC REST API
-func (c *HmcRestClient) Logoff(ctx context.Context) error {
-    if c.session == "" {
-        c.Logger.Debug("No active session to log off")
-        return nil // No session to log off
-    }
-    
-    url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
-    
-    c.Logger.Debug("Sending logoff request", "url", url)
+func (c *RestClient) Logoff(ctx context.Context) error {
+	if c.session == "" {
+		c.Logger.Debug("No active session to log off")
+		return nil // No session to log off
+	}
 
-    // ✨ THE FIX #1: Flush stale keep-alive connections ✨
-    // Long-running scripts cause the HMC to silently drop the TCP connection.
-    // This forces Go to establish a fresh connection for the Logoff command.
-    c.client.CloseIdleConnections()
-    
-    req, err := http.NewRequest("DELETE", url, nil)
-    if err != nil {
-        c.Logger.Error("Request creation failed", "error", err)
-        return fmt.Errorf("request creation failed: %v", err)
-    }
-    req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
-    req.Header.Set("Authorization", "Basic Og==")
-    req.Header.Set("X-API-Session", c.session)
+	url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
 
-    // ✨ THE FIX #2: Tell Go not to reuse this connection ✨
-    req.Close = true
+	c.Logger.Debug("Sending logoff request", "url", url)
 
-    reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
-    defer cancel()
-    req = req.WithContext(reqCtx)
+	// ✨ THE FIX #1: Flush stale keep-alive connections ✨
+	// Long-running scripts cause the HMC to silently drop the TCP connection.
+	// This forces Go to establish a fresh connection for the Logoff command.
+	c.client.CloseIdleConnections()
 
-    c.logRawTraffic("REQUEST (DELETE)", url, "")
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		c.Logger.Error("Request creation failed", "error", err)
+		return fmt.Errorf("request creation failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
+	req.Header.Set("Authorization", "Basic Og==")
+	req.Header.Set("X-API-Session", c.session)
 
-    resp, err := c.client.Do(req)
-    if err != nil {
-        // ✨ THE FIX #3: Graceful EOF Handling ✨
-        // If the HMC aggressively killed the session while we were waiting, ignore it.
-        if strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "connection reset by peer") {
-            c.Logger.Debug("Ignored EOF during logoff (session already terminated by HMC).")
-            c.session = "" // Clear local session state
-            return nil
-        }
-        
-        c.Logger.Error("HTTP request failed", "error", err)
-        return fmt.Errorf("HTTP request failed: %v", err)
-    }
-    defer resp.Body.Close()
+	// ✨ THE FIX #2: Tell Go not to reuse this connection ✨
+	req.Close = true
 
-    body, err := io.ReadAll(resp.Body)
-    if err == nil {
-        c.logRawTraffic("RESPONSE", url, string(body))
-    }
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	req = req.WithContext(reqCtx)
 
-    c.Logger.Debug("Logoff response received", "status", resp.Status, "code", resp.StatusCode)
+	c.logRawTraffic("REQUEST (DELETE)", url, "")
 
-    if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-        c.Logger.Error("Logoff failed", "status", resp.Status)
-        return fmt.Errorf("logoff failed with status: %s", resp.Status)
-    }
-    
-    c.session = ""
-    c.Logger.Info("Successfully logged off from HMC")
-    
-    return nil
+	resp, err := c.client.Do(req)
+	if err != nil {
+		// ✨ THE FIX #3: Graceful EOF Handling ✨
+		// If the HMC aggressively killed the session while we were waiting, ignore it.
+		if strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "connection reset by peer") {
+			c.Logger.Debug("Ignored EOF during logoff (session already terminated by HMC).")
+			c.session = "" // Clear local session state
+			return nil
+		}
+
+		c.Logger.Error("HTTP request failed", "error", err)
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err == nil {
+		c.logRawTraffic("RESPONSE", url, string(body))
+	}
+
+	c.Logger.Debug("Logoff response received", "status", resp.Status, "code", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		c.Logger.Error("Logoff failed", "status", resp.Status)
+		return fmt.Errorf("logoff failed with status: %s", resp.Status)
+	}
+
+	c.session = ""
+	c.Logger.Info("Successfully logged off from HMC")
+
+	return nil
 }

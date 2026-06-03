@@ -15,7 +15,7 @@ import (
 
 // GetLogicalPartitionProfiles retrieves the logical partition profiles for a specific partition by UUID.
 // Returns structured profile data using the same pattern as GetAllLogicalPartitionsInHmc.
-func (c *HmcRestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionUUID string, debug bool) ([]LogicalPartitionProfile, error) {
+func (c *RestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionUUID string, debug bool) ([]LogicalPartitionProfile, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile", c.hmcIP, partitionUUID)
 	if debug {
 		c.Logger.Debug("Fetching logical partition profiles", "partitionUUID", partitionUUID, "url", url)
@@ -106,7 +106,7 @@ func (c *HmcRestClient) GetLogicalPartitionProfiles(ctx context.Context, partiti
 }
 
 // GetLogicalPartitionProfile retrieves a single logical partition profile by its UUID.
-func (c *HmcRestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUID string, debug bool) (*LogicalPartitionProfile, error) {
+func (c *RestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUID string, debug bool) (*LogicalPartitionProfile, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/%s", c.hmcIP, partitionUUID, profileUUID)
 	if debug {
 		c.Logger.Debug("Fetching logical partition profile", "profileUUID", profileUUID, "partitionUUID", partitionUUID, "url", url)
@@ -188,7 +188,7 @@ func (c *HmcRestClient) GetLogicalPartitionProfile(partitionUUID string, profile
 // DeleteLogicalPartitionProfile deletes a logical partition profile by its UUID.
 // This permanently removes the profile from the partition.
 // Note: You cannot delete the profile that is currently in use by a running partition.
-func (c *HmcRestClient) DeleteLogicalPartitionProfile(partitionUUID string, profileUUID string, debug bool) error {
+func (c *RestClient) DeleteLogicalPartitionProfile(partitionUUID string, profileUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/%s", c.hmcIP, partitionUUID, profileUUID)
 	if debug {
 		c.Logger.Debug("Deleting logical partition profile", "profileUUID", profileUUID, "partitionUUID", partitionUUID, "url", url)
@@ -244,9 +244,8 @@ func (c *HmcRestClient) DeleteLogicalPartitionProfile(partitionUUID string, prof
 	return nil
 }
 
-
 // UpdateLogicalPartitionProfile updates a logical partition profile by its UUID with the provided XML payload.
-func (c *HmcRestClient) UpdateLogicalPartitionProfile(partitionUUID string, profileName string, updatedProfileXML string, debug bool) error {
+func (c *RestClient) UpdateLogicalPartitionProfile(partitionUUID string, profileName string, updatedProfileXML string, debug bool) error {
 	// STEP 1: GET the full LogicalPartition entry
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile", c.hmcIP, partitionUUID)
 
@@ -315,7 +314,7 @@ func (c *HmcRestClient) UpdateLogicalPartitionProfile(partitionUUID string, prof
 	defer postResp.Body.Close()
 
 	postBody, _ := io.ReadAll(postResp.Body)
-	
+
 	c.logRawTraffic("RESPONSE", url, string(postBody))
 
 	if postResp.StatusCode != 200 && postResp.StatusCode != 201 && postResp.StatusCode != 204 {
@@ -330,7 +329,7 @@ func (c *HmcRestClient) UpdateLogicalPartitionProfile(partitionUUID string, prof
 }
 
 // GetPartitionProfiles retrieves all partition profiles (UUID and name) for a logical partition
-func (c *HmcRestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]PartitionProfileQuick, error) {
+func (c *RestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]PartitionProfileQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/quick/All", c.hmcIP, lparUUID)
 	if debug {
 		c.Logger.Debug("Fetching partition profiles", "lparUUID", lparUUID, "url", url)
@@ -396,9 +395,9 @@ func (c *HmcRestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]Par
 
 // SaveCurrentLparConfig saves the current active configuration of a Logical Partition to a profile.
 // If force is true, it will overwrite an existing profile with the same name.
-func (c *HmcRestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, profileName string, force, debug bool) error {
+func (c *RestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, profileName string, force, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/SaveCurrentConfig", c.hmcIP, lparUUID)
-	
+
 	if debug {
 		c.Logger.Debug("Saving current config for LPAR", "lparUUID", lparUUID, "profileName", profileName, "force", force)
 	}
@@ -427,7 +426,7 @@ func (c *HmcRestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, pro
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
-	
+
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
 	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
@@ -477,109 +476,13 @@ func (c *HmcRestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, pro
 		return fmt.Errorf("JobID not found in response: %s", string(body))
 	}
 	jobID := jobIDElem.Text()
-	
+
 	if debug {
 		c.Logger.Info("Extracted JobID. Waiting for completion...", "jobID", jobID)
 	}
 
 	// 8. Wait for the background job to finish
 	_, err = c.FetchJobStatus(context.Background(), jobID, false, 5, debug)
-	if err != nil {
-		return fmt.Errorf("failed during SaveCurrentConfig job execution: %v", err)
-	}
-
-	return nil
-}
-// SaveCurrentViosConfig saves the current active configuration of a Virtual I/O Server (VIOS) to a profile.
-// If force is true, it will overwrite an existing profile with the same name.
-func (c *HmcRestClient) SaveCurrentViosConfig(ctx context.Context, viosUUID, profileName string, force, debug bool) error {
-	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/SaveCurrentConfig", c.hmcIP, viosUUID)
-	
-	if debug {
-		c.Logger.Debug("Saving current config for VIOS", "viosUUID", viosUUID, "profileName", profileName, "force", force)
-	}
-
-	// 1. Define operation details for the JobRequest
-	reqdOperation := map[string]string{
-		"OperationName": "SaveCurrentConfig",
-		"GroupName":     "VirtualIOServer", // Changed from LogicalPartition
-		"ProgressType":  "DISCRETE",
-	}
-
-	// 2. Build job parameters matching the HMC schema
-	jobParams := map[string]string{
-		"PartitionProfileName": profileName,
-		"force":                fmt.Sprintf("%t", force),
-	}
-
-	// 3. Generate the XML payload using your existing helper
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
-	if err != nil {
-		return fmt.Errorf("failed to create job request payload: %v", err)
-	}
-
-	// 4. Create and configure the PUT request
-	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
-	}
-	
-	req.Header.Set("X-API-Session", c.session)
-	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
-	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
-
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-	req = req.WithContext(ctxWithTimeout)
-
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
-
-	// 5. Send the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
-		return fmt.Errorf("HTTP request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	c.logRawTraffic("RESPONSE", url, string(body))
-
-	if debug {
-		c.Logger.Debug("SaveCurrentConfig Response Status", "status", resp.Status)
-	}
-
-	// 6. Check for non-success status codes (Usually 200, 201, or 202 for Jobs)
-	if resp.StatusCode >= 400 {
-		c.Logger.Error("SaveCurrentConfig job submission failed", "status", resp.Status)
-		if debug {
-			return fmt.Errorf("SaveCurrentConfig job submission failed with status %s: %s", resp.Status, string(body))
-		}
-		return fmt.Errorf("SaveCurrentConfig job submission failed with status %s. Enable debug mode to see full response", resp.Status)
-	}
-
-	// 7. Strip namespaces to find the JobID
-	doc, err := xmlStripNamespace(body)
-	if err != nil {
-		return fmt.Errorf("failed to strip namespaces from XML response: %v", err)
-	}
-
-	jobIDElem := doc.FindElement("//JobID")
-	if jobIDElem == nil {
-		return fmt.Errorf("JobID not found in response: %s", string(body))
-	}
-	jobID := jobIDElem.Text()
-	
-	if debug {
-		c.Logger.Info("Extracted JobID. Waiting for completion...", "jobID", jobID)
-	}
-
-	// 8. Wait for the background job to finish
-	_, err = c.FetchJobStatus(ctx, jobID, false, 5, debug)
 	if err != nil {
 		return fmt.Errorf("failed during SaveCurrentConfig job execution: %v", err)
 	}

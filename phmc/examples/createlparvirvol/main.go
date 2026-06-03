@@ -48,7 +48,7 @@ func main() {
 	// =========================================================================
 	// 1. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("[HMC] Logon failed: %v", err)
 	}
@@ -275,7 +275,7 @@ func main() {
 // WORKFLOW HELPER FUNCTIONS
 // =========================================================================
 
-func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
+func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bool) string {
 	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
@@ -289,7 +289,7 @@ func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose
 	return ""
 }
 
-func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName string, verbose bool) {
+func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
 	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName, false)
 	if err == nil && existingUUID != "" {
 		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
@@ -297,7 +297,7 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 }
 
 // provisionVirtualDisk performs Smart Capacity Discovery to find the best VG, then creates the disk.
-func provisionVirtualDisk(restClient *hmc.HmcRestClient, sysName, sysUUID, diskName, targetVios, targetVg string, diskSizeMB int, verbose bool) (string, string, error) {
+func provisionVirtualDisk(restClient *hmc.RestClient, sysName, sysUUID, diskName, targetVios, targetVg string, diskSizeMB int, verbose bool) (string, string, error) {
 	requiredGB := float64(diskSizeMB) / 1024.0
 
 	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)

@@ -61,7 +61,7 @@ func main() {
 	}
 
 	// --- Initialize & Authenticate HMC ---
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if *verbose {
 		log.Printf("[HMC-AUTH] Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
 	}
@@ -123,7 +123,7 @@ func main() {
 // WORKFLOW HELPER FUNCTIONS
 // =========================================================================
 
-func resolveSystemUUID(restClient *hmc.HmcRestClient, systemName string, verbose bool) string {
+func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bool) string {
 	if verbose {
 		log.Printf("[HMC] Resolving Managed System UUID for name: %s", systemName)
 	}
@@ -178,7 +178,7 @@ func buildLparConfigDict(verbose bool) map[string]string {
 	return configDict
 }
 
-func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName string, verbose bool) {
+func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
 	if verbose {
 		log.Printf("[HMC] Verifying LPAR name '%s' is unique on system...", vmName)
 	}
@@ -194,7 +194,7 @@ func ensureLparDoesNotExist(restClient *hmc.HmcRestClient, systemUUID, vmName st
 	}
 }
 
-func prepareLparTemplate(restClient *hmc.HmcRestClient, referenceTemplate string, configDict map[string]string, verbose bool) (string, string, *etree.Element, error) {
+func prepareLparTemplate(restClient *hmc.RestClient, referenceTemplate string, configDict map[string]string, verbose bool) (string, string, *etree.Element, error) {
 	if verbose {
 		log.Printf("[HMC-TMPL] Verifying existence of reference template: %s", referenceTemplate)
 	}
@@ -253,7 +253,7 @@ func prepareLparTemplate(restClient *hmc.HmcRestClient, referenceTemplate string
 	return tempUUID, tempTemplateName, tempTemplateDoc, nil
 }
 
-func getViosWwpnMap(restClient *hmc.HmcRestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string) {
+func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string) {
 	if verbose {
 		log.Printf("[HMC] Fetching all Virtual I/O Servers for system UUID: %s to discover WWPNs and UUIDs...", systemUUID)
 	}
@@ -451,7 +451,7 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 	return targetVol, selectedViosName
 }
 
-func configureVSCSI(ctx context.Context,restClient *hmc.HmcRestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, viosUuidMap map[string]string, verbose bool) {
+func configureVSCSI(ctx context.Context,restClient *hmc.RestClient, systemUUID, tempUUID string, targetVol *svc.Vdisk, tempTemplateDoc *etree.Element, viosName string, viosUuidMap map[string]string, verbose bool) {
 	if verbose {
 		log.Printf("[HMC-VSCSI] Beginning VSCSI Configuration on VIOS: %s", viosName)
 	}
@@ -508,7 +508,7 @@ func configureVSCSI(ctx context.Context,restClient *hmc.HmcRestClient, systemUUI
 	}
 }
 
-func deployAndStartPartition(ctx context.Context,restClient *hmc.HmcRestClient, systemUUID, tempUUID, tempTemplateName string, configDict map[string]string, osType string, verbose bool) {
+func deployAndStartPartition(ctx context.Context,restClient *hmc.RestClient, systemUUID, tempUUID, tempTemplateName string, configDict map[string]string, osType string, verbose bool) {
 	if verbose {
 		log.Printf("[HMC-DEPLOY] Transforming Partition Template (UUID: %s) for System Deployment...", tempUUID)
 	}
@@ -595,7 +595,7 @@ func deployAndStartPartition(ctx context.Context,restClient *hmc.HmcRestClient, 
 // PRE-EXISTING WRAPPER FUNCTIONS (Preserved Functionality)
 // =========================================================================
 
-func identifyFreeVolume(ctx context.Context, restClient *hmc.HmcRestClient, viosUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
+func identifyFreeVolume(ctx context.Context, restClient *hmc.RestClient, viosUUID string, volConfig hmc.VolumeConfig, VdiskUID string, verbose bool) (string, error) {
 	viosName := volConfig.ViosName
 	if verbose {
 		log.Printf("[HMC-UTIL] Identifying free volume on VIOS '%s' (UUID: %s) matching UID '%s'", viosName, viosUUID, VdiskUID)

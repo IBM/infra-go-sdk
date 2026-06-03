@@ -19,7 +19,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Verbose")
 	flag.Parse()
 
-	client := hmc.NewHmcRestClient(*hmcIP)
+	client := hmc.NewRestClient(*hmcIP)
 	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatal(err)
 	}

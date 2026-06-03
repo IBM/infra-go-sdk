@@ -62,7 +62,7 @@ func main() {
 	// =========================================================================
 	// 2. AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	
 	// Sync the SDK logger level with the CLI logger
 	if *verbose {

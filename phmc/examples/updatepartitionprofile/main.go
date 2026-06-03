@@ -27,7 +27,7 @@ func main() {
 `
 
     // Initialize HmcRestClient
-	restClient := hmc.NewHmcRestClient(hmcIP)
+	restClient := hmc.NewRestClient(hmcIP)
 
 	// Logon
 	if verbose {

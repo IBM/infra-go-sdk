@@ -15,7 +15,7 @@ func main() {
 	viosUUID := "0625F241-08C9-461D-9FA6-B46620D6FDB1"
 
 	// Initialize HmcRestClient
-	restClient := hmc.NewHmcRestClient(hmcIP)
+	restClient := hmc.NewRestClient(hmcIP)
 
 	// Logon
 	if verbose {

@@ -12,7 +12,7 @@ import (
 )
 
 // FetchJobResponse retrieves the full job response and returns it as a structured JobResponse
-func (c *HmcRestClient) FetchJobResponse(ctx context.Context, jobID string, debug bool) (*JobResponse, error) {
+func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string, debug bool) (*JobResponse, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
 	if debug {
 		c.Logger.Debug("Fetching job response", "jobID", jobID, "url", url)
@@ -72,11 +72,11 @@ func (c *HmcRestClient) FetchJobResponse(ctx context.Context, jobID string, debu
 
 	// Use XML unmarshaling to populate the struct
 	var jobResp JobResponse
-	
+
 	// Create a new document with the JobResponse element as root
 	jobRespDoc := etree.NewDocument()
 	jobRespDoc.SetRoot(jobRespElem.Copy())
-	
+
 	jobRespBytes, err := jobRespDoc.WriteToBytes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize JobResponse element: %v", err)
@@ -120,7 +120,7 @@ func (c *HmcRestClient) FetchJobResponse(ctx context.Context, jobID string, debu
 //   - error: Error if job fails, is canceled, or times out
 //
 // Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-job-status
-func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, template bool, timeoutInMin int, debug bool) (*JobResponse, error) {
+func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template bool, timeoutInMin int, debug bool) (*JobResponse, error) {
 	// Construct URL based on template flag
 	var url string
 	if template {
@@ -141,7 +141,7 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 	var jobStatus string // To use in timeout error message
 	var doc *etree.Document
 	var jobResp *JobResponse
-	
+
 	for i := 0; i < maxChecks; i++ {
 		if i > 0 {
 			// Use select to allow context cancellation during sleep
@@ -152,7 +152,7 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 				// Continue to next iteration
 			}
 		}
-		
+
 		// Check for context cancellation before making request
 		select {
 		case <-ctx.Done():
@@ -184,12 +184,12 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %v", err)
 		}
-		
+
 		c.logRawTraffic("RESPONSE", url, string(body))
-		
+
 		if debug {
 			c.Logger.Debug("Job Status Poll Response", "body", string(body))
-		}	
+		}
 		// Parse XML and strip namespaces
 		doc, err = xmlStripNamespace(body)
 		if err != nil {
@@ -211,11 +211,11 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 
 		// Use XML unmarshaling to populate the struct
 		var jr JobResponse
-		
+
 		// Create a new document with the JobResponse element as root
 		jobRespDoc := etree.NewDocument()
 		jobRespDoc.SetRoot(jobRespElem.Copy())
-		
+
 		jobRespBytes, err := jobRespDoc.WriteToBytes()
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize JobResponse element: %v", err)
@@ -224,7 +224,7 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 		if err := xml.Unmarshal(jobRespBytes, &jr); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal JobResponse: %v", err)
 		}
-		
+
 		jobResp = &jr
 		jobStatus = jobResp.Status
 
@@ -268,7 +268,7 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 			if errMsg == "" && len(jobResp.Results.Parameters) > 0 {
 				errMsg = jobResp.Results.Parameters[0].ParameterValue
 			}
-			
+
 			if errMsg != "" {
 				if debug {
 					c.Logger.Error("Job error message", "jobID", jobID, "message", errMsg)
@@ -373,7 +373,6 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 	return nil, fmt.Errorf("job timed out")
 }
 
-
 // DeleteJob deletes a job from the HMC.
 // According to IBM documentation, after a job is completed, you must delete the job.
 //
@@ -386,7 +385,7 @@ func (c *HmcRestClient) FetchJobStatus(ctx context.Context, jobID string, templa
 //   - error: Error if the deletion fails, nil on success
 //
 // Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-jobs
-func (c *HmcRestClient) DeleteJob(ctx context.Context, jobID string, template bool, debug bool) error {
+func (c *RestClient) DeleteJob(ctx context.Context, jobID string, template bool, debug bool) error {
 	// Construct URL based on template flag
 	var url string
 	if template {

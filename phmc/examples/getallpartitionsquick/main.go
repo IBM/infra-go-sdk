@@ -19,7 +19,7 @@ func main() {
 	verbose    := false 
 
 	// 1. Initialize Client
-	restClient := hmc.NewHmcRestClient(hmcIP)
+	restClient := hmc.NewRestClient(hmcIP)
 
 	// 2. Logon
 	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {

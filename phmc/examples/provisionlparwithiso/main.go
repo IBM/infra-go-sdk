@@ -23,7 +23,7 @@ type RollbackTracker struct {
 	mappedDisks       bool
 	savedProfile      bool
 	poweredOn         bool
-	restClient        *hmc.HmcRestClient
+	restClient        *hmc.RestClient
 	sysUUID           string
 	sysName           string
 	viosUUID          string
@@ -132,7 +132,7 @@ func deleteLPAR(ctx context.Context,hmcIP, username, password, sysName, lparName
 	// =========================================================================
 	fmt.Println("\n[Step 1/7] Authenticating and resolving resources...")
 	
-	restClient := hmc.NewHmcRestClient(hmcIP)
+	restClient := hmc.NewRestClient(hmcIP)
 	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
 		log.Fatalf("❌ HMC Login failed: %v", err)
 	}
@@ -434,7 +434,7 @@ func main() {
 	// =========================================================================
 	fmt.Println("\n[Step 1/10] Authenticating and resolving resources...")
 	
-	restClient := hmc.NewHmcRestClient(*hmcIP)
+	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
 		log.Fatalf("❌ HMC Login failed: %v", err)
 	}
