@@ -4012,3 +4012,22 @@ type PrepareMaintenanceResult struct {
 	VirtualLANPrepareMaintenance  MaintenanceStep  `json:"virtualLANPrepareMaintenance"`
 	VirtualNICPrepareMaintenance  MaintenanceStep  `json:"virtualNICPrepareMaintenance"`
 }
+
+// UpdateVIOSOptions holds the configuration parameters for updating a Virtual I/O Server.
+// Depending on the ResourceType, different fields become mandatory.
+type UpdateVIOSOptions struct {
+	ResourceType    string // Required: HMC, NFS, SFTP, USB, IBMWebsite
+	Name            string // Required: The name of the update VIOS image
+	ServerHostOrIP  string // Required for NFS and SFTP
+	UserName        string // Required for SFTP
+	Password        string // Required for SFTP (if not using SSHKey)
+	SSHKey          string // Optional for SFTP: The SSH private key file
+	PassPhrase      string // Optional for SFTP: The Passphrase for the SSH key
+	RemoteDirectory string // Required for NFS and SFTP: The directory where the file exists
+	FileNames       string // Optional: Comma-separated list. If omitted, all files are copied
+	MountLocation   string // Optional for NFS: Target mount location
+	MountOptions    string // Optional for NFS: Additional mount command options (e.g., "vers=4")
+	USBDevice       string // Required for USB: The name of the USB device (e.g., "/dev/sdb1")
+	SaveFile        bool   // Flag to indicate if the remote VIOS update must be saved in the HMC
+	RestartVIOS     bool   // Flag to indicate if VIOS must be automatically restarted after update
+}

@@ -5190,3 +5190,441 @@ func (c *RestClient) SaveCurrentViosConfig(ctx context.Context, viosUUID, profil
 
 	return nil
 }
+// ListVIOSHMCUpdates queries the HMC's internal repository and returns the names of all currently 
+// cached VIOS update image files. The HMC holds a maximum of 3 images at a time.
+func (c *RestClient) ListVIOSHMCUpdates(ctx context.Context, debug bool) ([]string, error) {
+	// 1. Resolve Management Console UUID (Helper from your jobs.go or vios.go)
+	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
+	mcDoc, err := c.fetchAndParseHMCXML(ctx, mcURL, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Management Console: %v", err)
+	}
+
+	var mcUUID string
+	if entryElem := mcDoc.FindElement("//entry/id"); entryElem != nil {
+		mcUUID = entryElem.Text()
+	} else if uuidElem := mcDoc.FindElement("//ManagementConsole/Metadata/Atom/AtomID"); uuidElem != nil {
+		mcUUID = uuidElem.Text()
+	}
+
+	if mcUUID == "" {
+		return nil, fmt.Errorf("could not resolve Management Console UUID")
+	}
+
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/%s/do/ListVIOSUpdates", c.hmcIP, mcUUID)
+
+	if debug {
+		c.Logger.Debug("Fetching VIOS Updates cached on HMC", "url", url)
+	}
+
+	operation := map[string]string{
+		"OperationName": "ListVIOSUpdates",
+		"GroupName":     "ManagementConsole",
+		"ProgressType":  "DISCRETE",
+	}
+
+	params := map[string]string{
+		"Source": "HMC",
+	}
+
+	payload, err := createJobRequestPayload(operation, params, "V1_1_0", debug, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JobRequest payload: %v", err)
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "application/atom+xml, application/vnd.ibm.powervm.uom+xml; type=JobResponse")
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("ListVIOSUpdates failed (%s): %s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, err
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("JobID not found in response")
+	}
+
+	jobResp, err := c.FetchJobStatus(ctx, jobIDElem.Text(), false, 5, debug)
+	if err != nil {
+		return nil, fmt.Errorf("ListVIOSUpdates job failed: %v", err)
+	}
+
+	var updatesJSON string
+	for _, param := range jobResp.Results.Parameters {
+		if param.ParameterName == "Updates" {
+			updatesJSON = param.ParameterValue
+			break
+		}
+	}
+
+	if updatesJSON == "" {
+		return []string{}, nil // No updates cached
+	}
+
+	// IBM returns a JSON array embedded as a string payload
+	type updateInfo struct {
+		Name string `json:"Name"`
+	}
+	var parsedUpdates []updateInfo
+	if err := json.Unmarshal([]byte(updatesJSON), &parsedUpdates); err != nil {
+		return nil, fmt.Errorf("failed to parse Updates JSON: %v", err)
+	}
+
+	var names []string
+	for _, u := range parsedUpdates {
+		names = append(names, u.Name)
+	}
+
+	return names, nil
+}
+
+// DeleteVIOSHMCUpdate permanently removes a cached VIOS update image from the HMC's internal storage repository.
+func (c *RestClient) DeleteVIOSHMCUpdate(ctx context.Context, updateName string, debug bool) error {
+	// 1. Resolve Management Console UUID 
+	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
+	mcDoc, err := c.fetchAndParseHMCXML(ctx, mcURL, false)
+	if err != nil {
+		return fmt.Errorf("failed to fetch Management Console: %v", err)
+	}
+
+	var mcUUID string
+	if entryElem := mcDoc.FindElement("//entry/id"); entryElem != nil {
+		mcUUID = entryElem.Text()
+	} else if uuidElem := mcDoc.FindElement("//ManagementConsole/Metadata/Atom/AtomID"); uuidElem != nil {
+		mcUUID = uuidElem.Text()
+	}
+
+	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/%s/do/ManageVIOSUpdates", c.hmcIP, mcUUID)
+
+	if debug {
+		c.Logger.Debug("Deleting VIOS Update cached on HMC", "updateName", updateName, "url", url)
+	}
+
+	operation := map[string]string{
+		"OperationName": "ManageVIOSUpdates",
+		"GroupName":     "ManagementConsole",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// The HMC expects the tasks to be formatted as an escaped JSON array string
+	taskJSON := fmt.Sprintf(`[{"Name":"%s","OperationType":"Delete"}]`, updateName)
+	params := map[string]string{
+		"Tasks": taskJSON,
+	}
+
+	payload, err := createJobRequestPayload(operation, params, "V1_1_0", debug, true)
+	if err != nil {
+		return fmt.Errorf("failed to create JobRequest payload: %v", err)
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("ManageVIOSUpdates failed (%s): %s", resp.Status, string(body))
+	}
+
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return err
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return fmt.Errorf("JobID not found in response")
+	}
+
+	_, err = c.FetchJobStatus(ctx, jobIDElem.Text(), false, 5, debug)
+	if err != nil {
+		return fmt.Errorf("ManageVIOSUpdates job failed: %v", err)
+	}
+
+	return nil
+}
+// PrepareVIOSMaintenance prepares a Virtual I/O Server (VIOS) for maintenance operations by natively
+// unconfiguring virtual storage and networking devices to validate and trigger client failovers.
+func (c *RestClient) PrepareVIOSMaintenance(ctx context.Context, viosUUID string, forcePrepare bool, debug bool) (*PrepareMaintenanceResult, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/PrepareMaintenance", c.hmcIP, viosUUID)
+	if debug {
+		c.Logger.Debug("Submitting PrepareMaintenance job request", "viosUUID", viosUUID, "url", url)
+	}
+
+	// 1. Prepare operational blueprint metadata
+	operation := map[string]string{
+		"OperationName": "PrepareMaintenance",
+		"GroupName":     "VirtualIOServer",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// 2. Map structural parameter rules matching the HMC schema expectations
+	params := map[string]string{
+		"ForcePrepare": fmt.Sprintf("%t", forcePrepare),
+	}
+
+	// 3. Generate the structured XML schema payload using your helper pattern
+	payload, err := createJobRequestPayload(operation, params, "V1_0", debug, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JobRequest payload: %v", err)
+	}
+
+	// 4. Instantiate context-aware HTTP Transport mechanisms
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build network request context: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	req = req.WithContext(reqCtx)
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http communication pipeline failure: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response engine data stream: %v", err)
+	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusCreated {
+		c.Logger.Error("PrepareMaintenance job submission rejected", "status", resp.Status)
+		if debug {
+			return nil, fmt.Errorf("job entry failure (%s): %s", resp.Status, string(body))
+		}
+		return nil, fmt.Errorf("job entry failure (%s). Enable debug/verbose configurations to print payload context", resp.Status)
+	}
+
+	// 5. Isolate runtime context attributes from incoming namespace matrices
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed processing incoming XML infrastructure structures: %v", err)
+	}
+
+	errorMsgs := doc.FindElements("//Message")
+	if len(errorMsgs) > 0 {
+		return nil, fmt.Errorf("HMC engine exception layout: %s", errorMsgs[0].Text())
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return nil, fmt.Errorf("job tracking identity token missing from output: %s", string(body))
+	}
+	jobID := jobIDElem.Text()
+	if debug {
+		c.Logger.Debug("Extracted baseline target JobID", "jobID", jobID)
+	}
+
+	// 6. Enter asynchronous tracking polling matrix
+	// Maintenance redundancy verifications can take extra cycle windows; allow up to 15 minutes
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, 15, debug)
+	if err != nil {
+		return nil, fmt.Errorf("failure encountered monitoring backend asynchronous execution context: %v", err)
+	}
+
+	if debug {
+		c.Logger.Info("PrepareMaintenance job monitoring finalized", "status", jobResp.Status)
+	}
+
+	// 7. Validate execution limits and unmarshal the deep target results object
+	var rawJSONResult string
+	for _, param := range jobResp.Results.Parameters {
+		// IBM documentation states this is "result", but live HMC payloads use "AuditTrail"
+		if param.ParameterName == "AuditTrail" || param.ParameterName == "result" {
+			rawJSONResult = param.ParameterValue
+			break
+		}
+	}
+
+	if rawJSONResult == "" {
+		return nil, fmt.Errorf("target redundancy telemetry data object ('AuditTrail') omitted by background runner payload")
+	}
+
+	var maintenanceReport PrepareMaintenanceResult
+	if err := json.Unmarshal([]byte(rawJSONResult), &maintenanceReport); err != nil {
+		c.Logger.Error("JSON data binding layout mapping crash on maintenance telemetry report", "error", err)
+		return nil, fmt.Errorf("failed to parse structural JSON response data payload: %v", err)
+	}
+
+	if debug {
+		c.Logger.Info("✓ Resiliently compiled all VIOS maintenance failover vectors")
+	}
+
+	return &maintenanceReport, nil
+}
+// UpdateVIOS initiates a background job to update the Virtual I/O Server (VIOS) with an image
+// from a remote SFTP/NFS server, the IBM website, a local disk, or a USB device.
+// It returns the stdOut (install.log) generated by the VIOS during the update process.
+func (c *RestClient) UpdateVIOS(ctx context.Context, viosUUID string, opts UpdateVIOSOptions, debug bool) (string, error) {
+	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/UpdateVIOS", c.hmcIP, viosUUID)
+	
+	if debug {
+		c.Logger.Debug("Submitting UpdateVIOS job request", "viosUUID", viosUUID, "resourceType", opts.ResourceType)
+	}
+
+	// 1. Basic Operation Metadata
+	operation := map[string]string{
+		"OperationName": "UpdateVIOS",
+		"GroupName":     "VirtualIOServer",
+		"ProgressType":  "DISCRETE",
+	}
+
+	// 2. Map core parameters
+	params := map[string]string{
+		"ResourceType": opts.ResourceType,
+		"Name":         opts.Name,
+		"RestartVIOS":  fmt.Sprintf("%t", opts.RestartVIOS),
+	}
+
+	// SaveFile is typically omitted for HMC-sourced updates, but required for remote pulls
+	if !strings.EqualFold(opts.ResourceType, "HMC") {
+		params["SaveFile"] = fmt.Sprintf("%t", opts.SaveFile)
+	}
+
+	// 3. Dynamically inject resource-specific parameters
+	switch strings.ToUpper(opts.ResourceType) {
+	case "NFS":
+		if opts.ServerHostOrIP != "" { params["ServerHostOrIP"] = opts.ServerHostOrIP }
+		if opts.MountLocation != "" { params["MountLocation"] = opts.MountLocation }
+		if opts.MountOptions != "" { params["MountOptions"] = opts.MountOptions }
+		if opts.RemoteDirectory != "" { params["RemoteDirectory"] = opts.RemoteDirectory }
+		if opts.FileNames != "" { params["FileNames"] = opts.FileNames }
+	case "SFTP":
+		if opts.ServerHostOrIP != "" { params["ServerHostOrIP"] = opts.ServerHostOrIP }
+		if opts.UserName != "" { params["UserName"] = opts.UserName }
+		if opts.Password != "" { params["Password"] = opts.Password }
+		if opts.SSHKey != "" { params["SSHKey"] = opts.SSHKey }
+		if opts.PassPhrase != "" { params["PassPhrase"] = opts.PassPhrase }
+		if opts.RemoteDirectory != "" { params["RemoteDirectory"] = opts.RemoteDirectory }
+		if opts.FileNames != "" { params["FileNames"] = opts.FileNames }
+	case "USB":
+		if opts.USBDevice != "" { params["USBDevice"] = opts.USBDevice }
+	}
+
+	// 4. Generate the XML payload using the V1_1_0 schema defined in the IBM specification
+	payload, err := createJobRequestPayload(operation, params, "V1_1_0", debug, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to create JobRequest payload: %v", err)
+	}
+
+	// 5. Build and execute the PUT request
+	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("failed to build network request context: %v", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=JobRequest")
+	req.Header.Set("X-API-Session", c.session)
+	req.Header.Set("Accept", "*/*")
+
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+	req = req.WithContext(reqCtx)
+
+	c.logRawTraffic("REQUEST (PUT)", url, payload)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP communication failure: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response stream: %v", err)
+	}
+
+	c.logRawTraffic("RESPONSE", url, string(body))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusCreated {
+		c.Logger.Error("UpdateVIOS job submission rejected", "status", resp.Status)
+		if debug {
+			return "", fmt.Errorf("job entry failure (%s): %s", resp.Status, string(body))
+		}
+		return "", fmt.Errorf("job entry failure (%s). Enable debug/verbose configurations to print payload context", resp.Status)
+	}
+
+	// 6. Extract JobID
+	doc, err := xmlStripNamespace(body)
+	if err != nil {
+		return "", fmt.Errorf("failed processing incoming XML structures: %v", err)
+	}
+
+	jobIDElem := doc.FindElement("//JobID")
+	if jobIDElem == nil {
+		return "", fmt.Errorf("job tracking identity token missing from output: %s", string(body))
+	}
+	
+	jobID := jobIDElem.Text()
+	if debug {
+		c.Logger.Info("VIOS Update Job submitted. Waiting for installation to complete...", "jobID", jobID)
+	}
+
+	// 7. Track background job execution
+	// NOTE: VIOS updates are heavy operations. Allowing a generous timeout (e.g., 120 minutes)
+	jobResp, err := c.FetchJobStatus(ctx, jobID, false, 120, debug)
+	if err != nil {
+		return "", fmt.Errorf("failure encountered monitoring update execution: %v", err)
+	}
+
+	if debug {
+		c.Logger.Info("UpdateVIOS job monitoring finalized", "status", jobResp.Status)
+	}
+
+	// 8. Extract the stdOut log (install.log) from the results
+	var stdOut string
+	for _, param := range jobResp.Results.Parameters {
+		if param.ParameterName == "stdOut" {
+			stdOut = param.ParameterValue
+			break
+		}
+	}
+
+	if stdOut == "" {
+		if debug {
+			c.Logger.Warn("The job completed, but no 'stdOut' log was returned by the HMC.")
+		}
+		return "Update completed, but no standard output was returned.", nil
+	}
+
+	return stdOut, nil
+}
