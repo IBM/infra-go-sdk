@@ -295,6 +295,10 @@ func (c *RestClient) FetchSystemPcmMetricsPayload(ctx context.Context, jsonURL s
 		return nil, fmt.Errorf("HMC rejected fetch with status: %s", resp.Status)
 	}
 
+	if len(body) == 0 {
+        return nil, fmt.Errorf("no PCM data available (HMC returned an empty body)")
+    }
+
 	var payload SysPcmMetricsPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("json metrics model compilation fallback: %v", err)
