@@ -12,9 +12,9 @@ import (
 
 func main() {
 	// --- Configuration ---
-	hmcIP := "192.0.2.1"
-	username := "REDACTED_HMC_USER<=="
-	password := "REDACTED_HMC_PASS<=="
+	hmcIP := ""
+	username := ""
+	password := ""
 	verbose := false
 
 	// 1. Initialize and Login

@@ -11,10 +11,10 @@ import (
 
 func main() {
 	// --- Configuration ---
-	hmcIP        := "192.0.2.1"
-	username     := "REDACTED_HMC_USER<=="
-	password     := "REDACTED_HMC_PASS<=="
-	targetSystem := "LTC11U01" // The name of the managed system we want to query
+	hmcIP        := ""
+	username     := ""
+	password     := ""
+	targetSystem := "" // The name of the managed system we want to query
 	verbose      := false
 
 	// 1. Initialize and Login

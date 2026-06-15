@@ -8,9 +8,9 @@ import (
 )
 
 func main() {
-	hmcIP := "192.0.2.3"
-	username := "REDACTED_HMC_USER<=="
-	password := "REDACTED_HMC_PASS<=="
+	hmcIP := ""
+	username := ""
+	password := ""
 	verbose := true
 	viosUUID := "0625F241-08C9-461D-9FA6-B46620D6FDB1"
 

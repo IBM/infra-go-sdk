@@ -11,11 +11,11 @@ import (
 
 func main() {
 	// --- Configuration ---
-	hmcIP    := "192.0.2.1"
-	username := "REDACTED_HMC_USER<=="
-	password := "REDACTED_HMC_PASS<=="
-	sysName  := "LTC09U31-ZZ" // Enter the System Name here
-	lparName := "test-test-test"       // Enter the Partition Name here
+	hmcIP    := ""
+	username := ""
+	password := ""
+	sysName  := "" // Enter the System Name here
+	lparName := ""       // Enter the Partition Name here
 	verbose  := false
 
 	// Initialize HmcRestClient

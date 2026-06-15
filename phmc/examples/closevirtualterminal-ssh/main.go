@@ -12,11 +12,11 @@ import (
 
 func main() {
 	// Define command-line flags
-	hmcIP := flag.String("hmc", "192.0.2.1", "HMC IP address (required)")
-	username := flag.String("user", "REDACTED_HMC_USER<==", "HMC username (required)")
-	password := flag.String("pass", "REDACTED_HMC_PASS<==", "HMC password (required)")
-	systemName := flag.String("system", "LTC09U31-ZZ", "Managed system name (required)")
-	lparName := flag.String("lpar", "helpernode", "LPAR name (required)")
+	hmcIP := flag.String("hmc", "", "HMC IP address (required)")
+	username := flag.String("user", "", "HMC username (required)")
+	password := flag.String("pass", "", "HMC password (required)")
+	systemName := flag.String("system", "", "Managed system name (required)")
+	lparName := flag.String("lpar", "", "LPAR name (required)")
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	useSSH := flag.Bool("ssh", true, "Use SSH instead of REST API (bypasses CLIRunner limitations)")
 

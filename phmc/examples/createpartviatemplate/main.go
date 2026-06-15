@@ -19,8 +19,8 @@ import (
 func main() {
 	// --- Command-line flags with hardcoded defaults ---
 	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
-	username := flag.String("username", "REDACTED_HMC_USER<==", "Username")
-	password := flag.String("password", "REDACTED_HMC_PASS<==", "Password")
+	username := flag.String("username", "", "Username")
+	password := flag.String("password", "", "Password")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	osType := flag.String("os-type", "linux", "OS type (aix, linux, aix_linux, ibmi)")
 	systemName := flag.String("system-name", "", "Managed system name")

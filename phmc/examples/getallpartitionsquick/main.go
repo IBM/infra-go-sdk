@@ -11,11 +11,11 @@ import (
 
 func main() {
 	// --- Configuration ---
-	hmcIP      := "192.0.2.1"
-	username   := "REDACTED_HMC_USER<=="
-	password   := "REDACTED_HMC_PASS<=="
-	//targetSystem := "LTC09U31-ZZ" // The name of the managed system
-	targetSystem := "LTC09U31-ZZ" // The name of the managed system
+	hmcIP      := ""
+	username   := ""
+	password   := ""
+	//targetSystem := "" // The name of the managed system
+	targetSystem := "" // The name of the managed system
 	verbose    := false 
 
 	// 1. Initialize Client

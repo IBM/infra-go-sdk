@@ -11,10 +11,10 @@ import (
 
 func main() {
 	// Command-line flags
-	hmcIP := flag.String("hmc", "192.0.2.1", "HMC IP address")
-	username := flag.String("user", "REDACTED_HMC_USER<==", "HMC username")
-	password := flag.String("pass", "REDACTED_HMC_PASS<==", "HMC password")
-	targetName := flag.String("system", "LTC09U31-ZZ", "Managed system name")
+	hmcIP := flag.String("hmc", "", "HMC IP address")
+	username := flag.String("user", "", "HMC username")
+	password := flag.String("pass", "", "HMC password")
+	targetName := flag.String("system", "", "Managed system name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	
 	flag.Parse()
