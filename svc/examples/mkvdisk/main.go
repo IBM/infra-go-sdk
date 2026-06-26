@@ -14,9 +14,10 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
+	logger := svc.NewDefaultLogger()
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		log.Fatal("Usage: mkvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		logger.Fatal("Usage: mkvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 
