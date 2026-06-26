@@ -16,9 +16,9 @@ import (
 )
 
 var (
-	svcIP   = flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
-	svcUser = flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
-	svcPass = flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	svcIP   = flag.String("svc-ip", "", "SVC IP address (required for integration tests)")
+	svcUser = flag.String("svc-user", "", "SVC username (required for integration tests)")
+	svcPass = flag.String("svc-pass", "", "SVC password (required for integration tests)")
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

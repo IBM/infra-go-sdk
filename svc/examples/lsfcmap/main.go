@@ -12,10 +12,14 @@ import (
 func main() {
 	// Command line flags
 	verbose := flag.Bool("verbose", false, "Enable verbose output to see detailed mappings")
-	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
-	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
-	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	svcIP := flag.String("svc-ip", "", "SVC IP address (required)")
+	svcUser := flag.String("svc-user", "", "SVC username (required)")
+	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
+
+	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
+		log.Fatal("Usage: lsfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+	}
 
 	ctx := context.Background()
 

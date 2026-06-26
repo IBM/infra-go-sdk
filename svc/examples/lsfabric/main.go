@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 
@@ -13,10 +14,16 @@ import (
 func main() {
 	// Command line flags
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
-	svcIP := flag.String("svc-ip", "REDACTED_SVC_IP<==", "SVC IP address")
-	svcUser := flag.String("svc-user", "REDACTED_SVC_USER<==", "SVC username")
-	svcPass := flag.String("svc-pass", "REDACTED_SVC_PASS<==", "SVC password")
+	svcIP := flag.String("svc-ip", "", "SVC IP address (required)")
+	svcUser := flag.String("svc-user", "", "SVC username (required)")
+	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
+
+	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
+		fmt.Fprintln(os.Stderr, "Usage: lsfabric -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		os.Exit(1)
+	}
+
 	ctx := context.Background()
 	// Initialize the client
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
