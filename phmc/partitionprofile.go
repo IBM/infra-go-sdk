@@ -17,8 +17,6 @@ import (
 // Returns structured profile data using the same pattern as GetAllLogicalPartitionsInHmc.
 func (c *RestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionUUID string, debug bool) ([]LogicalPartitionProfile, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile", c.hmcIP, partitionUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -44,8 +42,6 @@ func (c *RestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionU
 	}
 
 
-	if debug {
-	}
 
 	if resp.StatusCode != http.StatusOK {
 		if debug {
@@ -62,8 +58,6 @@ func (c *RestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionU
 
 	// Find all LogicalPartitionProfile elements
 	profileElements := doc.FindElements("//LogicalPartitionProfile")
-	if debug {
-	}
 
 	// Parse each profile element into structured data
 	var profiles []LogicalPartitionProfile
@@ -73,23 +67,17 @@ func (c *RestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionU
 		profileDoc.SetRoot(profileElem.Copy())
 		profileBytes, err := profileDoc.WriteToBytes()
 		if err != nil {
-			if debug {
-			}
 			continue
 		}
 
 		// Unmarshal into the struct
 		var profile LogicalPartitionProfile
 		if err := xml.Unmarshal(profileBytes, &profile); err != nil {
-			if debug {
-			}
 			continue
 		}
 		profiles = append(profiles, profile)
 	}
 
-	if debug {
-	}
 
 	return profiles, nil
 }
@@ -97,8 +85,6 @@ func (c *RestClient) GetLogicalPartitionProfiles(ctx context.Context, partitionU
 // GetLogicalPartitionProfile retrieves a single logical partition profile by its UUID.
 func (c *RestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUID string, debug bool) (*LogicalPartitionProfile, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/%s", c.hmcIP, partitionUUID, profileUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -124,8 +110,6 @@ func (c *RestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUI
 	}
 
 
-	if debug {
-	}
 
 	if resp.StatusCode != http.StatusOK {
 		if debug {
@@ -160,8 +144,6 @@ func (c *RestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUI
 		return nil, fmt.Errorf("failed to unmarshal profile: %v", err)
 	}
 
-	if debug {
-	}
 
 	return &profile, nil
 }
@@ -171,8 +153,6 @@ func (c *RestClient) GetLogicalPartitionProfile(partitionUUID string, profileUUI
 // Note: You cannot delete the profile that is currently in use by a running partition.
 func (c *RestClient) DeleteLogicalPartitionProfile(partitionUUID string, profileUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/%s", c.hmcIP, partitionUUID, profileUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
@@ -211,8 +191,6 @@ func (c *RestClient) DeleteLogicalPartitionProfile(partitionUUID string, profile
 		return fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
-	if debug {
-	}
 
 	return nil
 }
@@ -222,8 +200,6 @@ func (c *RestClient) UpdateLogicalPartitionProfile(partitionUUID string, profile
 	// STEP 1: GET the full LogicalPartition entry
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile", c.hmcIP, partitionUUID)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -258,8 +234,6 @@ func (c *RestClient) UpdateLogicalPartitionProfile(partitionUUID string, profile
 		1,
 	)
 
-	if debug {
-	}
 
 	// STEP 3: PUT the full updated LogicalPartition entry back
 	postReq, err := http.NewRequest("PUT", url, strings.NewReader(replacedXML))
@@ -285,16 +259,12 @@ func (c *RestClient) UpdateLogicalPartitionProfile(partitionUUID string, profile
 		return fmt.Errorf("POST failed with status %d: %s", postResp.StatusCode, string(postBody))
 	}
 
-	if debug {
-	}
 	return nil
 }
 
 // GetPartitionProfiles retrieves all partition profiles (UUID and name) for a logical partition
 func (c *RestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]PartitionProfileQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/LogicalPartitionProfile/quick/All", c.hmcIP, lparUUID)
-	if debug {
-	}
 
 	// Create and configure the GET request
 	req, err := http.NewRequest("GET", url, nil)
@@ -323,8 +293,6 @@ func (c *RestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]Partit
 	}
 
 
-	if debug {
-	}
 
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
@@ -340,8 +308,6 @@ func (c *RestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]Partit
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
-	if debug {
-	}
 
 	return profiles, nil
 }
@@ -351,8 +317,6 @@ func (c *RestClient) GetPartitionProfiles(lparUUID string, debug bool) ([]Partit
 func (c *RestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, profileName string, force, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/SaveCurrentConfig", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// 1. Define operation details for the JobRequest
 	reqdOperation := map[string]string{
@@ -401,8 +365,6 @@ func (c *RestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, profil
 	}
 
 
-	if debug {
-	}
 
 	// 6. Check for non-success status codes (Usually 200, 201, or 202 for Jobs)
 	if resp.StatusCode >= 400 {
@@ -424,8 +386,6 @@ func (c *RestClient) SaveCurrentLparConfig(ctx context.Context, lparUUID, profil
 	}
 	jobID := jobIDElem.Text()
 
-	if debug {
-	}
 
 	// 8. Wait for the background job to finish
 	_, err = c.FetchJobStatus(context.Background(), jobID, false, 5, debug)

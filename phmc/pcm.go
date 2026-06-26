@@ -39,8 +39,6 @@ func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lpar
 	// Inject the literal string directly into the RawQuery property
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml") // Safely accept both XML formats
@@ -101,8 +99,6 @@ func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lpar
 		snapshots = append(snapshots, snap)
 	}
 
-	if debug {
-	}
 
 	return snapshots, nil
 }
@@ -144,8 +140,6 @@ func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string,
 		return nil, fmt.Errorf("failed to unmarshal JSON metrics payload: %v", err)
 	}
 
-	if debug {
-	}
 
 	return &payload, nil
 }
@@ -178,8 +172,6 @@ func (c *RestClient) GetManagedSystemAggregatedMetrics(ctx context.Context, syst
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
@@ -771,8 +763,6 @@ func (c *RestClient) GetLogicalPartitionProcessedMetrics(ctx context.Context, sy
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
@@ -785,8 +775,6 @@ func (c *RestClient) GetLogicalPartitionProcessedMetrics(ctx context.Context, sy
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-		}
 		return []PcmMetricsSnapshot{}, nil
 	}
 
@@ -882,8 +870,6 @@ func (c *RestClient) FetchLparProcessedMetricsPayload(ctx context.Context, jsonU
 func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// 1. Pristine GET
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -918,8 +904,6 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 	perfTag := lparElem.FindElement(".//*[local-name()='AllowPerformanceDataCollection']")
 	if perfTag != nil {
 		if perfTag.Text() == "true" {
-			if debug {
-			}
 			return nil // Already enabled, nothing to do
 		}
 		perfTag.SetText("true")
@@ -930,8 +914,6 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 		newTag.SetText("true")
 	}
 
-	if debug {
-	}
 
 	// 3. POST back
 	postDoc := etree.NewDocument()
@@ -958,8 +940,6 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 	if postResp.StatusCode >= 400 {
 		bodyStr := string(body)
 		if strings.Contains(bodyStr, "HSCL2957") || strings.Contains(bodyStr, "HSCL294D") {
-			if debug {
-			}
 			return nil
 		}
 		return fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
@@ -995,8 +975,6 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
@@ -1010,8 +988,6 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 
 	// Graceful handling of empty cache windows
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-		}
 		return []PcmMetricsSnapshot{}, nil
 	}
 
@@ -1062,8 +1038,6 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 		snapshots = append(snapshots, snap)
 	}
 
-	if debug {
-	}
 
 	return snapshots, nil
 }
@@ -1079,8 +1053,6 @@ func (c *RestClient) FetchSysProcessedMetricsPayload(ctx context.Context, jsonUR
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*") // Avoid 406 Not Acceptable errors
 
-	if debug {
-	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1130,8 +1102,6 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
@@ -1144,8 +1114,6 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-		}
 		return []PcmMetricsSnapshot{}, nil
 	}
 
@@ -1195,8 +1163,6 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 		snapshots = append(snapshots, snap)
 	}
 
-	if debug {
-	}
 
 	return snapshots, nil
 }
@@ -1211,8 +1177,6 @@ func (c *RestClient) FetchStmRawMetricsPayload(ctx context.Context, jsonURL stri
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*") // Avoid 406 Not Acceptable errors
 
-	if debug {
-	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1247,8 +1211,6 @@ func (c *RestClient) FetchStmRawViosMetricsPayload(ctx context.Context, jsonURL 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*")
 
-	if debug {
-	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

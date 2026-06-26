@@ -19,8 +19,6 @@ import (
 func (c *RestClient) GetManagedSystemQuick(ctx context.Context, systemUUID string, debug bool) (*ManagedSystemQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/quick", c.hmcIP, systemUUID)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -53,8 +51,6 @@ func (c *RestClient) GetManagedSystemQuick(ctx context.Context, systemUUID strin
 		return nil, fmt.Errorf("failed to unmarshal exhaustive JSON: %v", err)
 	}
 
-	if debug {
-	}
 
 	return &system, nil
 }
@@ -66,8 +62,6 @@ func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName stri
 	}
 
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/search/(SystemName=='%s')", c.hmcIP, systemName)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -85,12 +79,8 @@ func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName stri
 	}
 	defer resp.Body.Close()
 
-	if debug {
-	}
 
 	if resp.StatusCode == 204 {
-		if debug {
-		}
 		return "", nil, nil // No content found
 	}
 	if resp.StatusCode != 200 {
@@ -103,8 +93,6 @@ func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName stri
 	}
 
 
-	if debug {
-	}
 
 	// 1. Strip the namespaces using your helper
 	doc, err := xmlStripNamespace(body)
@@ -139,8 +127,6 @@ func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName stri
 		return "", nil, fmt.Errorf("failed to unmarshal XML into ManagedSystemDetailed struct: %v", err)
 	}
 
-	if debug {
-	}
 
 	return uuid, &detailedSystem, nil
 }
@@ -149,8 +135,6 @@ func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName stri
 func (c *RestClient) GetMaximumPartitions(ctx context.Context, systemUUID string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -189,8 +173,6 @@ func (c *RestClient) GetMaximumPartitions(ctx context.Context, systemUUID string
 		return "", fmt.Errorf("MaximumPartitions not found for system %s", systemUUID)
 	}
 
-	if debug {
-	}
 
 	return system.MaxPartitions, nil
 }
@@ -198,8 +180,6 @@ func (c *RestClient) GetMaximumPartitions(ctx context.Context, systemUUID string
 // GetManagedSystems retrieves the list of managed systems as an XML document
 func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.Element, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem", c.hmcIP)
-	if debug {
-	}
 
 	// Create and configure the GET request
 	req, err := http.NewRequest("GET", url, nil)
@@ -221,13 +201,9 @@ func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.
 	}
 	defer resp.Body.Close()
 
-	if debug {
-	}
 
 	// Handle 204 No Content
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-		}
 		return nil, nil
 	}
 
@@ -247,8 +223,6 @@ func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.
 	}
 
 
-	if debug {
-	}
 
 	// Parse XML response
 	doc, err := xmlStripNamespace(body)
@@ -261,8 +235,6 @@ func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.
 		return nil, fmt.Errorf("ManagedSystem element not found in response")
 	}
 
-	if debug {
-	}
 
 	return managedSystems, nil
 }
@@ -271,8 +243,6 @@ func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.
 func (c *RestClient) GetManagedSystemQuickAll(ctx context.Context, debug bool) ([]ManagedSystemQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/quick/All", c.hmcIP)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -308,8 +278,6 @@ func (c *RestClient) GetManagedSystemQuickAll(ctx context.Context, debug bool) (
 		return nil, fmt.Errorf("failed to decode Quick/All JSON: %v", err)
 	}
 
-	if debug {
-	}
 
 	return systems, nil
 }
@@ -317,8 +285,6 @@ func (c *RestClient) GetManagedSystemQuickAll(ctx context.Context, debug bool) (
 // GetManagedSystem retrieves the comprehensive, deeply parsed XML details of a Managed System.
 func (c *RestClient) GetManagedSystem(ctx context.Context, systemUUID string, debug bool) (*ManagedSystemDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -377,8 +343,6 @@ func (c *RestClient) GetManagedSystem(ctx context.Context, systemUUID string, de
 		return nil, fmt.Errorf("failed to unmarshal XML into ManagedSystemDetailed struct: %v", err)
 	}
 
-	if debug {
-	}
 
 	return &detailedSystem, nil
 }
@@ -390,8 +354,6 @@ func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool
 	// 1. Fetch the Management Console UUID
 	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", mcURL, nil)
 	if err != nil {
@@ -439,19 +401,13 @@ func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool
 	}
 
 	if mcUUID == "" {
-		if debug {
-		}
 		return "", fmt.Errorf("could not resolve Management Console UUID from response")
 	}
 
-	if debug {
-	}
 
 	// 2. Target the Management Console's CLIRunner Job endpoint
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole/%s/do/CLIRunner", c.hmcIP, mcUUID)
 
-	if debug {
-	}
 
 	// 3. Construct the CLIRunner Job Payload
 	payload := fmt.Sprintf(`<JobRequest:JobRequest xmlns:JobRequest="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns="http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2" schemaVersion="V1_0">
@@ -529,8 +485,6 @@ func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool
 
 	if jobIDElem != nil {
 		jobID := jobIDElem.Text()
-		if debug {
-		}
 
 		// 5. Wait for job completion and capture the resulting document
 		jobResp, err := c.FetchJobStatus(ctx, jobID, false, 10, debug)
@@ -553,8 +507,6 @@ func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool
 			}
 		}
 
-		if debug {
-		}
 	} else {
 		return "", fmt.Errorf("JobID not found in CLIRunner response: %s", string(body2))
 	}
@@ -589,27 +541,19 @@ func (c *RestClient) CheckVIOSAdminUser(ctx context.Context, hmcUsername, hmcPas
 	// Format: lshmcusr --filter "names=viosadmin"
 	cmd := `lshmcusr --filter "names=viosadmin"`
 
-	if debug {
-	}
 
 	output, err := CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, cmd, debug)
 	if err != nil {
 		// If lshmcusr fails, return error
-		if debug {
-		}
 		return false, fmt.Errorf("lshmcusr command failed: %w", err)
 	}
 
 	// If output contains "name=viosadmin", user exists
 	if strings.Contains(output, "name=viosadmin") {
-		if debug {
-		}
 		return true, nil
 	}
 
 	// Empty output means user doesn't exist
-	if debug {
-	}
 	return false, nil
 }
 
@@ -625,8 +569,6 @@ func (c *RestClient) EnsureVIOSAdminUser(ctx context.Context, hmcUsername, hmcPa
 	}
 
 	if exists {
-		if debug {
-		}
 		return username, password, false, nil
 	}
 
@@ -636,21 +578,15 @@ func (c *RestClient) EnsureVIOSAdminUser(ctx context.Context, hmcUsername, hmcPa
 	// This role is cloned from hmcsuperadmin but includes ViosAdminOp permission
 	roleCmd := `mkaccfg -t taskrole -i 'name=VIOS_Admin,parent=hmcsuperadmin,"resources=lpar:ViosAdminOp"'`
 
-	if debug {
-	}
 
 	_, err = CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, roleCmd, debug)
 	if err != nil {
 		// Role might already exist, log warning but continue
-		if debug {
-		}
 	}
 
 	// Step 2: Create viosadmin user with VIOS_Admin role
 	createCmd := fmt.Sprintf(`mkhmcusr -u %s -a VIOS_Admin --passwd %s`, username, password)
 
-	if debug {
-	}
 
 	_, err = CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, createCmd, debug)
 	if err != nil {
@@ -674,8 +610,6 @@ func (c *RestClient) RunVIOSCommandAsAdmin(ctx context.Context, systemName, vios
 	sshCmd := fmt.Sprintf(`sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null %s@%s '%s'`,
 		viosAdminPass, viosAdminUser, c.hmcIP, viosCmd)
 
-	if debug {
-	}
 
 	// Execute via CliRunner (which will run the SSH command)
 	return c.CliRunner(ctx, sshCmd, debug)
@@ -686,8 +620,6 @@ func (c *RestClient) RunVIOSCommandAsAdmin(ctx context.Context, systemName, vios
 func (c *RestClient) GetSRIOVAdapters(ctx context.Context, sysUUID string, debug bool) ([]SRIOVAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, sysUUID)
 
-	if debug {
-	}
 
 	// 1. Fetch and strip namespaces into an etree Document
 	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
@@ -712,11 +644,7 @@ func (c *RestClient) GetSRIOVAdapters(ctx context.Context, sysUUID string, debug
 		return nil, fmt.Errorf("failed to unmarshal Managed System XML: %v", err)
 	}
 
-	if debug {
-	}
 
-	if debug {
-	}
 
 	// 4. Return from the nested IOConfig!
 	return sysDetailed.IOConfig.SRIOVAdapters, nil

@@ -18,8 +18,6 @@ import (
 func (c *RestClient) PowerOnPartition(ctx context.Context, lparUUID string, options *PowerOnOptions, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOn", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	reqdOperation := map[string]string{
 		"OperationName": "PowerOn",
@@ -140,16 +138,12 @@ func (c *RestClient) PowerOnPartition(ctx context.Context, lparUUID string, opti
 	}
 	jobID := jobIDElem.Text()
 
-	if debug {
-	}
 
 	// Network boot operations take significantly longer than normal boots
 	// Use 30 minutes for netboot, 15 minutes for normal boot
 	timeout := 15
 	if bootMode == "netboot" {
 		timeout = 30
-		if debug {
-		}
 	}
 
 	jobResp, err := c.FetchJobStatus(ctx, jobID, false, timeout, debug)
@@ -163,8 +157,6 @@ func (c *RestClient) PowerOnPartition(ctx context.Context, lparUUID string, opti
 // PowerOffPartition powers off a logical partition directly by its UUID and returns the job status string.
 func (c *RestClient) PowerOffPartition(ctx context.Context, lparUUID, shutdownOption string, restart bool, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/PowerOff", c.hmcIP, lparUUID)
-	if debug {
-	}
 
 	// Define operation details for the JobRequest
 	reqdOperation := map[string]string{
@@ -212,8 +204,6 @@ func (c *RestClient) PowerOffPartition(ctx context.Context, lparUUID, shutdownOp
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
-	if debug {
-	}
 
 	// Configure and execute the PUT request
 	req, err := http.NewRequest("PUT", url, strings.NewReader(payload))
@@ -244,8 +234,6 @@ func (c *RestClient) PowerOffPartition(ctx context.Context, lparUUID, shutdownOp
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
-	if debug {
-	}
 
 	// Extract the JobID from the XML response
 	doc, err := xmlStripNamespace(respBody)
@@ -272,8 +260,6 @@ func (c *RestClient) PowerOffPartition(ctx context.Context, lparUUID, shutdownOp
 // GetLogicalPartitionsInSystem retrieves the advanced list of logical partitions for a managed system as a slice of deeply parsed Go structs.
 func (c *RestClient) GetLogicalPartitionsInSystem(systemUUID string, debug bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition", c.hmcIP, systemUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -294,13 +280,9 @@ func (c *RestClient) GetLogicalPartitionsInSystem(systemUUID string, debug bool)
 	}
 	defer resp.Body.Close()
 
-	if debug {
-	}
 
 	// Handle 204 No Content - system has no logical partitions
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-		}
 		return []LogicalPartitionDetailed{}, nil
 	}
 
@@ -327,13 +309,9 @@ func (c *RestClient) GetLogicalPartitionsInSystem(systemUUID string, debug bool)
 	// Use FindElements (plural) to capture all partitions in the Atom feed
 	logicalPartitions := doc.FindElements("//LogicalPartition")
 	if len(logicalPartitions) == 0 {
-		if debug {
-		}
 		return []LogicalPartitionDetailed{}, nil // Return empty slice instead of error if none exist
 	}
 
-	if debug {
-	}
 
 	// Natively convert the XML nodes to Go Structs!
 	return parseLogicalPartitionElements(logicalPartitions, debug)
@@ -342,8 +320,6 @@ func (c *RestClient) GetLogicalPartitionsInSystem(systemUUID string, debug bool)
 // GetLogicalPartitionQuick retrieves quick details of a specific logical partition by UUID
 func (c *RestClient) GetLogicalPartitionQuick(partitionUUID string, debug bool) (*LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick", c.hmcIP, partitionUUID)
-	if debug {
-	}
 
 	// Create and configure the GET request
 	req, err := http.NewRequest("GET", url, nil)
@@ -372,13 +348,9 @@ func (c *RestClient) GetLogicalPartitionQuick(partitionUUID string, debug bool) 
 	}
 
 
-	if debug {
-	}
 
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		if debug {
-		}
 		return nil, nil
 	}
 
@@ -391,8 +363,6 @@ func (c *RestClient) GetLogicalPartitionQuick(partitionUUID string, debug bool) 
 	// Manually set the UUID since it's not in the JSON response
 	partition.UUID = partitionUUID
 
-	if debug {
-	}
 
 	return &partition, nil
 }
@@ -400,8 +370,6 @@ func (c *RestClient) GetLogicalPartitionQuick(partitionUUID string, debug bool) 
 // GetLogicalPartitionsQuickAll retrieves the quick list of logical partitions for a system
 func (c *RestClient) GetLogicalPartitionsQuickAll(ctx context.Context, systemUUID string, debug bool) ([]LogicalPartitionQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/quick/All", c.hmcIP, systemUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -427,8 +395,6 @@ func (c *RestClient) GetLogicalPartitionsQuickAll(ctx context.Context, systemUUI
 	}
 
 
-	if debug {
-	}
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNoContent {
@@ -445,8 +411,6 @@ func (c *RestClient) GetLogicalPartitionsQuickAll(ctx context.Context, systemUUI
 	// Try JSON first (preferred format)
 	if err := json.Unmarshal(body, &lparList); err != nil {
 		// If JSON fails, try XML format (fallback for older HMC versions)
-		if debug {
-		}
 
 		// Parse XML response using Atom feed format
 		type AtomEntry struct {
@@ -478,11 +442,7 @@ func (c *RestClient) GetLogicalPartitionsQuickAll(ctx context.Context, systemUUI
 			lparList = append(lparList, lpar)
 		}
 
-		if debug {
-		}
 	} else {
-		if debug {
-		}
 	}
 
 	return lparList, nil
@@ -491,8 +451,6 @@ func (c *RestClient) GetLogicalPartitionsQuickAll(ctx context.Context, systemUUI
 // DeleteLogicalPartition deletes a logical partition by its UUID.
 func (c *RestClient) DeleteLogicalPartition(partitionUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, partitionUUID)
-	if debug {
-	}
 
 	// Create and configure the DELETE request
 	req, err := http.NewRequest("DELETE", url, nil)
@@ -542,8 +500,6 @@ func (c *RestClient) DeleteLogicalPartition(partitionUUID string, debug bool) er
 		return fmt.Errorf("delete failed with status %s. Enable debug mode to see full response", resp.Status)
 	}
 
-	if debug {
-	}
 
 	return nil
 }
@@ -552,8 +508,6 @@ func (c *RestClient) DeleteLogicalPartition(partitionUUID string, debug bool) er
 func (c *RestClient) GetLogicalPartitionsAdv(systemUUID string, debug bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition?group=Advanced", c.hmcIP, systemUUID)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -603,15 +557,11 @@ func (c *RestClient) GetLogicalPartitionsAdv(systemUUID string, debug bool) ([]L
 
 		var detailedLpar LogicalPartitionDetailed
 		if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
-			if debug {
-			}
 			continue
 		}
 		detailedPartitions = append(detailedPartitions, detailedLpar)
 	}
 
-	if debug {
-	}
 
 	return detailedPartitions, nil
 }
@@ -766,8 +716,6 @@ func (c *RestClient) CreateLogicalPartition(sysUUID string, req CreateLparReques
 		return nil, fmt.Errorf("UOM creation failed (%s). Enable debug mode to see full response", resp.Status)
 	}
 
-	if debug {
-	}
 
 	// Parse the complete LogicalPartition response
 	doc, err := xmlStripNamespace(body)
@@ -795,8 +743,6 @@ func (c *RestClient) CreateLogicalPartition(sysUUID string, req CreateLparReques
 		return nil, fmt.Errorf("failed to unmarshal LogicalPartition: %v", err)
 	}
 
-	if debug {
-	}
 
 	return &lpar, nil
 }
@@ -805,8 +751,6 @@ func (c *RestClient) CreateLogicalPartition(sysUUID string, req CreateLparReques
 func (c *RestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, viosSlot int, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualSCSIClientAdapter", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// We provide the Base Adapter properties (AdapterType, RequiredAdapter)
 	// followed exactly by the vSCSI explicit mapping (Remote... properties)
@@ -861,8 +805,6 @@ func (c *RestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, vio
 		return "", fmt.Errorf("Adapter created successfully, but failed to extract new UUID")
 	}
 
-	if debug {
-	}
 
 	return atomID.Text(), nil
 }
@@ -870,8 +812,6 @@ func (c *RestClient) CreateVirtualSCSIClientAdapter(lparUUID string, viosID, vio
 // GetLogicalPartitionDetailed fetches the exhaustive XML details of a specific logical partition by its UUID.
 func (c *RestClient) GetLogicalPartitionDetailed(ctx context.Context, lparUUID string, debug bool) (*LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -897,8 +837,6 @@ func (c *RestClient) GetLogicalPartitionDetailed(ctx context.Context, lparUUID s
 	}
 
 
-	if debug {
-	}
 
 	if resp.StatusCode != http.StatusOK {
 		if debug {
@@ -933,8 +871,6 @@ func (c *RestClient) GetLogicalPartitionDetailed(ctx context.Context, lparUUID s
 		return nil, fmt.Errorf("failed to unmarshal XML into LogicalPartitionDetailed struct: %v", err)
 	}
 
-	if debug {
-	}
 
 	return &detailedLpar, nil
 }
@@ -1259,8 +1195,6 @@ func (c *RestClient) UnmapPhysicalIOAdapters(ctx context.Context, sysUUID, lparU
 // GetAllLogicalPartitionsInHmc retrieves the Go structures for all logical partitions managed by the HMC across all systems.
 func (c *RestClient) GetAllLogicalPartitionsInHmc(debug bool) ([]LogicalPartitionDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition", c.hmcIP)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -1315,15 +1249,11 @@ func (c *RestClient) GetAllLogicalPartitionsInHmc(debug bool) ([]LogicalPartitio
 		// 4. Unmarshal into your big struct
 		var detailedLpar LogicalPartitionDetailed
 		if err := xml.Unmarshal(lparBytes, &detailedLpar); err != nil {
-			if debug {
-			}
 			continue
 		}
 		allPartitions = append(allPartitions, detailedLpar)
 	}
 
-	if debug {
-	}
 
 	return allPartitions, nil
 }
@@ -1347,8 +1277,6 @@ func (c *RestClient) GetAllLogicalPartitionsInHmc(debug bool) ([]LogicalPartitio
 // Returns the cleaned value as a string (quotes and whitespace removed).
 func (c *RestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/quick/%s", c.hmcIP, lparUUID, propertyName)
-	if debug {
-	}
 
 	// Create the request
 	req, err := http.NewRequest("GET", url, nil)
@@ -1390,8 +1318,6 @@ func (c *RestClient) GetLogicalPartitionQuickProperty(lparUUID, propertyName str
 	cleanValue := strings.TrimSpace(string(body))
 	cleanValue = strings.Trim(cleanValue, "\"")
 
-	if debug {
-	}
 
 	return cleanValue, nil
 }
@@ -1405,8 +1331,6 @@ func (c *RestClient) SearchLogicalPartitions(propertyName, propertyValue string,
 	searchQuery := fmt.Sprintf("(%s==%s)", propertyName, propertyValue)
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/search/%s", c.hmcIP, searchQuery)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -1427,8 +1351,6 @@ func (c *RestClient) SearchLogicalPartitions(propertyName, propertyValue string,
 	}
 	defer resp.Body.Close()
 
-	if debug {
-	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -1453,13 +1375,9 @@ func (c *RestClient) SearchLogicalPartitions(propertyName, propertyValue string,
 	// Extract all LogicalPartition blocks returned by the search
 	logicalPartitions := doc.FindElements("//LogicalPartition")
 	if len(logicalPartitions) == 0 {
-		if debug {
-		}
 		return []*etree.Element{}, nil
 	}
 
-	if debug {
-	}
 
 	return logicalPartitions, nil
 }
@@ -1481,8 +1399,6 @@ func (c *RestClient) ChangeDefaultProfileName(lparUUID, profileName string, debu
 	// Construct the URL for the ChangeDefaultProfileName operation
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/ChangeDefaultProfileName", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// Define operation details for the JobRequest
 	reqdOperation := map[string]string{
@@ -1528,8 +1444,6 @@ func (c *RestClient) ChangeDefaultProfileName(lparUUID, profileName string, debu
 	}
 
 
-	if debug {
-	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
@@ -1547,8 +1461,6 @@ func (c *RestClient) ChangeDefaultProfileName(lparUUID, profileName string, debu
 	}
 	jobID := jobIDElem.Text()
 
-	if debug {
-	}
 
 	return jobID, nil
 }
@@ -1564,8 +1476,6 @@ func (c *RestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, vio
 
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualFibreChannelClientAdapter", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	payload := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <VirtualFibreChannelClientAdapter:VirtualFibreChannelClientAdapter xmlns:VirtualFibreChannelClientAdapter="http://www.ibm.com/xmlns/systems/power/firmware/uom/mc/2012_10/" 
@@ -1618,8 +1528,6 @@ func (c *RestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, vio
 		return "", fmt.Errorf("vFC Adapter created successfully, but failed to extract new UUID")
 	}
 
-	if debug {
-	}
 
 	return atomID.Text(), nil
 }
@@ -1628,8 +1536,6 @@ func (c *RestClient) CreateVirtualFibreChannelClientAdapter(lparUUID string, vio
 func (c *RestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, debug bool) ([]VirtualFibreChannelClientAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualFibreChannelClientAdapter", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -1660,8 +1566,6 @@ func (c *RestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, debug
 	if resp.StatusCode != http.StatusOK {
 		// Handle the case where the LPAR simply has zero vFC adapters attached
 		if resp.StatusCode == http.StatusNoContent {
-			if debug {
-			}
 			return []VirtualFibreChannelClientAdapter{}, nil
 		}
 		return nil, fmt.Errorf("request failed with status %s", resp.Status)
@@ -1694,8 +1598,6 @@ func (c *RestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, debug
 		adapters = append(adapters, adapter)
 	}
 
-	if debug {
-	}
 
 	return adapters, nil
 }
@@ -1705,8 +1607,6 @@ func (c *RestClient) GetVirtualFibreChannelClientAdapters(lparUUID string, debug
 func (c *RestClient) SetPartitionBootString(ctx context.Context, lparUUID, bootString string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// 1. Raw GET - Fetch pristine LPAR XML to preserve namespaces and attributes
 	getReq, err := http.NewRequest("GET", url, nil)
@@ -1790,8 +1690,6 @@ func (c *RestClient) GetDedicatedVirtualNICs(ctx context.Context, lparUUID strin
 	// Query the Dedicated Virtual NIC child collection
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/VirtualNICDedicated", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// 1. Fetch and strip namespaces into an etree Document
 	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
@@ -1811,16 +1709,12 @@ func (c *RestClient) GetDedicatedVirtualNICs(ctx context.Context, lparUUID strin
 
 		var vnicInfo VirtualNICDedicated
 		if err := xml.Unmarshal(vnicBytes, &vnicInfo); err != nil {
-			if debug {
-			}
 			continue
 		}
 
 		vnics = append(vnics, vnicInfo)
 	}
 
-	if debug {
-	}
 
 	return vnics, nil
 }
@@ -1830,8 +1724,6 @@ func (c *RestClient) GetSRIOVLogicalPorts(ctx context.Context, lparUUID string, 
 	// Query the child collection directly for this LPAR
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/SRIOVEthernetLogicalPort", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// 1. Fetch and strip namespaces into an etree Document
 	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
@@ -1856,8 +1748,6 @@ func (c *RestClient) GetSRIOVLogicalPorts(ctx context.Context, lparUUID string, 
 		logicalPorts = append(logicalPorts, port)
 	}
 
-	if debug {
-	}
 
 	return logicalPorts, nil
 }
@@ -1866,8 +1756,6 @@ func (c *RestClient) GetSRIOVLogicalPorts(ctx context.Context, lparUUID string, 
 func (c *RestClient) CreateSRIOVLogicalPort(lparUUID string, adapterID string, physicalPortID string, opts SRIOVPortCreateOptions, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/SRIOVEthernetLogicalPort", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// 1. Construct the base payload natively
 	reqPayload := SRIOVLogicalPortRequest{
@@ -1915,8 +1803,6 @@ func (c *RestClient) CreateSRIOVLogicalPort(lparUUID string, adapterID string, p
 		return "FAILED", fmt.Errorf("failed to marshal SR-IOV Logical Port request: %v", err)
 	}
 
-	if debug {
-	}
 
 	// 4. Execute PUT Request
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(payloadBytes))
@@ -1955,8 +1841,6 @@ func (c *RestClient) DeleteSRIOVLogicalPorts(ctx context.Context, lparUUID strin
 		return nil // Nothing to delete
 	}
 
-	if debug {
-	}
 
 	// 1. Fetch current ports on the LPAR so we can resolve IDs/Locations to UUIDs
 	currentPorts, err := c.GetSRIOVLogicalPorts(ctx, lparUUID, debug)
@@ -1981,8 +1865,6 @@ func (c *RestClient) DeleteSRIOVLogicalPorts(ctx context.Context, lparUUID strin
 
 				uuidsToDelete = append(uuidsToDelete, port.UUID)
 				found = true
-				if debug {
-				}
 				break
 			}
 		}
@@ -2018,8 +1900,6 @@ func (c *RestClient) DeleteSRIOVLogicalPorts(ctx context.Context, lparUUID strin
 			return fmt.Errorf("failed to delete SR-IOV Logical Port %s (HTTP %d): %s", portUUID, resp.StatusCode, string(body))
 		}
 
-		if debug {
-		}
 	}
 
 	return nil
@@ -2029,8 +1909,6 @@ func (c *RestClient) DeleteSRIOVLogicalPorts(ctx context.Context, lparUUID strin
 func (c *RestClient) GetRawLparXML(sysUUID, lparUUID string, debug bool) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -2062,8 +1940,6 @@ func (c *RestClient) GetRawLparXML(sysUUID, lparUUID string, debug bool) (string
 func (c *RestClient) EnableKvmCapability(ctx context.Context, lparUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 
-	if debug {
-	}
 
 	// 1. Pristine GET to fetch the current LPAR XML state
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -2099,8 +1975,6 @@ func (c *RestClient) EnableKvmCapability(ctx context.Context, lparUUID string, d
 	kvmTag := lparElem.FindElement(".//*[local-name()='KvmCapable']")
 	if kvmTag != nil {
 		if kvmTag.Text() == "true" {
-			if debug {
-			}
 			return nil // Already enabled, idempotent exit
 		}
 		kvmTag.SetText("true")
@@ -2111,8 +1985,6 @@ func (c *RestClient) EnableKvmCapability(ctx context.Context, lparUUID string, d
 		newTag.SetText("true")
 	}
 
-	if debug {
-	}
 
 	// 4. POST the updated XML back to the HMC
 	postDoc := etree.NewDocument()
@@ -2141,15 +2013,11 @@ func (c *RestClient) EnableKvmCapability(ctx context.Context, lparUUID string, d
 		bodyStr := string(body)
 		// Catch known IBM DLPAR timeout/warnings just like other partition updates
 		if strings.Contains(bodyStr, "HSCL2957") || strings.Contains(bodyStr, "HSCL294D") {
-			if debug {
-			}
 			return nil
 		}
 		return fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
 	}
 
-	if debug {
-	}
 
 	return nil
 }

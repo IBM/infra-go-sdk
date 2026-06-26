@@ -37,8 +37,6 @@ type VolumeConfig struct {
 
 // GetViosID retrieves the UUID of a Virtual I/O Server by its name using the provided rest client
 func GetViosID(ctx context.Context, restClient *RestClient, systemUUID, viosName string, debug bool) (string, error) {
-	if debug {
-	}
 
 	viosList, err := restClient.GetVirtualIOServersQuick(ctx, systemUUID, debug)
 	if err != nil {
@@ -479,23 +477,17 @@ func (c *RestClient) GetLogicalPartition(ctx context.Context, systemUUID, partit
 			return "", nil, fmt.Errorf("failed to fetch logical partitions: %v", err)
 		}
 		if lparList == nil {
-			if debug {
-			}
 			return "", nil, nil
 		}
 
 		for _, lpar := range lparList {
 			if lpar.PartitionName == partitionName {
 				lparUUID = lpar.UUID
-				if debug {
-				}
 				break
 			}
 		}
 
 		if lparUUID == "" {
-			if debug {
-			}
 			return "", nil, nil
 		}
 	} else if partitionUUID != "" {
@@ -506,8 +498,6 @@ func (c *RestClient) GetLogicalPartition(ctx context.Context, systemUUID, partit
 
 	// Fetch partition details
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
-	if debug {
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -533,12 +523,8 @@ func (c *RestClient) GetLogicalPartition(ctx context.Context, systemUUID, partit
 	}
 
 
-	if debug {
-	}
 
 	if resp.StatusCode != http.StatusOK {
-		if debug {
-		}
 		return "", nil, nil
 	}
 
@@ -626,8 +612,6 @@ func (c *RestClient) fetchAndParseHMCXML(ctx context.Context, url string, debug 
 func (c *RestClient) GetAttachedVolumes(ctx context.Context, systemUUID, lparUUID string, debug bool) ([]StorageMap, error) {
 	var attachedStorage []StorageMap
 
-	if debug {
-	}
 
 	// 1. Fetch the list of ALL VIOSes on the Managed System
 	viosListURL := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
@@ -638,8 +622,6 @@ func (c *RestClient) GetAttachedVolumes(ctx context.Context, systemUUID, lparUUI
 
 	viosElements := viosListDoc.FindElements(".//*[local-name()='VirtualIOServer']")
 	if len(viosElements) == 0 {
-		if debug {
-		}
 		return attachedStorage, nil
 	}
 
@@ -719,8 +701,6 @@ func (c *RestClient) GetAttachedVolumes(ctx context.Context, systemUUID, lparUUI
 				// FIX: Instead of skipping empty adapters, tag them so they get deleted!
 				if vName == "" {
 					vName = "EMPTY_VSCSI_SLOT_" + clientSlot
-					if debug {
-					}
 				} else {
 					if storageUDID != nil && storageUDID.Text() != "" {
 						vUDID = storageUDID.Text()
@@ -771,8 +751,6 @@ func (c *RestClient) GetSvcUIDFixed(viosID string) string {
 
 // DeleteHMCResource executes a DELETE request against a specific HMC REST API URL.
 func (c *RestClient) DeleteHMCResource(resourceURL string, debug bool) error {
-	if debug {
-	}
 
 	req, err := http.NewRequest("DELETE", resourceURL, nil)
 	if err != nil {
@@ -790,8 +768,6 @@ func (c *RestClient) DeleteHMCResource(resourceURL string, debug bool) error {
 	resp.Body.Close()
 
 
-	if debug {
-	}
 
 	if resp.StatusCode >= 400 {
 		if debug {
@@ -805,8 +781,6 @@ func (c *RestClient) DeleteHMCResource(resourceURL string, debug bool) error {
 // GetLogicalPartitionByName resolves a logical partition name to its full Quick details and UUID on a specific Managed System.
 // It uses the quick (JSON) endpoint for high performance.
 func (c *RestClient) GetLogicalPartitionByName(ctx context.Context, systemUUID, partitionName string, debug bool) (*LogicalPartitionQuick, string, error) {
-	if debug {
-	}
 
 	// Fetch all partitions using the lightweight JSON endpoint
 	lpars, err := c.GetLogicalPartitionsQuickAll(ctx, systemUUID, debug)
@@ -817,8 +791,6 @@ func (c *RestClient) GetLogicalPartitionByName(ctx context.Context, systemUUID, 
 	// Iterate through the slice to find the matching name
 	for _, lpar := range lpars {
 		if lpar.PartitionName == partitionName {
-			if debug {
-			}
 			// Use '&lpar' to return a pointer to the struct, rather than '*lpar'
 			// Create a local copy to ensure safe pointer escape
 			matchedLpar := lpar
@@ -832,8 +804,6 @@ func (c *RestClient) GetLogicalPartitionByName(ctx context.Context, systemUUID, 
 // GetManagedSystemByNameQuick resolves a system name to its full Quick details and UUID
 // by scanning the high-performance JSON inventory.
 func (c *RestClient) GetManagedSystemByNameQuick(ctx context.Context, systemName string, debug bool) (*ManagedSystemQuick, string, error) {
-	if debug {
-	}
 
 	// 1. Fetch the high-performance JSON list of all systems
 	systems, err := c.GetManagedSystemQuickAll(ctx, debug)
@@ -844,8 +814,6 @@ func (c *RestClient) GetManagedSystemByNameQuick(ctx context.Context, systemName
 	// 2. Iterate to find a case-insensitive name match
 	for _, s := range systems {
 		if strings.EqualFold(s.SystemName, systemName) {
-			if debug {
-			}
 			return &s, s.UUID, nil
 		}
 	}
@@ -876,8 +844,6 @@ func parseLogicalPartitionElements(elements []*etree.Element, debug bool) ([]Log
 
 // GetLocationCodeByMac calls GetClientNetworkAdapters and finds the matching LocationCode for a MAC address.
 func (c *RestClient) GetLocationCodeByMac(ctx context.Context, sysUUID, lparUUID, targetMac string, debug bool) (string, error) {
-	if debug {
-	}
 
 	// 1. Fetch all adapters using your existing, robust function!
 	adapters, err := c.GetClientNetworkAdapters(ctx, sysUUID, lparUUID, debug)
@@ -910,8 +876,6 @@ func (c *RestClient) GetLocationCodeByMac(ctx context.Context, sysUUID, lparUUID
 			}
 
 			// Fallback warning if the HMC returned the adapter but hid the LocationCode
-			if debug {
-			}
 			return "", fmt.Errorf("MAC %s found, but the HMC did not provide a LocationCode for it", displayMac)
 		}
 	}
@@ -943,8 +907,6 @@ func MountNFS(ctx context.Context, restClient *RestClient, sysName, viosName, nf
 		return "", fmt.Errorf("sysName, viosName, nfsServer, exportPath, and mountPoint are required")
 	}
 
-	if debug {
-	}
 
 	// Build the mount command using AIX syntax
 	// Syntax: mount [-nfsvers version] Node:Directory Directory
@@ -957,16 +919,12 @@ func MountNFS(ctx context.Context, restClient *RestClient, sysName, viosName, nf
 			sysName, viosName, nfsServer, exportPath, mountPoint)
 	}
 
-	if debug {
-	}
 
 	output, err := restClient.CliRunner(ctx, cmd, debug)
 	if err != nil {
 		return output, fmt.Errorf("failed to mount NFS: %v\nOutput: %s", err, output)
 	}
 
-	if debug {
-	}
 
 	return output, nil
 }
@@ -989,32 +947,24 @@ func UnmountNFS(ctx context.Context, restClient *RestClient, sysName, viosName, 
 		return "", fmt.Errorf("sysName, viosName, and mountPoint are required")
 	}
 
-	if debug {
-	}
 
 	// Build the umount command
 	// Syntax: umount Directory
 	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "unmount %s"`,
 		sysName, viosName, mountPoint)
 
-	if debug {
-	}
 
 	output, err := restClient.CliRunner(ctx, cmd, debug)
 	if err != nil {
 		return output, fmt.Errorf("failed to unmount NFS: %v\nOutput: %s", err, output)
 	}
 
-	if debug {
-	}
 
 	return output, nil
 }
 
 // CloseVirtualTerminal forcefully closes an open console session on an LPAR using the HMC CLIRunner.
 func (c *RestClient) CloseVirtualTerminal(ctx context.Context, sysName, lparName string, debug bool) error {
-	if debug {
-	}
 
 	// The native HMC CLI command to kill a vterm session
 	cliCmd := fmt.Sprintf("rmvterm -m %s -p %s", sysName, lparName)
@@ -1025,8 +975,6 @@ func (c *RestClient) CloseVirtualTerminal(ctx context.Context, sysName, lparName
 		return fmt.Errorf("failed to close terminal: %v (Output: %s)", err, output)
 	}
 
-	if debug {
-	}
 
 	return nil
 }
@@ -1109,26 +1057,18 @@ func (c *RestClient) CloseVirtualTerminalViaSSH(hmcIP, username, password, sysNa
 func (c *RestClient) GetActiveVIOSServers(ctx context.Context, systemUUID string, viosUUIDs []string, debug bool) (map[string]*VirtualIOServerDetailed, error) {
 	activeVIOSServers := make(map[string]*VirtualIOServerDetailed)
 
-	if debug {
-	}
 
 	for _, viosUUID := range viosUUIDs {
 		// Get detailed VIOS information
 		viosDetails, err := c.GetVirtualIOServer(ctx, viosUUID, debug)
 		if err != nil {
-			if debug {
-			}
 			continue
 		}
 
 		// Check if VIOS is in active state
 		if viosDetails.ResourceMonitoringControlState == "active" {
 			activeVIOSServers[viosUUID] = viosDetails
-			if debug {
-			}
 		} else {
-			if debug {
-			}
 		}
 	}
 
@@ -1136,8 +1076,6 @@ func (c *RestClient) GetActiveVIOSServers(ctx context.Context, systemUUID string
 		return nil, fmt.Errorf("no active VIOS servers found among %d VIOS(s)", len(viosUUIDs))
 	}
 
-	if debug {
-	}
 
 	return activeVIOSServers, nil
 }
