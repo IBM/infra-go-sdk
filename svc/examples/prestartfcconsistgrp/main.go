@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,32 +15,29 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: prestartfcconsistgrp -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: prestartfcconsistgrp -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
 	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
 	group := svc.FlashCopyConsistGroupID{ID: "test_fcgrp"}
 
-	client.Logger.Info("Preparing FlashCopy consistency group...", "id", group.ID)
+	log.Printf("Preparing FlashCopy consistency group...: id=%v", group.ID)
 
 	if err := client.Prestartfcconsistgrp(ctx,group); err != nil {
-		client.Logger.Error("Prestartfcconsistgrp error", "error", err)
+		log.Printf("Prestartfcconsistgrp error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ Successfully prepared FlashCopy consistency group", "id", group.ID)
+	log.Printf("✅ Successfully prepared FlashCopy consistency group: id=%v", group.ID)
 }

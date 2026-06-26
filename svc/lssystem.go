@@ -115,26 +115,14 @@ type SystemInfo struct {
 }
 
 func (c *Client) Lssystem(ctx context.Context) (*SystemInfo, error) {
-	if c.Logger != nil {
-		c.Logger.Info("Fetching system information")
-	}
-
-	data, err := c.post(ctx,"lssystem", nil)
+	data, err := c.post(ctx, "lssystem", nil)
 	if err != nil {
-		decodedErr := decodeIBMError(err)
-		return nil, fmt.Errorf("failed to get system info: %w", decodedErr)
+		return nil, fmt.Errorf("failed to get system info: %w", decodeIBMError(err))
 	}
 
 	var info SystemInfo
 	if err := json.Unmarshal(data, &info); err != nil {
-		if c.Logger != nil {
-			c.Logger.Error("Failed to parse lssystem response", "error", err)
-		}
 		return nil, fmt.Errorf("failed to parse lssystem response: %w", err)
-	}
-
-	if c.Logger != nil {
-		c.Logger.Info("System information retrieved", "id", info.ID, "name", info.Name, "code_level", info.CodeLevel)
 	}
 
 	return &info, nil

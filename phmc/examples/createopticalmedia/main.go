@@ -26,6 +26,7 @@ func main() {
 	mediaPrefix := flag.String("media-prefix", fmt.Sprintf("ocp_%d", time.Now().Unix()), "Prefix for media names (will append _1, _2, etc. for multiple files)")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *viosName == "" || *fileNames == "" {
 		log.Fatal("Error: hmc-pass, vios-name, and file-names are required.")

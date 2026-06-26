@@ -13,12 +13,6 @@ import (
 
 // Login performs the logon operation to the HMC REST API
 func (c *RestClient) Login(ctx context.Context, username, password string, debug bool) error {
-	// Optional: If you still want to pass 'verbose' through the function signature,
-	// you can toggle the logger level right here.
-	if debug {
-		c.EnableVerboseLogging()
-	}
-
 	payload := LogonRequest{
 		SchemaVersion: "V1_0",
 		XMLNS:         "http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/",
@@ -29,18 +23,10 @@ func (c *RestClient) Login(ctx context.Context, username, password string, debug
 
 	xmlData, err := xml.Marshal(payload)
 	if err != nil {
-		c.Logger.Error("XML marshal failed", "error", err)
 		return fmt.Errorf("XML marshal failed: %v", err)
 	}
 
 	url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
-
-	// LOOK HOW CLEAN THIS IS! No more "if verbose { ... }" blocks!
-	// We pass the URL and Username as structured key-value pairs.
-	c.Logger.Debug("Sending logon request",
-		"url", url,
-		"user", username,
-	)
 
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(xmlData))
 	if err != nil {
@@ -53,104 +39,72 @@ func (c *RestClient) Login(ctx context.Context, username, password string, debug
 	defer cancel()
 	req = req.WithContext(reqCtx)
 
-	c.logRawTraffic("REQUEST (PUT)", url, string(xmlData))
-
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err, "url", url)
 		return fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
-
-	// Structured logging makes tracking status codes super easy
-	c.Logger.Debug("Logon response received", "status", resp.Status, "code", resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("reading response failed: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
-
-	// For massive XML payloads, you can still use Debugf if you want formatted strings
-	if debug {
-		c.Logger.Debugf("Logon response body:%s", string(body))
-	}
-
 	var logonResp LogonResponse
 	if err := xml.Unmarshal(body, &logonResp); err != nil {
-		c.Logger.Error("XML unmarshal failed", "error", err)
 		return fmt.Errorf("XML unmarshal failed: %v", err)
 	}
 
 	c.session = logonResp.Session
-	c.Logger.Info("Successfully authenticated with HMC", "user", username)
 	return nil
 }
 
 // Logoff performs the logoff operation from the HMC REST API
 func (c *RestClient) Logoff(ctx context.Context) error {
 	if c.session == "" {
-		c.Logger.Debug("No active session to log off")
 		return nil // No session to log off
 	}
 
 	url := fmt.Sprintf("https://%s/rest/api/web/Logon", c.hmcIP)
 
-	c.Logger.Debug("Sending logoff request", "url", url)
-
-	// ✨ THE FIX #1: Flush stale keep-alive connections ✨
-	// Long-running scripts cause the HMC to silently drop the TCP connection.
-	// This forces Go to establish a fresh connection for the Logoff command.
+	// Flush stale keep-alive connections — long-running scripts cause the HMC to
+	// silently drop the TCP connection, so force a fresh one for Logoff.
 	c.client.CloseIdleConnections()
 
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
-		c.Logger.Error("Request creation failed", "error", err)
 		return fmt.Errorf("request creation failed: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/vnd.ibm.powervm.web+xml; type=LogonRequest")
 	req.Header.Set("Authorization", "Basic Og==")
 	req.Header.Set("X-API-Session", c.session)
 
-	// ✨ THE FIX #2: Tell Go not to reuse this connection ✨
+	// Tell Go not to reuse this connection
 	req.Close = true
 
 	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 	req = req.WithContext(reqCtx)
 
-	c.logRawTraffic("REQUEST (DELETE)", url, "")
-
 	resp, err := c.client.Do(req)
 	if err != nil {
-		// ✨ THE FIX #3: Graceful EOF Handling ✨
 		// If the HMC aggressively killed the session while we were waiting, ignore it.
 		if strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "connection reset by peer") {
-			c.Logger.Debug("Ignored EOF during logoff (session already terminated by HMC).")
 			c.session = "" // Clear local session state
 			return nil
 		}
-
-		c.Logger.Error("HTTP request failed", "error", err)
 		return fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err == nil {
-		c.logRawTraffic("RESPONSE", url, string(body))
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		return fmt.Errorf("reading response failed: %v", err)
 	}
 
-	c.Logger.Debug("Logoff response received", "status", resp.Status, "code", resp.StatusCode)
-
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		c.Logger.Error("Logoff failed", "status", resp.Status)
 		return fmt.Errorf("logoff failed with status: %s", resp.Status)
 	}
 
 	c.session = ""
-	c.Logger.Info("Successfully logged off from HMC")
-
 	return nil
 }

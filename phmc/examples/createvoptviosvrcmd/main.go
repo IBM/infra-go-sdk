@@ -31,6 +31,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	// Initial Validation
 	if *password == "" || *viosName == "" || *mediaName == "" {

@@ -31,6 +31,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *viosName == "" || *lparName == "" || *mediaNamesStr == "" {
 		log.Fatal("Error: hmc-pass, vios-name, lpar-name, and media-names are required.")

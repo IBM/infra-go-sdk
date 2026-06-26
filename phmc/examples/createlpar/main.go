@@ -56,6 +56,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
@@ -465,31 +466,31 @@ func main() {
 
 	// Map Physical Disk (if provisioned)
 	if usePhysical {
-		log.Printf("[HMC] Attaching Physical Disk '%s' to LPAR '%s'...", physicalStorage.diskName, *lparName)
+		log.Printf("Attaching Physical Disk '%s' to LPAR '%s'...: physicalStorage.diskName=%v", *lparName)
 		mappingUUID1, err := restClient.CreatePhysicalVolumeMaps(sysUUID, physicalStorage.selectedViosUUID, lparUUID, []string{physicalStorage.diskName}, *verbose)
 		if err != nil {
 			log.Fatalf("[HMC] Physical Storage Mapping Failed: %v", err)
 		}
 
 		if mappingUUID1 == "SUCCESS_WITH_RMC_WARNING" {
-			log.Printf("[HMC] ✅ Physical disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
+			log.Println("✅ Physical disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
 		} else {
-			log.Printf("[HMC] ✅ Physical disk mapped successfully!")
+			log.Println("✅ Physical disk mapped successfully!")
 		}
 	}
 
 	// Map Virtual Disk (if provisioned)
 	if useVirtual {
-		log.Printf("[HMC] Attaching Virtual Disk '%s' to LPAR '%s'...", *virtualDiskName, *lparName)
+		log.Printf("Attaching Virtual Disk '%s' to LPAR '%s'...: *virtualDiskName=%v", *lparName)
 		mappingUUID2, err := restClient.CreateVirtualDiskMaps(sysUUID, virtualStorage.viosUUID, lparUUID, []string{*virtualDiskName}, *verbose)
 		if err != nil {
 			log.Fatalf("[HMC] Virtual Storage Mapping Failed: %v", err)
 		}
 
 		if mappingUUID2 == "SUCCESS_WITH_RMC_WARNING" {
-			log.Printf("[HMC] ✅ Virtual disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
+			log.Println("✅ Virtual disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
 		} else {
-			log.Printf("[HMC] ✅ Virtual disk mapped successfully!")
+			log.Println("✅ Virtual disk mapped successfully!")
 		}
 	}
 
@@ -507,15 +508,15 @@ func main() {
 			mediaNames[i] = strings.TrimSpace(mediaNames[i])
 		}
 		
-		log.Printf("[HMC] Attaching %d Virtual Optical Media to LPAR '%s'...", len(mediaNames), *lparName)
+		log.Printf("Attaching %d Virtual Optical Media to LPAR '%s'...: len(mediaNames)=%v", *lparName)
 		mappingUUID3, err := restClient.CreateVirtualOpticalMaps(context.Background(), sysUUID, storageViosUUID, lparUUID, mediaNames, *verbose)
 		if err != nil {
-			log.Printf("[HMC] ⚠️  Warning: Virtual Optical Media mapping failed: %v", err)
+			log.Printf("⚠️  Warning: Virtual Optical Media mapping failed:: %v", err)
 		} else {
 			if mappingUUID3 == "SUCCESS_WITH_RMC_WARNING" {
-				log.Printf("[HMC] ✅ Virtual optical media mapped successfully! (Ignored expected RMC warning for offline LPAR)")
+				log.Println("✅ Virtual optical media mapped successfully! (Ignored expected RMC warning for offline LPAR)")
 			} else {
-				log.Printf("[HMC] ✅ Virtual optical media mapped successfully!")
+				log.Println("✅ Virtual optical media mapped successfully!")
 			}
 			opticalMediaCount = len(mediaNames)
 		}
@@ -527,14 +528,14 @@ func main() {
 	// Use the default profile name from the LPAR details
 	profileName := lparDetails.DefaultProfileName
 	log.Println("")
-	log.Printf("[HMC] Phase 7: Saving configuration to profile '%s'...", profileName)
+	log.Printf("Phase 7: Saving configuration to profile '%s'...: %v", profileName)
 	if err := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true, *verbose); err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
-	log.Printf("[HMC] ✅ Configuration permanently saved to profile.")
+	log.Println("✅ Configuration permanently saved to profile.")
 
 	log.Println("")
-	log.Printf("[HMC] Phase 8: Powering on LPAR '%s'...", *lparName)
+	log.Printf("Phase 8: Powering on LPAR '%s'...: %v", *lparName)
 
 	// Extract profile UUID from the AssociatedPartitionProfile href (already available from CreateLogicalPartition)
 	profileHref := lparDetails.AssociatedPartitionProfile.Href
@@ -549,7 +550,7 @@ func main() {
 	profileUUID := profileHref[len(profileHref)-36:]
 	
 	if *verbose {
-		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
+		log.Printf("Using default profile '%s' (UUID: %s): lparDetails.DefaultProfileName=%v", profileUUID)
 	}
 
 	// Power on LPAR if requested
@@ -610,7 +611,7 @@ func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bo
 	for _, system := range systems {
 		if strings.EqualFold(system.SystemName, systemName) {
 			if verbose {
-				log.Printf("[HMC] Resolved Managed System UUID: %s", system.UUID)
+				log.Printf("Resolved Managed System UUID: %s: %v", system.UUID)
 			}
 			return system.UUID
 		}
@@ -621,7 +622,7 @@ func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bo
 
 func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
 	if verbose {
-		log.Printf("[HMC] Verifying LPAR name '%s' is unique...", vmName)
+		log.Printf("Verifying LPAR name '%s' is unique...: %v", vmName)
 	}
 	_, existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName, false)
 	if err == nil && existingUUID != "" {
@@ -692,7 +693,7 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 		for _, wwpn := range wwpns {
 			if hostName, found := wwpnToHostMap[strings.ToUpper(wwpn)]; found {
 				if verbose {
-					log.Printf("[SVC] ✅ Match Found! VIOS '%s' is mapped to SVC Host '%s'", viosName, hostName)
+					log.Printf("✅ Match Found! VIOS '%s' is mapped to SVC Host '%s': viosName=%v", hostName)
 				}
 				selectedViosName = viosName
 				selectedHostName = hostName
@@ -755,7 +756,7 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 	// Perform FlashCopy only if baseImageName is provided
 	if baseImageName != "" {
 		if verbose {
-			log.Printf("[SVC] Creating FlashCopy from base image '%s'...", baseImageName)
+			log.Printf("Creating FlashCopy from base image '%s'...: %v", baseImageName)
 		}
 		
 		sourceVol, err := svcclient.LsVdiskByName(ctx, baseImageName)
@@ -763,7 +764,7 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 			return nil, "", fmt.Errorf("error finding source volume %s: %v", baseImageName, err)
 		}
 		if verbose {
-			log.Printf("[SVC] Creating FlashCopy from base image ID '%s'...", sourceVol.ID)
+			log.Printf("Creating FlashCopy from base image ID '%s'...: %v", sourceVol.ID)
 		}
 
 		copyRate := 150
@@ -787,11 +788,11 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 		}
 		
 		if verbose {
-			log.Printf("[SVC] ✅ FlashCopy completed successfully")
+			log.Println("✅ FlashCopy completed successfully")
 		}
 	} else {
 		if verbose {
-			log.Printf("[SVC] Creating fresh volume without FlashCopy...")
+			log.Println("Creating fresh volume without FlashCopy...")
 		}
 	}
 

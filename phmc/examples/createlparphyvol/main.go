@@ -40,6 +40,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 	// Derive volume name from LPAR name
@@ -275,31 +276,31 @@ func main() {
 	// 5. DISCOVER NEW DISK ON VIOS & MAP IT TO LPAR
 	// =========================================================================
 	log.Println("")
-	log.Printf("[HMC] Configuring Storage on VIOS '%s'...", selectedViosName)
+	log.Printf("Configuring Storage on VIOS '%s'...: %v", selectedViosName)
 	viosUUID := viosUuidMap[selectedViosName]
 
-	log.Printf("[HMC] Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
+	log.Println("Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
 	if err := restClient.ConfigDevice(ctx,viosUUID, "", *verbose); err != nil {
 		log.Fatalf("[HMC] Failed to run cfgdev: %v", err)
 	}
 
-	log.Printf("[HMC] Locating new physical volume matching SVC UID: %s...", targetVol.VdiskUID)
+	log.Printf("Locating new physical volume matching SVC UID: %s...: %v", targetVol.VdiskUID)
 	diskName, err := identifyFreeVolume(ctx,restClient, viosUUID, selectedViosName, targetVol.VdiskUID, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to identify free volume: %v", err)
 	}
-	log.Printf("[HMC] ✅ Matched SVC LUN to VIOS Disk: %s", diskName)
+	log.Printf("✅ Matched SVC LUN to VIOS Disk: %s: %v", diskName)
 
-	log.Printf("[HMC] Attaching '%s' to LPAR '%s'...", diskName, *lparName)
+	log.Printf("Attaching '%s' to LPAR '%s'...: diskName=%v", *lparName)
 	mappingUUID, err := restClient.CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID, []string{diskName}, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Storage Mapping Failed: %v", err)
 	}
 	
 	if mappingUUID == "SUCCESS_WITH_RMC_WARNING" {
-		log.Printf("[HMC] ✅ Disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
+		log.Println("✅ Disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
 	} else {
-		log.Printf("[HMC] ✅ Disk mapped successfully!")
+		log.Println("✅ Disk mapped successfully!")
 	}
 
 	// =========================================================================
@@ -308,15 +309,15 @@ func main() {
 	// Use the default profile name from the LPAR details
 	profileName := lparDetails.DefaultProfileName
 	log.Println("")
-	log.Printf("[HMC] Saving active configuration to profile '%s'...", profileName)
+	log.Printf("Saving active configuration to profile '%s'...: %v", profileName)
 	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
-	log.Printf("[HMC] ✅ Configuration permanently saved to profile.")
+	log.Println("✅ Configuration permanently saved to profile.")
 
 	log.Println("")
-	log.Printf("[HMC] Step 7: Powering on LPAR '%s'...", *lparName)
+	log.Printf("Step 7: Powering on LPAR '%s'...: %v", *lparName)
 	
 	// Extract profile UUID from the AssociatedPartitionProfile href (already available from CreateLogicalPartition)
 	profileHref := lparDetails.AssociatedPartitionProfile.Href
@@ -331,7 +332,7 @@ func main() {
 	profileUUID := profileHref[len(profileHref)-36:]
 	
 	if *verbose {
-		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
+		log.Printf("Using default profile '%s' (UUID: %s): lparDetails.DefaultProfileName=%v", profileUUID)
 	}
 
 	// Create PowerOnOptions
@@ -366,7 +367,7 @@ func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bo
 	for _, system := range systems {
 		if strings.EqualFold(system.SystemName, systemName) {
 			if verbose {
-				log.Printf("[HMC] Resolved Managed System UUID: %s", system.UUID)
+				log.Printf("Resolved Managed System UUID: %s: %v", system.UUID)
 			}
 			return system.UUID
 		}
@@ -377,7 +378,7 @@ func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bo
 
 func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
 	if verbose {
-		log.Printf("[HMC] Verifying LPAR name '%s' is unique...", vmName)
+		log.Printf("Verifying LPAR name '%s' is unique...: %v", vmName)
 	}
 	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName, false)
 	if err == nil && existingUUID != "" {
@@ -448,7 +449,7 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 		for _, wwpn := range wwpns {
 			if hostName, found := wwpnToHostMap[strings.ToUpper(wwpn)]; found {
 				if verbose {
-					log.Printf("[SVC] ✅ Match Found! VIOS '%s' is mapped to SVC Host '%s'", viosName, hostName)
+					log.Printf("✅ Match Found! VIOS '%s' is mapped to SVC Host '%s': viosName=%v", hostName)
 				}
 				selectedViosName = viosName
 				selectedHostName = hostName

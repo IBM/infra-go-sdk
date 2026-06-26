@@ -52,7 +52,6 @@ func (c *Client) Lsfcmap(ctx context.Context, name string) ([]FlashCopyMappingIn
 			result = []FlashCopyMappingInfo{mapping}
 		} else {
 			// Fall back to array response (for consistency or unexpected cases)
-			c.Logger.Debug("Falling back to array parsing for FlashCopy mapping")
 			var mappings []FlashCopyMappingInfo
 			if err := json.Unmarshal(data, &mappings); err != nil {
 				return nil, fmt.Errorf("failed to parse response: %v", err)

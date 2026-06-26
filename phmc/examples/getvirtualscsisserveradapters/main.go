@@ -21,6 +21,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
 	flag.Parse()
+	_ = verbose
 
 	// Quick validation to ensure required fields aren't completely empty if passed empty via CLI
 	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" {

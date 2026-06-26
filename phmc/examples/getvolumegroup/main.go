@@ -20,6 +20,7 @@ func main() {
 	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" {
 		log.Fatal("Error: hmc-ip, hmc-user, hmc-pass, and system-name are required.")

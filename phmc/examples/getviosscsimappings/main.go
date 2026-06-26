@@ -38,6 +38,7 @@ func main() {
 	viosFilter := flag.String("vios-filter", "", "Filter by specific VIOS name (optional)")
 
 	flag.Parse()
+	_ = verbose
 
 	if *hmcPass == "" {
 		log.Fatal("Error: hmc-pass is required")

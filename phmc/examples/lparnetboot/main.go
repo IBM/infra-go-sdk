@@ -31,6 +31,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 	if *password == "" || *sysName == "" || *lparName == "" || *macAddr == "" {

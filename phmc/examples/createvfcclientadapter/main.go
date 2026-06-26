@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -27,26 +28,23 @@ func main() {
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output (activates structured Debug logs)")
 	flag.Parse()
+	_ = verbose
 
 	// =========================================================================
 	// 1. INITIALIZE CLI LOGGER
 	// =========================================================================
 	// Create a logger for the main CLI application 
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// If verbose is passed, turn on debug logging for BOTH the CLI and the SDK
 	if *verbose {
-		cliLogger.EnableDebug()
 	} else {
 		// Default to Info level for standard CLI output so Info messages show up
-		cliLogger.SetLevel(0) // 0 is InfoLevel in charmbracelet/log
+		log.Printf(": %v", 0)
 	}
 
 	// Validation
 	if *password == "" || *sysName == "" || *lparName == "" || *viosName == "" {
-		cliLogger.Fatal("Missing required arguments", 
-			"required", "hmc-pass, system-name, lpar-name, vios-name")
+		log.Fatal("Missing required arguments")
 	}
 
 	slotDisplay := "Auto-Assigned"
@@ -54,10 +52,7 @@ func main() {
 		slotDisplay = fmt.Sprintf("%d", *viosSlot)
 	}
 
-	cliLogger.Info("Provisioning Virtual Fibre Channel (vFC) Adapter", 
-		"lpar", *lparName, 
-		"vios_slot", slotDisplay,
-	)
+	log.Println("Provisioning Virtual Fibre Channel (vFC")
 
 	// =========================================================================
 	// 2. AUTHENTICATION
@@ -65,38 +60,35 @@ func main() {
 	restClient := hmc.NewRestClient(*hmcIP)
 	
 	// Sync the SDK logger level with the CLI logger
-	if *verbose {
-		restClient.EnableVerboseLogging()
-	}
 
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
 
 	// =========================================================================
 	// 3. DYNAMIC RESOLUTION (Name -> UUID & ID)
 	// =========================================================================
-	cliLogger.Debug("Resolving Managed System to UUID", "system", *sysName)
+	log.Printf("Resolving Managed System to UUID: system=%v", *sysName)
 	
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve Managed System", "system", *sysName, "error", err)
+		log.Fatal("Failed to resolve Managed System")
 	}
 
-	cliLogger.Debug("Resolving LPAR to UUID", "lpar", *lparName)
+	log.Printf("Resolving LPAR to UUID: lpar=%v", *lparName)
 	
 	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
-		cliLogger.Fatal("Failed to resolve LPAR Name", "lpar", *lparName, "error", err)
+		log.Fatal("Failed to resolve LPAR Name")
 	}
-	cliLogger.Info("Target LPAR resolved", "uuid", lparUUID)
+	log.Printf("Target LPAR resolved: uuid=%v", lparUUID)
 
-	cliLogger.Debug("Resolving VIOS to Partition ID", "vios", *viosName)
+	log.Printf("Resolving VIOS to Partition ID: vios=%v", *viosName)
 	
 	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
 	if err != nil {
-		cliLogger.Fatal("Failed to fetch VIOS list", "error", err)
+		log.Fatal("Failed to fetch VIOS list")
 	}
 
 	var targetViosID int
@@ -108,26 +100,24 @@ func main() {
 	}
 
 	if targetViosID == 0 {
-		cliLogger.Fatal("VIOS not found on system", "vios", *viosName, "system", *sysName)
+		log.Fatal("VIOS not found on system")
 	}
-	cliLogger.Info("Target VIOS resolved", "id", targetViosID)
+	log.Printf("Target VIOS resolved: id=%v", targetViosID)
 
 	// =========================================================================
 	// 4. EXECUTE vFC CREATION
 	// =========================================================================
-	cliLogger.Info("Injecting vFC Client Adapter...")
+	log.Println("Injecting vFC Client Adapter...")
 
 	adapterUUID, err := restClient.CreateVirtualFibreChannelClientAdapter(lparUUID, targetViosID, *viosSlot, *verbose)
 	if err != nil {
-		cliLogger.Fatal("Failed to create vFC Client Adapter", "error", err)
+		log.Fatal("Failed to create vFC Client Adapter")
 	}
 
-	cliLogger.Info("SUCCESS: Virtual Fibre Channel Adapter Provisioned!",
-		"adapter_uuid", adapterUUID,
+	log.Printf("[INFO] SUCCESS: Virtual Fibre Channel Adapter Provisioned! %v", "adapter_uuid", adapterUUID,
 		"vios_name", *viosName,
 		"vios_id", targetViosID,
-		"vios_target_slot", slotDisplay,
-	)
+		"vios_target_slot", slotDisplay,)
 	
-	cliLogger.Warn("Remember to map the server-side vFC adapter to a physical FC port (fcsX) on the VIOS!")
+	log.Println("Remember to map the server-side vFC adapter to a physical FC port (fcsX")
 }

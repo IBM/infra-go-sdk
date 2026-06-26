@@ -32,6 +32,7 @@ func main() {
 	baseImageName := flag.String("base-image", "image-ibm-default-centos-10", "Base image name for FlashCopy")
 
 	flag.Parse()
+	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 
@@ -45,7 +46,7 @@ func main() {
 	var referenceTemplate string
 	if *systemName != "" && *osType != "" {
 		if *verbose {
-			log.Printf("[INIT] Validating OS type: %s", *osType)
+			log.Printf("Validating OS type: %s: %v", *osType)
 		}
 		switch *osType {
 		case "aix", "linux", "aix_linux":
@@ -56,7 +57,7 @@ func main() {
 			log.Fatalf("[INIT] Error: invalid os-type: %s (must be aix, linux, aix_linux, or ibmi)", *osType)
 		}
 		if *verbose {
-			log.Printf("[INIT] Selected Reference Template: %s", referenceTemplate)
+			log.Printf("Selected Reference Template: %s: %v", referenceTemplate)
 		}
 	}
 
@@ -125,7 +126,7 @@ func main() {
 
 func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bool) string {
 	if verbose {
-		log.Printf("[HMC] Resolving Managed System UUID for name: %s", systemName)
+		log.Printf("Resolving Managed System UUID for name: %s: %v", systemName)
 	}
 	
 	// Use the faster GetManagedSystemQuickAll (JSON) instead of GetManagedSystemByName (XML)
@@ -138,8 +139,8 @@ func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bo
 	for _, system := range systems {
 		if system.SystemName == systemName {
 			if verbose {
-				log.Printf("[HMC] Successfully resolved Managed System UUID: %s", system.UUID)
-				log.Printf("[HMC] Maximum Partitions allowed for system %s: %d", system.UUID, system.MaximumPartitions)
+				log.Printf("Successfully resolved Managed System UUID: %s: %v", system.UUID)
+				log.Printf("Maximum Partitions allowed for system %s: %d: system.UUID=%v", system.MaximumPartitions)
 			}
 			return system.UUID
 		}
@@ -173,14 +174,14 @@ func buildLparConfigDict(verbose bool) map[string]string {
 	configDict["shared_proc_pool"] = "0"
 	
 	if verbose {
-		log.Printf("[CONFIG] LPAR Name: %s | CPU: %d | Mem: %dMB", configDict["vm_name"], proc, mem)
+		log.Printf("LPAR Name: %s | CPU: %d | Mem: %dMB: %v", configDict["vm_name"], proc, mem)
 	}
 	return configDict
 }
 
 func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
 	if verbose {
-		log.Printf("[HMC] Verifying LPAR name '%s' is unique on system...", vmName)
+		log.Printf("Verifying LPAR name '%s' is unique on system...: %v", vmName)
 	}
 	existingUUID, _, err := restClient.GetLogicalPartition(context.Background(), systemUUID, vmName, "", verbose)
 	if err != nil {
@@ -190,7 +191,7 @@ func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName strin
 		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
 	}
 	if verbose {
-		log.Printf("[HMC] Validation passed: LPAR name '%s' is available.", vmName)
+		log.Printf("Validation passed: LPAR name '%s' is available.: %v", vmName)
 	}
 }
 
@@ -255,7 +256,7 @@ func prepareLparTemplate(restClient *hmc.RestClient, referenceTemplate string, c
 
 func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string) {
 	if verbose {
-		log.Printf("[HMC] Fetching all Virtual I/O Servers for system UUID: %s to discover WWPNs and UUIDs...", systemUUID)
+		log.Printf("Fetching all Virtual I/O Servers for system UUID: %s to discover WWPNs and UUIDs...: %v", systemUUID)
 	}
 	viosList, err := restClient.GetVirtualIOServers(systemUUID, verbose)
 	if err != nil {
@@ -289,10 +290,10 @@ func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string, verbose bool)
 				viosUuidMap[v.PartitionName] = v.PartitionUUID
 				mu.Unlock()
 				if verbose {
-					log.Printf("[HMC] Discovered VIOS '%s' (UUID: %s) with %d Fibre Channel WWPN(s).", v.PartitionName, v.PartitionUUID, len(wwpns))
+					log.Printf("Discovered VIOS '%s' (UUID: %s) with %d Fibre Channel WWPN(s).: %v", v.PartitionName, v.PartitionUUID, len(wwpns))
 				}
 			} else if verbose {
-				log.Printf("[HMC] Skipped VIOS '%s' (No FC WWPNs found).", v.PartitionName)
+				log.Printf("Skipped VIOS '%s' (No FC WWPNs found).: %v", v.PartitionName)
 			}
 		}(i)
 	}
@@ -307,14 +308,14 @@ func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string, verbose bool)
 
 func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImageName string, viosWwpnMap map[string][]string, verbose bool) (*svc.Vdisk, string) {
 	if verbose {
-		log.Printf("[SVC] Connecting to SVC Cluster at %s...", svcIP)
+		log.Printf("Connecting to SVC Cluster at %s...: %v", svcIP)
 	}
 	svcclient := svc.NewClient(svcIP, svcUser, svcPass).WithTLSInsecure()
 	if err := svcclient.Authenticate(ctx); err != nil {
 		log.Fatalf("[SVC] Auth error: %v", err)
 	}
 	if verbose {
-		log.Printf("[SVC] Authentication Successful.")
+		log.Println("Authentication Successful.")
 	}
 
 	var selectedViosName string
@@ -345,7 +346,7 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 			upperWWPN := strings.ToUpper(wwpn)
 			if hostName, found := wwpnToHostMap[upperWWPN]; found {
 				if verbose {
-					log.Printf("[SVC] ✅ Match Found! VIOS '%s' is mapped to SVC Host '%s' via WWPN %s", viosName, hostName, wwpn)
+					log.Printf("✅ Match Found! VIOS '%s' is mapped to SVC Host '%s' via WWPN %s: %v", viosName, hostName, wwpn)
 				}
 				selectedViosName = viosName
 				selectedHostName = hostName
@@ -372,7 +373,7 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 		}
 
 		if verbose {
-			log.Printf("[SVC] Creating new SVC host '%s' using WWPNs: %v", selectedHostName, selectedWWPNs)
+			log.Printf("Creating new SVC host '%s' using WWPNs:: selectedHostName=%v", selectedWWPNs)
 		}
 		newHost := svc.Host{
 			Name:     selectedHostName,
@@ -384,7 +385,7 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 			log.Fatalf("[SVC] Mkhost error: %v", err)
 		}
 		if verbose {
-			log.Printf("[SVC] Host '%s' created successfully.", selectedHostName)
+			log.Printf("Host '%s' created successfully.: %v", selectedHostName)
 		}
 	}
 
@@ -397,7 +398,7 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 
 	// --- 3. Create Volume ---
 	if verbose {
-		log.Printf("[SVC] Provisioning new VDisk (Volume)...")
+		log.Println("Provisioning new VDisk (Volume)...")
 	}
 	grainSize := 256
 	volume := svc.Volume{
@@ -408,18 +409,18 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 		log.Fatalf("[SVC] Mkvdisk error: %v", err)
 	}
 	if verbose {
-		log.Printf("[SVC] Successfully created volume: %s", volume.Name)
+		log.Printf("Successfully created volume: %s: %v", volume.Name)
 	}
 
 	if verbose {
-		log.Printf("[SVC] Locating Source Base Image: %s", baseImageName)
+		log.Printf("Locating Source Base Image: %s: %v", baseImageName)
 	}
 	sourceVol, _ := svcclient.LsVdiskByName(ctx, baseImageName)
 	targetVol, _ := svcclient.LsVdiskByName(ctx, volume.Name)
 
 	// --- 4. FlashCopy ---
 	if verbose {
-		log.Printf("[SVC] Setting up FlashCopy Mapping from %s -> %s", sourceVol.Name, targetVol.Name)
+		log.Printf("Setting up FlashCopy Mapping from %s -> %s: sourceVol.Name=%v", targetVol.Name)
 	}
 	copyRate := 150
 	fcGrainSize := 256
@@ -432,7 +433,7 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 	}
 
 	if verbose {
-		log.Printf("[SVC] Starting FlashCopy operation...")
+		log.Println("Starting FlashCopy operation...")
 	}
 	fmapping := svc.FlashCopyMappingStart{ID: fcmapping.Name, Prep: true, Restore: true}
 	if err := svcclient.Startfcmap(ctx, fmapping); err != nil {
@@ -441,7 +442,7 @@ func provisionSVCStorage(ctx context.Context, svcIP, svcUser, svcPass, baseImage
 
 	// --- 5. Map to Host ---
 	if verbose {
-		log.Printf("[SVC] Mapping Target Volume '%s' to Host '%s'", volume.Name, finalHostID)
+		log.Printf("Mapping Target Volume '%s' to Host '%s': volume.Name=%v", finalHostID)
 	}
 	mapping := svc.VolumeHostMap{Host: finalHostID, Force: true, VDisk: volume.Name}
 	if err := svcclient.Mkvdiskhostmap(ctx, mapping); err != nil {

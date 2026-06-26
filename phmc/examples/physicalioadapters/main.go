@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"bufio"
 	"context"
 	"flag"
@@ -32,8 +33,6 @@ func main() {
 	defer stop()
 
 	// Initialize CLI Logger
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. SUBCOMMAND ROUTER & CONFIGURATION
@@ -89,60 +88,55 @@ func main() {
 		printUsage()
 		os.Exit(0)
 	default:
-		cliLogger.Error("Unknown command", "command", cmd)
+		log.Printf("Unknown command: command=%v", cmd)
 		printUsage()
 		os.Exit(1)
 	}
 
 	// Apply Verbosity to Logger
 	if verbose {
-		cliLogger.EnableDebug()
 	} else {
-		cliLogger.SetLevel(0) // 0 equates to InfoLevel
+		log.Printf(": %v", 0)
 	}
 
 	// --- Shared Validation ---
 	if password == "" || sysName == "" {
-		cliLogger.Fatal("Missing required arguments", "required", "hmc-pass, system-name")
+		log.Fatal("Missing required arguments")
 	}
 
 	if cmd == "attach" || cmd == "detach" {
 		if lparName == "" {
-			cliLogger.Fatal("Missing required argument", "required", "lpar-name")
+			log.Fatal("Missing required argument")
 		}
 		if targets == "" {
-			cliLogger.Fatal("Missing required argument", "required", "targets (comma-separated list)")
+			log.Fatal("Missing required argument")
 		}
 	}
 
 	// =========================================================================
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", hmcIP)
+	log.Printf("Logging into HMC: ip=%v", hmcIP)
 	restClient := hmc.NewRestClient(hmcIP)
 	
-	if verbose {
-		restClient.EnableVerboseLogging()
-	}
-
 	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
-		cliLogger.Info("Closing HMC Session...")
+		log.Println("Closing HMC Session...")
 		restClient.Logoff(context.Background())
 	}()
 
-	cliLogger.Debug("Resolving System", "system", sysName)
+	log.Printf("Resolving System: system=%v", sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("System not found", "system", sysName, "error", err)
+		log.Fatal("System not found")
 	}
 
-	cliLogger.Debug("Fetching detailed hardware inventory")
+	log.Println("Fetching detailed hardware inventory")
 	detailedSystem, err := restClient.GetManagedSystem(context.Background(), sysUUID, verbose)
 	if err != nil {
-		cliLogger.Fatal("Failed to fetch detailed system info", "error", err)
+		log.Fatal("Failed to fetch detailed system info")
 	}
 
 	var lparObj *hmc.LogicalPartitionQuick
@@ -150,11 +144,11 @@ func main() {
 	var lparState string
 	
 	if lparName != "" {
-		cliLogger.Debug("Resolving LPAR", "lpar", lparName)
+		log.Printf("Resolving LPAR: lpar=%v", lparName)
 		var resolvedLparUUID string
 		lparObj, resolvedLparUUID, err = restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName, verbose)
 		if err != nil || resolvedLparUUID == "" {
-			cliLogger.Fatal("LPAR not found", "lpar", lparName)
+			log.Fatal("LPAR not found")
 		}
 		lparUUID = resolvedLparUUID
 		lparState = lparObj.PartitionState
@@ -164,7 +158,7 @@ func main() {
 	// 4. READ-ONLY: TABULAR LIST MODE
 	// =========================================================================
 	if cmd == "list" {
-		cliLogger.Info("Physical I/O Slot Inventory", "system", sysName, "lpar_filter", lparName)
+		log.Printf("Physical I/O Slot Inventory: system=%v lpar_filter=%v", sysName, lparName)
 		fmt.Println("======================================================================================================================")
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
@@ -220,9 +214,9 @@ func main() {
 		fmt.Println("======================================================================================================================")
 		
 		if lparName != "" {
-			cliLogger.Info("Scan Complete", "matched", matchedDevices, "total_scanned", totalDevices)
+			log.Printf("Scan Complete: matched=%v total_scanned=%v", matchedDevices, totalDevices)
 		} else {
-			cliLogger.Info("Scan Complete", "total_scanned", totalDevices)
+			log.Printf("Scan Complete: total_scanned=%v", totalDevices)
 		}
 		return // Exit early
 	}
@@ -230,14 +224,14 @@ func main() {
 	// =========================================================================
 	// 5. PRE-FLIGHT VALIDATION & PREPARATION (ATTACH / DETACH)
 	// =========================================================================
-	cliLogger.Info("Pre-Flight Validation & Preparation...")
+	log.Println("Pre-Flight Validation & Preparation...")
 
 	// ✨ TRACK ORIGINAL POWER STATE
 	wasRunning := false
 
 	if !strings.EqualFold(lparState, "Not Activated") {
 		wasRunning = true
-		cliLogger.Warn("LPAR is currently running. Powering off before continuing", "lpar", lparName, "state", lparState)
+		log.Printf("LPAR is currently running. Powering off before continuing: lpar=%v state=%v", lparName, lparState)
 
 		// --- INTERACTIVE COUNTDOWN PROMPT ---
 		inputCh := make(chan string)
@@ -260,7 +254,7 @@ func main() {
 					break promptLoop
 				}
 				fmt.Println()
-				cliLogger.Fatal("Operation aborted by user.")
+				log.Fatal("Operation aborted by user.")
 			case <-time.After(1 * time.Second):
 				// Just tick down and re-draw the line
 			}
@@ -268,19 +262,19 @@ func main() {
 
 		if !confirmed {
 			fmt.Println()
-			cliLogger.Fatal("Operation timed out. Aborting.")
+			log.Fatal("Operation timed out. Aborting.")
 		}
 		// -------------------------------------
 
 		status, err := restClient.PowerOffPartition(ctx, lparUUID, "Immediate", false, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to power off LPAR", "error", err)
+			log.Fatal("Failed to power off LPAR")
 		}
-		cliLogger.Info("LPAR powered off successfully", "job_status", status)
+		log.Printf("LPAR powered off successfully: job_status=%v", status)
 
 		time.Sleep(3 * time.Second)
 	} else {
-		cliLogger.Info("LPAR is confirmed powered off", "lpar", lparName)
+		log.Printf("LPAR is confirmed powered off: lpar=%v", lparName)
 	}
 
 	// Clean target strings
@@ -297,7 +291,7 @@ func main() {
 	// =========================================================================
 	// 6. DIRECTORY PREPARATION & "BEFORE" XML DUMP
 	// =========================================================================
-	cliLogger.Info("Preparing LPAR XML Diff Dumps...")
+	log.Println("Preparing LPAR XML Diff Dumps...")
 	outDir := "outs"
 	os.MkdirAll(outDir, 0755)
 
@@ -307,29 +301,29 @@ func main() {
 
 	if beforeXML, err := restClient.GetRawLparXML(sysUUID, lparUUID, verbose); err == nil {
 		os.WriteFile(beforeFile, []byte(beforeXML), 0644)
-		cliLogger.Debug("Saved BEFORE state", "file", beforeFile)
+		log.Printf("Saved BEFORE state: file=%v", beforeFile)
 	}
 
 	// =========================================================================
 	// 7. EXECUTE THE OPERATION (Context Aware)
 	// =========================================================================
-	cliLogger.Info("Executing Operation", "command", cmd, "targets", len(cleanTargets), "lpar", lparName)
+	log.Printf("Executing Operation: command=%s targets=%d lpar=%s", cmd, len(cleanTargets), lparName)
 
 	if cmd == "attach" {
 		processed, skipped, err = restClient.MapPhysicalIOAdapters(ctx, sysUUID, lparUUID, lparName, cleanTargets, detailedSystem, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Aborted by user (Ctrl+C)")
+				log.Fatal("Aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Attachment Failed", "error", err)
+			log.Fatal("Attachment Failed")
 		}
 	} else if cmd == "detach" {
 		processed, skipped, err = restClient.UnmapPhysicalIOAdapters(ctx, sysUUID, lparUUID, lparName, cleanTargets, detailedSystem, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Aborted by user (Ctrl+C)")
+				log.Fatal("Aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Detachment Failed", "error", err)
+			log.Fatal("Detachment Failed")
 		}
 	}
 
@@ -337,41 +331,41 @@ func main() {
 	// 8. SAVE LPAR PROFILE (PERSISTENCE)
 	// =========================================================================
 	if len(processed) > 0 {
-		cliLogger.Info("Saving active configuration to LPAR profile", "profile", lparProfile)
+		log.Printf("Saving active configuration to LPAR profile: profile=%v", lparProfile)
 		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, lparProfile, forceSave, verbose)
 		if saveErr != nil {
-			cliLogger.Warn("Physical adapters modified dynamically, but failed to save LPAR profile", "error", saveErr)
+			log.Printf("Physical adapters modified dynamically, but failed to save LPAR profile: error=%v", saveErr)
 		} else {
-			cliLogger.Info("LPAR profile saved successfully. Changes will persist across reboots.")
+			log.Println("LPAR profile saved successfully. Changes will persist across reboots.")
 		}
 	} else {
-		cliLogger.Info("No architectural changes were made to the LPAR. Profile save skipped.")
+		log.Println("No architectural changes were made to the LPAR. Profile save skipped.")
 	}
 
 	// =========================================================================
 	// 9. LOG RESULTS & FINAL XML DUMP
 	// =========================================================================
 	fmt.Println("\n=========================================================================")
-	cliLogger.Info("OPERATION RESULTS")
+	log.Println("OPERATION RESULTS")
 
 	for _, s := range skipped {
 		reason := "Already attached to LPAR"
 		if cmd == "detach" {
 			reason = "Not attached to LPAR"
 		}
-		cliLogger.Warn("Skipped adapter", "adapter", s, "reason", reason)
+		log.Printf("Skipped adapter: adapter=%v reason=%v", s, reason)
 	}
 	
 	for _, p := range processed {
-		cliLogger.Info("Successfully processed adapter", "adapter", p, "action", cmd)
+		log.Printf("Successfully processed adapter: adapter=%v action=%v", p, cmd)
 	}
 
 	if len(processed) > 0 {
-		cliLogger.Info("Fetching AFTER state for Diff Tool...")
+		log.Println("Fetching AFTER state for Diff Tool...")
 		if afterXML, err := restClient.GetRawLparXML(sysUUID, lparUUID, verbose); err == nil {
 			os.WriteFile(afterFile, []byte(afterXML), 0644)
 			diffCmd := fmt.Sprintf("code --diff %s %s", beforeFile, afterFile)
-			cliLogger.Info("Diff ready", "command", diffCmd)
+			log.Printf("Diff ready: command=%v", diffCmd)
 		}
 	}
 	fmt.Println("=========================================================================")
@@ -381,12 +375,12 @@ func main() {
 	// =========================================================================
 	if wasRunning {
 		fmt.Println()
-		cliLogger.Info("Restoring original LPAR power state...", "lpar", lparName)
+		log.Printf("Restoring original LPAR power state...: lpar=%v", lparName)
 
 		// Get LPAR detailed info to accurately extract the saved profile UUID
 		lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to retrieve LPAR details for Power On", "error", err)
+			log.Fatal("Failed to retrieve LPAR details for Power On")
 		}
 
 		profileHref := lparDetailed.AssociatedPartitionProfile.Href
@@ -404,10 +398,10 @@ func main() {
 
 		status, err := restClient.PowerOnPartition(ctx, lparUUID, options, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to power on LPAR", "error", err)
+			log.Fatal("Failed to power on LPAR")
 		}
 		
-		cliLogger.Info("LPAR powered on successfully", "job_status", status)
+		log.Printf("LPAR powered on successfully: job_status=%v", status)
 		fmt.Println("=========================================================================")
 	}
 }

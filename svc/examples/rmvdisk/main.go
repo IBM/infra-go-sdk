@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"log"
 	"os"
 	"strings"
 
@@ -15,38 +16,33 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: rmvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: rmvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
+	_ = verbose // reserved for future use
 
 	ctx := context.Background()
-	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
-		os.Exit(1)
+		log.Fatalf("Authentication error: %v", err)
 	}
 
 	volumeName := "test_volume3"
 	removeVolume := svc.VolumeRemove{Force: true, RemoveHostMappings: false}
 
-	client.Logger.Info("Attempting to delete volume...", "volume", volumeName)
+	log.Printf("Attempting to delete volume: %s", volumeName)
 
-	if err := client.Rmvdisk(ctx,volumeName, removeVolume); err != nil {
+	if err := client.Rmvdisk(ctx, volumeName, removeVolume); err != nil {
 		if strings.Contains(err.Error(), "CMMVC5754E") || strings.Contains(err.Error(), "CMMVC5804E") {
-			client.Logger.Info("✅ Volume is already deleted (or does not exist). Nothing to do.", "volume", volumeName)
+			log.Printf("Volume is already deleted (or does not exist). Nothing to do: volume=%s", volumeName)
 		} else {
-			client.Logger.Error("Rmvdisk error", "error", err)
-			os.Exit(1)
+			log.Fatalf("Rmvdisk error: %v", err)
 		}
 	} else {
-		client.Logger.Info("✅ Successfully deleted volume", "volume", volumeName)
+		log.Printf("Successfully deleted volume: %s", volumeName)
 	}
+	os.Exit(0)
 }

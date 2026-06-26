@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -15,46 +16,43 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: lshost -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: lshost -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
 	// List all hosts
-	client.Logger.Info("Fetching all hosts...")
+	log.Println("Fetching all hosts...")
 	hosts, err := client.Lshost(ctx)
 	if err != nil {
-		client.Logger.Error("Lshost error", "error", err)
+		log.Printf("Lshost error: error=%v", err)
 		os.Exit(1)
 	}
-	client.Logger.Info("Total hosts found", "count", len(hosts))
+	log.Printf("Total hosts found: count=%v", len(hosts))
 
 	// Search specific host
 	targetHost := "ltc09u31-vios1"
-	client.Logger.Info("Searching for specific host...", "target", targetHost)
+	log.Printf("Searching for specific host...: target=%v", targetHost)
 
 	host, err := client.LshostByTarget(ctx,targetHost)
 	if err != nil {
 		if strings.Contains(err.Error(), "CMMVC5754E") {
-			client.Logger.Warn("Host not found", "target", targetHost)
+			log.Printf("Host not found: target=%v", targetHost)
 		} else {
-			client.Logger.Error("LshostByTarget error", "error", err)
+			log.Printf("LshostByTarget error: error=%v", err)
 			os.Exit(1)
 		}
 	} else {
-		client.Logger.Info("✅ Found Host", "name", host.Name, "id", host.ID)
-		client.Logger.Debug("Host Details", "status", host.Status, "protocol", host.Protocol, "portset", host.PortsetName)
+		log.Printf("✅ Found Host: name=%v id=%v", host.Name, host.ID)
+		log.Printf("Host Details: status=%v protocol=%v portset=%v", host.Status, host.Protocol, host.PortsetName)
 	}
 }

@@ -21,6 +21,7 @@ func main() {
 	useSSH := flag.Bool("ssh", true, "Use SSH instead of REST API (bypasses CLIRunner limitations)")
 
 	flag.Parse()
+	_ = verbose
 
 	// Validate required flags
 	if *hmcIP == "" || *username == "" || *password == "" || *systemName == "" || *lparName == "" {

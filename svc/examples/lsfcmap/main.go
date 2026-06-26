@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -16,10 +17,9 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: lsfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: lsfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
@@ -29,23 +29,22 @@ func main() {
 
 	// Enable debug logging if the verbose flag is passed
 	if *verbose {
-		client = client.WithDebug()
-		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
+		log.Printf("Verbose mode enabled. Connecting to SVC.: ip=%v user=%v", *svcIP, *svcUser)
 	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
-	client.Logger.Info("✅ Authenticated")
+	log.Println("✅ Authenticated")
 
 	// --- 1. Search for a specific FlashCopy mapping by name ---
 	mappingName := "test_fcmap"
-	client.Logger.Info("Searching for FlashCopy mapping...", "target", mappingName)
+	log.Printf("Searching for FlashCopy mapping...: target=%v", mappingName)
 
 	mappings, err := client.Lsfcmap(ctx,mappingName)
 	if err != nil {
-		client.Logger.Error("Lsfcmap error", "error", err)
+		log.Printf("Lsfcmap error: error=%v", err)
 		os.Exit(1)
 	}
 
@@ -58,32 +57,30 @@ func main() {
 			copyRate = 0
 		}
 
-		client.Logger.Info("✅ Successfully retrieved FlashCopy mapping", "name", mapping.Name)
-		client.Logger.Debug("Mapping Details",
-			"id", mapping.ID,
+		log.Printf("✅ Successfully retrieved FlashCopy mapping: name=%v", mapping.Name)
+		log.Printf("[DEBUG] Mapping Details %v", "id", mapping.ID,
 			"source", mapping.SourceVDiskName,
 			"target", mapping.TargetVDiskName,
 			"status", mapping.Status,
 			"copy_rate", copyRate,
-			"source_vdisk_id", mapping.SourceVDiskID,
-		)
+			"source_vdisk_id", mapping.SourceVDiskID,)
 	} else {
-		client.Logger.Warn("No FlashCopy mapping found", "name", mappingName)
+		log.Printf("No FlashCopy mapping found: name=%v", mappingName)
 	}
 
 	// --- 2. List all FlashCopy mappings ---
-	client.Logger.Info("Fetching all FlashCopy mappings...")
+	log.Println("Fetching all FlashCopy mappings...")
 	
 	allMappings, err := client.Lsfcmap(ctx,"")
 	if err != nil {
-		client.Logger.Error("Lsfcmap error for all mappings", "error", err)
+		log.Printf("Lsfcmap error for all mappings: error=%v", err)
 		os.Exit(1)
 	}
 
 	if len(allMappings) == 0 {
-		client.Logger.Info("No FlashCopy mappings found on the system")
+		log.Println("No FlashCopy mappings found on the system")
 	} else {
-		client.Logger.Info("Retrieved all FlashCopy mappings", "total_mappings", len(allMappings))
+		log.Printf("Retrieved all FlashCopy mappings: total_mappings=%v", len(allMappings))
 		
 		for _, mapping := range allMappings {
 			// Parse the copy rate safely
@@ -93,13 +90,11 @@ func main() {
 			}
 
 			// We use Debug here so the console isn't flooded unless -verbose is used
-			client.Logger.Debug("Mapping Detail",
-				"name", mapping.Name,
+			log.Printf("[DEBUG] Mapping Detail %v", "name", mapping.Name,
 				"source", mapping.SourceVDiskName,
 				"target", mapping.TargetVDiskName,
 				"status", mapping.Status,
-				"copy_rate", copyRate,
-			)
+				"copy_rate", copyRate,)
 		}
 	}
 }

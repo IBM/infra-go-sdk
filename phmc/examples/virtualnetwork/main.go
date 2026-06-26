@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"encoding/json"
 	"flag"
@@ -33,8 +34,6 @@ func main() {
 	defer stop()
 
 	// Initialize CLI Logger
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. SUBCOMMAND ROUTER & CONFIGURATION
@@ -104,71 +103,66 @@ func main() {
 		printUsage()
 		os.Exit(0)
 	default:
-		cliLogger.Error("Unknown command", "command", cmd)
+		log.Printf("Unknown command: command=%v", cmd)
 		printUsage()
 		os.Exit(1)
 	}
 
 	// Apply Verbosity to Logger
 	if verbose {
-		cliLogger.EnableDebug()
 	} else {
-		cliLogger.SetLevel(0) // InfoLevel
+		log.Printf(": %v", 0)
 	}
 
 	// --- Shared Validation ---
 	if password == "" || sysName == "" {
-		cliLogger.Fatal("Missing required arguments", "required", "hmc-pass, system-name")
+		log.Fatal("Missing required arguments")
 	}
 
 	if cmd == "get" {
 		if netName == "" {
-			cliLogger.Fatal("Missing required argument for get", "required", "net-name")
+			log.Fatal("Missing required argument for get")
 		}
 	}
 	if cmd == "create" {
 		if netName == "" || vlanID <= 0 {
-			cliLogger.Fatal("Missing required argument for create", "required", "net-name, vlan-id")
+			log.Fatal("Missing required argument for create")
 		}
 	}
 	if cmd == "update" {
 		if netName == "" || newNetName == "" {
-			cliLogger.Fatal("Missing required argument for update", "required", "net-name, new-name")
+			log.Fatal("Missing required argument for update")
 		}
 	}
 	if cmd == "delete" {
 		if netName == "" {
-			cliLogger.Fatal("Missing required argument for delete", "required", "net-name")
+			log.Fatal("Missing required argument for delete")
 		}
 	}
 
 	// =========================================================================
 	// 3. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", hmcIP)
+	log.Printf("Logging into HMC: ip=%v", hmcIP)
 	restClient := hmc.NewRestClient(hmcIP)
 
-	if verbose {
-		restClient.EnableVerboseLogging()
-	}
-
 	if err := restClient.Login(ctx, username, password, verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
-		cliLogger.Info("Closing HMC Session...")
+		log.Println("Closing HMC Session...")
 		restClient.Logoff(context.Background())
 	}()
 
-	cliLogger.Debug("Resolving System", "system", sysName)
+	log.Printf("Resolving System: system=%v", sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, sysName, verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve Managed System", "system", sysName, "error", err)
+		log.Fatal("Failed to resolve Managed System")
 	}
 
 	// Check Context immediately before executing heavy operations
 	if ctx.Err() != nil {
-		cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+		log.Fatal("Operation aborted by user (Ctrl+C)")
 	}
 
 	// =========================================================================
@@ -181,15 +175,15 @@ func main() {
 	// LIST MODE
 	// -------------------------------------------------------------------------
 	case "list":
-		cliLogger.Info("Fetching Virtual Network Inventory", "system", sysName)
+		log.Printf("Fetching Virtual Network Inventory: system=%v", sysName)
 
 		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Virtual Networks", "error", err)
+			log.Fatal("Failed to fetch Virtual Networks")
 		}
 
 		if len(networks) == 0 {
-			cliLogger.Warn("No Virtual Networks found on this Managed System.")
+			log.Println("[WARN] No Virtual Networks found on this Managed System.")
 			os.Exit(0)
 		}
 
@@ -204,18 +198,18 @@ func main() {
 
 		w.Flush()
 		fmt.Println("=====================================================================================================")
-		cliLogger.Info("Scan Complete", "total_networks", len(networks))
+		log.Printf("Scan Complete: total_networks=%v", len(networks))
 
 	// -------------------------------------------------------------------------
 	// GET MODE (Singular Detail)
 	// -------------------------------------------------------------------------
 	case "get":
-		cliLogger.Info("Looking up Virtual Network to retrieve details", "net_name", netName)
+		log.Printf("Looking up Virtual Network to retrieve details: net_name=%v", netName)
 
 		// 1. Fetch all networks to map the Name to the UUID
 		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Virtual Networks for resolution", "error", err)
+			log.Fatal("Failed to fetch Virtual Networks for resolution")
 		}
 
 		var targetUUID string
@@ -227,15 +221,15 @@ func main() {
 		}
 
 		if targetUUID == "" {
-			cliLogger.Fatal("Virtual Network not found", "net_name", netName)
+			log.Fatal("Virtual Network not found")
 		}
 
-		cliLogger.Info("Fetching detailed Virtual Network config", "uuid", targetUUID)
+		log.Printf("Fetching detailed Virtual Network config: uuid=%v", targetUUID)
 		
 		// 2. Query the exact UUID
 		detailedVnet, err := restClient.GetVirtualNetwork(ctx, sysUUID, targetUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to get Virtual Network details", "error", err)
+			log.Fatal("Failed to get Virtual Network details")
 		}
 
 		fmt.Println("\n=========================================================================")
@@ -251,10 +245,10 @@ func main() {
 	// CREATE MODE
 	// -------------------------------------------------------------------------
 	case "create":
-		cliLogger.Info("Resolving Target Virtual Switch", "vswitch", vswitchName)
+		log.Printf("Resolving Target Virtual Switch: vswitch=%v", vswitchName)
 		vswitches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to get Virtual Switches", "error", err)
+			log.Fatal("Failed to get Virtual Switches")
 		}
 
 		var vswitchUUID string
@@ -266,7 +260,7 @@ func main() {
 		}
 
 		if vswitchUUID == "" {
-			cliLogger.Fatal("Virtual Switch not found on Managed System", "vswitch", vswitchName)
+			log.Fatal("Virtual Switch not found on Managed System")
 		}
 
 		req := hmc.CreateVirtualNetworkRequest{
@@ -276,18 +270,18 @@ func main() {
 			VSwitchUUID:   vswitchUUID,
 		}
 
-		cliLogger.Info("Provisioning Virtual Network", "name", netName, "vlan", vlanID)
+		log.Printf("Provisioning Virtual Network: name=%v vlan=%v", netName, vlanID)
 
 		vnet, err := restClient.CreateVirtualNetwork(ctx, sysUUID, req, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to create Virtual Network", "error", err)
+			log.Fatal("Failed to create Virtual Network")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("✨ SUCCESS: Virtual Network Provisioned!")
+		log.Println("✨ SUCCESS: Virtual Network Provisioned!")
 		fmt.Printf("   Network Name:   %s\n", vnet.NetworkName)
 		fmt.Printf("   VLAN ID:        %d\n", vnet.NetworkVLANID)
 		fmt.Printf("   Tagged:         %t\n", vnet.TaggedNetwork)
@@ -298,11 +292,11 @@ func main() {
 	// UPDATE MODE
 	// -------------------------------------------------------------------------
 	case "update":
-		cliLogger.Info("Looking up Virtual Network to update", "net_name", netName)
+		log.Printf("Looking up Virtual Network to update: net_name=%v", netName)
 
 		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Virtual Networks for resolution", "error", err)
+			log.Fatal("Failed to fetch Virtual Networks for resolution")
 		}
 
 		var targetUUID string
@@ -314,32 +308,32 @@ func main() {
 		}
 
 		if targetUUID == "" {
-			cliLogger.Fatal("Virtual Network not found", "net_name", netName)
+			log.Fatal("Virtual Network not found")
 		}
 
-		cliLogger.Info("Renaming Virtual Network", "old_name", netName, "new_name", newNetName)
+		log.Printf("Renaming Virtual Network: old_name=%v new_name=%v", netName, newNetName)
 
 		err = restClient.UpdateVirtualNetwork(ctx, sysUUID, targetUUID, newNetName, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to update Virtual Network", "error", err)
+			log.Fatal("Failed to update Virtual Network")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("✏️  SUCCESS: Virtual Network Updated!", "new_name", newNetName)
+		log.Printf("✏️  SUCCESS: Virtual Network Updated!: new_name=%v", newNetName)
 		fmt.Println("=========================================================================")
 
 	// -------------------------------------------------------------------------
 	// DELETE MODE
 	// -------------------------------------------------------------------------
 	case "delete":
-		cliLogger.Warn("Looking up Virtual Network for permanent deletion", "net_name", netName)
+		log.Printf("Looking up Virtual Network for permanent deletion: net_name=%v", netName)
 
 		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Virtual Networks for resolution", "error", err)
+			log.Fatal("Failed to fetch Virtual Networks for resolution")
 		}
 
 		var targetUUID string
@@ -351,22 +345,22 @@ func main() {
 		}
 
 		if targetUUID == "" {
-			cliLogger.Info("Virtual Network not found. No action needed.", "net_name", netName)
+			log.Printf("Virtual Network not found. No action needed.: net_name=%v", netName)
 			os.Exit(0) // Idempotent
 		}
 
-		cliLogger.Warn("Attempting to delete Virtual Network", "net_name", netName, "uuid", targetUUID)
+		log.Printf("Attempting to delete Virtual Network: net_name=%v uuid=%v", netName, targetUUID)
 
 		err = restClient.DeleteVirtualNetwork(ctx, sysUUID, targetUUID, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to delete Virtual Network", "error", err)
+			log.Fatal("Failed to delete Virtual Network")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("🗑️  SUCCESS: Virtual Network Deleted!", "net_name", netName)
+		log.Printf("🗑️  SUCCESS: Virtual Network Deleted!: net_name=%v", netName)
 		fmt.Println("=========================================================================")
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,31 +15,28 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: startfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: startfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 
 	ctx := context.Background()
 	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
 	mappingName := "test_fcmap"
-	client.Logger.Info("Verifying FlashCopy mapping...", "name", mappingName)
+	log.Printf("Verifying FlashCopy mapping...: name=%v", mappingName)
 
 	mappings, err := client.Lsfcmap(ctx,mappingName)
 	if err != nil || len(mappings) == 0 {
-		client.Logger.Error("No FlashCopy mapping found", "name", mappingName)
+		log.Printf("No FlashCopy mapping found: name=%v", mappingName)
 		os.Exit(1)
 	}
 
@@ -48,12 +46,12 @@ func main() {
 		Restore: true,
 	}
 
-	client.Logger.Info("Starting FlashCopy mapping...", "id", startParams.ID)
+	log.Printf("Starting FlashCopy mapping...: id=%v", startParams.ID)
 
 	if err := client.Startfcmap(ctx,startParams); err != nil {
-		client.Logger.Error("Startfcmap error", "error", err)
+		log.Printf("Startfcmap error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ Successfully started FlashCopy mapping", "id", startParams.ID)
+	log.Printf("✅ Successfully started FlashCopy mapping: id=%v", startParams.ID)
 }

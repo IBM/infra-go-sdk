@@ -19,7 +19,6 @@ func (c *RestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID strin
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/quick/All", c.hmcIP, sysUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching all Virtual Switches (Quick)", "systemUUID", sysUUID)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -32,11 +31,9 @@ func (c *RestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID strin
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -46,10 +43,8 @@ func (c *RestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID strin
 		return nil, err
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Failed to fetch Virtual Switches Quick/All", "status", resp.Status)
 		if debug {
 			return nil, fmt.Errorf("failed to fetch Virtual Switches Quick/All: %s - %s", resp.Status, string(body))
 		}
@@ -58,12 +53,10 @@ func (c *RestClient) GetVirtualSwitchQuickAll(ctx context.Context, sysUUID strin
 
 	var switches []VirtualSwitchQuick
 	if err := json.Unmarshal(body, &switches); err != nil {
-		c.Logger.Error("Failed to parse JSON response", "error", err)
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
 	if debug {
-		c.Logger.Info("Successfully parsed Virtual Switches Quick/All", "count", len(switches))
 	}
 
 	return switches, nil
@@ -74,7 +67,6 @@ func (c *RestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchU
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s/quick", c.hmcIP, sysUUID, switchUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching Virtual Switch (Quick)", "switchUUID", switchUUID)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -88,11 +80,9 @@ func (c *RestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchU
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -102,10 +92,8 @@ func (c *RestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchU
 		return nil, err
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Failed to fetch Virtual Switch Quick", "status", resp.Status)
 		if debug {
 			return nil, fmt.Errorf("failed to fetch Virtual Switch Quick: %s - %s", resp.Status, string(body))
 		}
@@ -114,7 +102,6 @@ func (c *RestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchU
 
 	var vSwitch VirtualSwitchQuick
 	if err := json.Unmarshal(body, &vSwitch); err != nil {
-		c.Logger.Error("Failed to parse JSON response", "error", err)
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
@@ -122,7 +109,6 @@ func (c *RestClient) GetVirtualSwitchQuick(ctx context.Context, sysUUID, switchU
 	vSwitch.UUID = switchUUID
 
 	if debug {
-		c.Logger.Info("Successfully retrieved Virtual Switch Quick", "switchName", vSwitch.SwitchName)
 	}
 
 	return &vSwitch, nil
@@ -133,7 +119,6 @@ func (c *RestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, deb
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch", c.hmcIP, sysUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching Virtual Switches (XML)", "systemUUID", sysUUID)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -147,11 +132,9 @@ func (c *RestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, deb
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -161,10 +144,8 @@ func (c *RestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, deb
 		return nil, err
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Failed to fetch Virtual Switches XML", "status", resp.Status)
 		if debug {
 			return nil, fmt.Errorf("failed to fetch Virtual Switches XML: %s - %s", resp.Status, string(body))
 		}
@@ -207,7 +188,6 @@ func (c *RestClient) GetVirtualSwitches(ctx context.Context, sysUUID string, deb
 	}
 
 	if debug {
-		c.Logger.Info("Successfully parsed Virtual Switches XML", "count", len(switches))
 	}
 
 	return switches, nil
@@ -218,7 +198,6 @@ func (c *RestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, l
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, systemUUID, lparUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching ClientNetworkAdapters", "systemUUID", systemUUID, "lparUUID", lparUUID, "url", url)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -232,11 +211,9 @@ func (c *RestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, l
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -246,17 +223,14 @@ func (c *RestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, l
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	// ✨ THE FIX: Handle the 204 No Content status cleanly
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNoContent {
 			if debug {
-				c.Logger.Debug("No Client Network Adapters found on LPAR (204 No Content)")
 			}
 			return []ClientNetworkAdapter{}, nil
 		}
-		c.Logger.Error("Request failed", "status", resp.Status)
 		if debug {
 			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 		}
@@ -279,13 +253,11 @@ func (c *RestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, l
 		adapterDoc.SetRoot(elem.Copy())
 		adapterBytes, err := adapterDoc.WriteToBytes()
 		if err != nil {
-			c.Logger.Warn("Failed to serialize adapter element", "error", err)
 			return nil, fmt.Errorf("failed to serialize adapter element: %v", err)
 		}
 
 		var adapter ClientNetworkAdapter
 		if err := xml.Unmarshal(adapterBytes, &adapter); err != nil {
-			c.Logger.Warn("Failed to unmarshal adapter XML", "error", err)
 			return nil, fmt.Errorf("failed to unmarshal adapter XML: %v", err)
 		}
 
@@ -293,7 +265,6 @@ func (c *RestClient) GetClientNetworkAdapters(ctx context.Context, systemUUID, l
 	}
 
 	if debug {
-		c.Logger.Info("Successfully parsed ClientNetworkAdapter(s)", "count", len(adapters))
 	}
 
 	return adapters, nil
@@ -319,7 +290,6 @@ func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID,
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/do/GetNetworkBootDevices", c.hmcIP, lparUUID)
 
 	if debug {
-		c.Logger.Debug("Getting network boot devices", "lparUUID", lparUUID, "profileUUID", profileUUID)
 	}
 
 	// Define operation details for the JobRequest
@@ -353,11 +323,9 @@ func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID,
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -367,10 +335,8 @@ func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID,
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(respBody))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
 		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
@@ -387,7 +353,6 @@ func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID,
 	jobID := jobIDElem.Text()
 
 	if debug {
-		c.Logger.Debug("GetNetworkBootDevices job submitted", "jobID", jobID)
 	}
 
 	// Wait for job completion
@@ -410,14 +375,12 @@ func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID,
 			xmlContent = html.UnescapeString(strings.TrimSpace(xmlContent))
 
 			if debug {
-				c.Logger.Debug("Parsing cleaned XML content", "bytes", len(xmlContent))
 			}
 
 			// 2. Strip Namespaces to make Unmarshaling easy
 			cleanDoc, err := xmlStripNamespace([]byte(xmlContent))
 			if err != nil {
 				if debug {
-					c.Logger.Warn("Failed to strip namespaces from result XML", "error", err)
 				}
 				continue
 			}
@@ -435,7 +398,6 @@ func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID,
 
 			if err := xml.Unmarshal(strippedXML, &collection); err != nil {
 				if debug {
-					c.Logger.Warn("Failed to unmarshal NetworkBootDevices XML", "error", err)
 				}
 				continue
 			}
@@ -458,7 +420,6 @@ func (c *RestClient) GetNetworkBootDevicesForLpar(ctx context.Context, lparUUID,
 	}
 
 	if debug {
-		c.Logger.Info("Retrieved network boot device(s)", "count", len(bootDevices))
 	}
 
 	return bootDevices, nil
@@ -482,7 +443,6 @@ func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID,
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/GetNetworkBootDevices", c.hmcIP, viosUUID)
 
 	if debug {
-		c.Logger.Debug("Getting network boot devices for VIOS", "viosUUID", viosUUID, "profileUUID", profileUUID)
 	}
 
 	// Payload constructed exactly matching the verified working configuration
@@ -532,11 +492,9 @@ func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID,
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -546,10 +504,8 @@ func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID,
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(respBody))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
 		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
@@ -566,7 +522,6 @@ func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID,
 	jobID := jobIDElem.Text()
 
 	if debug {
-		c.Logger.Debug("GetNetworkBootDevices job submitted", "jobID", jobID)
 	}
 
 	// Wait for job completion
@@ -589,14 +544,12 @@ func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID,
 			xmlContent = html.UnescapeString(strings.TrimSpace(xmlContent))
 
 			if debug {
-				c.Logger.Debug("Parsing cleaned XML content", "bytes", len(xmlContent))
 			}
 
 			// 2. Strip Namespaces to make Unmarshaling easy
 			cleanDoc, err := xmlStripNamespace([]byte(xmlContent))
 			if err != nil {
 				if debug {
-					c.Logger.Warn("Failed to strip namespaces from result XML", "error", err)
 				}
 				continue
 			}
@@ -614,7 +567,6 @@ func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID,
 
 			if err := xml.Unmarshal(strippedXML, &collection); err != nil {
 				if debug {
-					c.Logger.Warn("Failed to unmarshal NetworkBootDevices XML", "error", err)
 				}
 				continue
 			}
@@ -637,7 +589,6 @@ func (c *RestClient) GetNetworkBootDevicesForVios(ctx context.Context, viosUUID,
 	}
 
 	if debug {
-		c.Logger.Info("Retrieved network boot device(s) for VIOS", "count", len(bootDevices))
 	}
 
 	return bootDevices, nil
@@ -649,7 +600,6 @@ func (c *RestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID, lp
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter", c.hmcIP, lparUUID)
 
 	if debug {
-		c.Logger.Debug("Adding Client Network Adapter", "vlanID", vlanID, "lparUUID", lparUUID)
 	}
 
 	// Fix: Changed <VirtualSwitch> to <AssociatedVirtualSwitch> with a <link> child.
@@ -678,25 +628,20 @@ func (c *RestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID, lp
 	defer cancel()
 	httpReq = httpReq.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if debug {
-		c.Logger.Debug("CreateClientNetworkAdapter response", "status", resp.Status, "body", string(body))
 	}
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Adapter creation failed", "status", resp.Status)
 		if debug {
 			return nil, fmt.Errorf("Adapter creation failed (%s): %s", resp.Status, string(body))
 		}
@@ -730,12 +675,6 @@ func (c *RestClient) CreateClientNetworkAdapter(ctx context.Context, sysUUID, lp
 	}
 
 	if debug {
-		c.Logger.Info("Client Network Adapter created successfully",
-			"uuid", adapter.UUID,
-			"macAddress", adapter.MACAddress,
-			"vlanID", adapter.PortVLANID,
-			"virtualSlot", adapter.VirtualSlotNumber,
-			"locationCode", adapter.LocationCode)
 	}
 
 	return &adapter, nil
@@ -747,7 +686,6 @@ func (c *RestClient) DeleteClientNetworkAdapter(ctx context.Context, lparUUID, a
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s/ClientNetworkAdapter/%s", c.hmcIP, lparUUID, adapterUUID)
 
 	if debug {
-		c.Logger.Debug("Deleting Client Network Adapter", "adapterUUID", adapterUUID, "lparUUID", lparUUID)
 	}
 
 	// Create the DELETE request (No XML body required!)
@@ -763,22 +701,18 @@ func (c *RestClient) DeleteClientNetworkAdapter(ctx context.Context, lparUUID, a
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (DELETE)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	// A successful DELETE operation typically returns 200 OK or 204 No Content
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		c.Logger.Error("Failed to delete adapter", "status", resp.Status)
 		if debug {
 			return fmt.Errorf("failed to delete adapter (%s): %s", resp.Status, string(body))
 		}
@@ -786,7 +720,6 @@ func (c *RestClient) DeleteClientNetworkAdapter(ctx context.Context, lparUUID, a
 	}
 
 	if debug {
-		c.Logger.Info("Client Network Adapter successfully deleted", "adapterUUID", adapterUUID)
 	}
 
 	return nil
@@ -796,7 +729,6 @@ func (c *RestClient) GetVirtualNetworks(ctx context.Context, sysUUID string, deb
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualNetwork", c.hmcIP, sysUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching all Virtual Networks", "systemUUID", sysUUID, "url", url)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -806,7 +738,6 @@ func (c *RestClient) GetVirtualNetworks(ctx context.Context, sysUUID string, deb
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -819,11 +750,9 @@ func (c *RestClient) GetVirtualNetworks(ctx context.Context, sysUUID string, deb
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode == http.StatusNoContent {
 		if debug {
-			c.Logger.Debug("No Virtual Networks found (204 No Content)")
 		}
 		return []VirtualNetwork{}, nil
 	}
@@ -859,14 +788,12 @@ func (c *RestClient) GetVirtualNetworks(ctx context.Context, sysUUID string, deb
 
 		var vnet VirtualNetwork
 		if err := xml.Unmarshal(entryBytes, &vnet); err != nil {
-			c.Logger.Warn("Failed to unmarshal VirtualNetwork XML", "error", err)
 			continue
 		}
 		networks = append(networks, vnet)
 	}
 
 	if debug {
-		c.Logger.Info("Successfully parsed Virtual Networks", "count", len(networks))
 	}
 
 	return networks, nil
@@ -877,7 +804,6 @@ func (c *RestClient) GetVirtualNetwork(ctx context.Context, sysUUID, vnetUUID st
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualNetwork/%s", c.hmcIP, sysUUID, vnetUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching Virtual Network details", "vnetUUID", vnetUUID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -887,7 +813,6 @@ func (c *RestClient) GetVirtualNetwork(ctx context.Context, sysUUID, vnetUUID st
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -900,7 +825,6 @@ func (c *RestClient) GetVirtualNetwork(ctx context.Context, sysUUID, vnetUUID st
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch Virtual Network: %s", resp.Status)
@@ -934,7 +858,6 @@ func (c *RestClient) CreateVirtualNetwork(ctx context.Context, sysUUID string, r
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualNetwork", c.hmcIP, sysUUID)
 
 	if debug {
-		c.Logger.Info("Provisioning new Virtual Network", "name", req.NetworkName, "vlan", req.NetworkVLANID)
 	}
 
 	// The HMC strictly enforces XML element order (AssociatedSwitch -> NetworkName -> NetworkVLANID -> TaggedNetwork)
@@ -957,7 +880,6 @@ func (c *RestClient) CreateVirtualNetwork(ctx context.Context, sysUUID string, r
 	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualNetwork")
 	httpReq.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
@@ -966,7 +888,6 @@ func (c *RestClient) CreateVirtualNetwork(ctx context.Context, sysUUID string, r
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		if debug {
@@ -994,7 +915,6 @@ func (c *RestClient) CreateVirtualNetwork(ctx context.Context, sysUUID string, r
 	xml.Unmarshal(vnetBytes, &vnet)
 
 	if debug {
-		c.Logger.Info("Virtual Network successfully created", "uuid", vnet.UUID)
 	}
 
 	return &vnet, nil
@@ -1006,7 +926,6 @@ func (c *RestClient) UpdateVirtualNetwork(ctx context.Context, sysUUID, vnetUUID
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualNetwork/%s", c.hmcIP, sysUUID, vnetUUID)
 
 	if debug {
-		c.Logger.Info("Updating Virtual Network name", "vnetUUID", vnetUUID, "newName", newName)
 	}
 
 	// 1. Pristine GET to preserve all immutable configuration parameters
@@ -1055,7 +974,6 @@ func (c *RestClient) UpdateVirtualNetwork(ctx context.Context, sysUUID, vnetUUID
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualNetwork")
 	postReq.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (POST)", url, postXML)
 
 	postResp, err := c.client.Do(postReq)
 	if err != nil {
@@ -1064,14 +982,12 @@ func (c *RestClient) UpdateVirtualNetwork(ctx context.Context, sysUUID, vnetUUID
 	defer postResp.Body.Close()
 
 	body, _ := io.ReadAll(postResp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if postResp.StatusCode >= 400 {
 		return fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
 	}
 
 	if debug {
-		c.Logger.Info("Virtual Network successfully updated")
 	}
 
 	return nil
@@ -1084,7 +1000,6 @@ func (c *RestClient) DeleteVirtualNetwork(ctx context.Context, sysUUID, vnetUUID
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualNetwork/%s", c.hmcIP, sysUUID, vnetUUID)
 
 	if debug {
-		c.Logger.Warn("Initiating Virtual Network Deletion", "vnetUUID", vnetUUID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
@@ -1095,7 +1010,6 @@ func (c *RestClient) DeleteVirtualNetwork(ctx context.Context, sysUUID, vnetUUID
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
-	c.logRawTraffic("REQUEST (DELETE)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1104,7 +1018,6 @@ func (c *RestClient) DeleteVirtualNetwork(ctx context.Context, sysUUID, vnetUUID
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		if debug {
@@ -1114,7 +1027,6 @@ func (c *RestClient) DeleteVirtualNetwork(ctx context.Context, sysUUID, vnetUUID
 	}
 
 	if debug {
-		c.Logger.Info("Virtual Network successfully deleted", "vnetUUID", vnetUUID)
 	}
 
 	return nil
@@ -1125,7 +1037,6 @@ func (c *RestClient) GetVirtualSwitch(ctx context.Context, sysUUID, switchUUID s
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s", c.hmcIP, sysUUID, switchUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching Virtual Switch details", "switchUUID", switchUUID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -1135,7 +1046,6 @@ func (c *RestClient) GetVirtualSwitch(ctx context.Context, sysUUID, switchUUID s
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1148,7 +1058,6 @@ func (c *RestClient) GetVirtualSwitch(ctx context.Context, sysUUID, switchUUID s
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch Virtual Switch: %s", resp.Status)
@@ -1188,7 +1097,6 @@ func (c *RestClient) GetVirtualSwitch(ctx context.Context, sysUUID, switchUUID s
 	}
 
 	if debug {
-		c.Logger.Info("Successfully retrieved Virtual Switch", "uuid", vSwitch.UUID)
 	}
 
 	return &vSwitch, nil
@@ -1199,7 +1107,6 @@ func (c *RestClient) CreateVirtualSwitch(ctx context.Context, sysUUID string, re
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch", c.hmcIP, sysUUID)
 
 	if debug {
-		c.Logger.Info("Provisioning new Virtual Switch", "name", req.SwitchName, "mode", req.SwitchMode)
 	}
 
 	// Default to Veb if not specified
@@ -1226,7 +1133,6 @@ func (c *RestClient) CreateVirtualSwitch(ctx context.Context, sysUUID string, re
 	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualSwitch")
 	httpReq.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
@@ -1235,7 +1141,6 @@ func (c *RestClient) CreateVirtualSwitch(ctx context.Context, sysUUID string, re
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		if debug {
@@ -1270,7 +1175,6 @@ func (c *RestClient) CreateVirtualSwitch(ctx context.Context, sysUUID string, re
 	}
 
 	if debug {
-		c.Logger.Info("Virtual Switch successfully created", "uuid", vSwitch.UUID)
 	}
 
 	return &vSwitch, nil
@@ -1282,7 +1186,6 @@ func (c *RestClient) UpdateVirtualSwitch(ctx context.Context, sysUUID, switchUUI
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s", c.hmcIP, sysUUID, switchUUID)
 
 	if debug {
-		c.Logger.Info("Updating Virtual Switch", "switchUUID", switchUUID, "newName", newName, "newMode", newMode)
 	}
 
 	// 1. Pristine GET to preserve all immutable configuration parameters
@@ -1341,7 +1244,6 @@ func (c *RestClient) UpdateVirtualSwitch(ctx context.Context, sysUUID, switchUUI
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=VirtualSwitch")
 	postReq.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (POST)", url, postXML)
 
 	postResp, err := c.client.Do(postReq)
 	if err != nil {
@@ -1350,14 +1252,12 @@ func (c *RestClient) UpdateVirtualSwitch(ctx context.Context, sysUUID, switchUUI
 	defer postResp.Body.Close()
 
 	body, _ := io.ReadAll(postResp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if postResp.StatusCode >= 400 {
 		return fmt.Errorf("POST failed (%s): %s", postResp.Status, string(body))
 	}
 
 	if debug {
-		c.Logger.Info("Virtual Switch successfully updated")
 	}
 
 	return nil
@@ -1368,7 +1268,6 @@ func (c *RestClient) DeleteVirtualSwitch(ctx context.Context, sysUUID, switchUUI
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualSwitch/%s", c.hmcIP, sysUUID, switchUUID)
 
 	if debug {
-		c.Logger.Warn("Initiating Virtual Switch Deletion", "switchUUID", switchUUID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
@@ -1379,7 +1278,6 @@ func (c *RestClient) DeleteVirtualSwitch(ctx context.Context, sysUUID, switchUUI
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
-	c.logRawTraffic("REQUEST (DELETE)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1388,7 +1286,6 @@ func (c *RestClient) DeleteVirtualSwitch(ctx context.Context, sysUUID, switchUUI
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		if debug {
@@ -1398,7 +1295,6 @@ func (c *RestClient) DeleteVirtualSwitch(ctx context.Context, sysUUID, switchUUI
 	}
 
 	if debug {
-		c.Logger.Info("Virtual Switch successfully deleted", "switchUUID", switchUUID)
 	}
 
 	return nil
@@ -1410,7 +1306,6 @@ func (c *RestClient) GetNetworkBridges(ctx context.Context, sysUUID string, debu
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/NetworkBridge", c.hmcIP, sysUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching all Network Bridges", "systemUUID", sysUUID, "url", url)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -1420,7 +1315,6 @@ func (c *RestClient) GetNetworkBridges(ctx context.Context, sysUUID string, debu
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1433,11 +1327,9 @@ func (c *RestClient) GetNetworkBridges(ctx context.Context, sysUUID string, debu
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode == http.StatusNoContent {
 		if debug {
-			c.Logger.Debug("No Network Bridges found (204 No Content)")
 		}
 		return []NetworkBridge{}, nil
 	}
@@ -1472,14 +1364,12 @@ func (c *RestClient) GetNetworkBridges(ctx context.Context, sysUUID string, debu
 
 		var bridge NetworkBridge
 		if err := xml.Unmarshal(entryBytes, &bridge); err != nil {
-			c.Logger.Warn("Failed to unmarshal NetworkBridge XML", "error", err)
 			continue
 		}
 		bridges = append(bridges, bridge)
 	}
 
 	if debug {
-		c.Logger.Info("Successfully parsed Network Bridges", "count", len(bridges))
 	}
 
 	return bridges, nil
@@ -1490,7 +1380,6 @@ func (c *RestClient) GetNetworkBridge(ctx context.Context, sysUUID, bridgeUUID s
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/NetworkBridge/%s", c.hmcIP, sysUUID, bridgeUUID)
 
 	if debug {
-		c.Logger.Debug("Fetching Network Bridge details", "bridgeUUID", bridgeUUID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -1500,7 +1389,6 @@ func (c *RestClient) GetNetworkBridge(ctx context.Context, sysUUID, bridgeUUID s
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1513,7 +1401,6 @@ func (c *RestClient) GetNetworkBridge(ctx context.Context, sysUUID, bridgeUUID s
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch Network Bridge: %s", resp.Status)
@@ -1548,7 +1435,6 @@ func (c *RestClient) CreateNetworkBridge(ctx context.Context, sysUUID string, re
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/NetworkBridge", c.hmcIP, sysUUID)
 
 	if debug {
-		c.Logger.Info("Provisioning new Network Bridge", "portVlan", req.PortVLANID, "failover", req.FailoverEnabled, "loadBalancing", req.LoadBalancingEnabled)
 	}
 
 	// 1. Setup the collection of Load Group VLANs (default to root PortVLANID if none provided)
@@ -1662,7 +1548,6 @@ func (c *RestClient) CreateNetworkBridge(ctx context.Context, sysUUID string, re
 	httpReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=NetworkBridge")
 	httpReq.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
@@ -1674,7 +1559,6 @@ func (c *RestClient) CreateNetworkBridge(ctx context.Context, sysUUID string, re
 	if err != nil {
 		return nil, err
 	}
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		if debug {
@@ -1710,7 +1594,6 @@ func (c *RestClient) UpdateNetworkBridge(ctx context.Context, sysUUID, bridgeUUI
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/NetworkBridge/%s", c.hmcIP, sysUUID, bridgeUUID)
 
 	if debug {
-		c.Logger.Info("Updating Network Bridge properties", "bridgeUUID", bridgeUUID, "failover", failoverEnabled, "largeSend", largeSend)
 	}
 
 	// 1. Fetch current layout definition state
@@ -1776,7 +1659,6 @@ func (c *RestClient) UpdateNetworkBridge(ctx context.Context, sysUUID, bridgeUUI
 	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=NetworkBridge")
 	postReq.Header.Set("Accept", "application/atom+xml")
 
-	c.logRawTraffic("REQUEST (POST)", url, postXML)
 
 	postResp, err := c.client.Do(postReq)
 	if err != nil {
@@ -1785,7 +1667,6 @@ func (c *RestClient) UpdateNetworkBridge(ctx context.Context, sysUUID, bridgeUUI
 	defer postResp.Body.Close()
 
 	body, _ := io.ReadAll(postResp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if postResp.StatusCode >= 400 {
 		return fmt.Errorf("POST layout specification modifications rejected (%s): %s", postResp.Status, string(body))
@@ -1799,7 +1680,6 @@ func (c *RestClient) DeleteNetworkBridge(ctx context.Context, sysUUID, bridgeUUI
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/NetworkBridge/%s", c.hmcIP, sysUUID, bridgeUUID)
 
 	if debug {
-		c.Logger.Warn("Initiating Network Bridge Deletion", "bridgeUUID", bridgeUUID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
@@ -1810,7 +1690,6 @@ func (c *RestClient) DeleteNetworkBridge(ctx context.Context, sysUUID, bridgeUUI
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml")
 
-	c.logRawTraffic("REQUEST (DELETE)", url, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1819,7 +1698,6 @@ func (c *RestClient) DeleteNetworkBridge(ctx context.Context, sysUUID, bridgeUUI
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	c.logRawTraffic("RESPONSE", url, string(body))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		if debug {
@@ -1829,7 +1707,6 @@ func (c *RestClient) DeleteNetworkBridge(ctx context.Context, sysUUID, bridgeUUI
 	}
 
 	if debug {
-		c.Logger.Info("Network Bridge successfully deleted", "bridgeUUID", bridgeUUID)
 	}
 
 	return nil
@@ -1854,8 +1731,6 @@ func (c *RestClient) GetNetworkBootDevicesForViosImmediate(ctx context.Context, 
 	url := fmt.Sprintf("https://%s/rest/api/uom/VirtualIOServer/%s/do/GetNetworkBootDevices", c.hmcIP, viosUUID)
 
 	if debug {
-		c.Logger.Debug("Getting network boot devices for VIOS (Immediate Mode)", 
-			"viosUUID", viosUUID, "sysName", sysName, "viosName", viosName, "profileName", profileName)
 	}
 
 	// Payload constructed exactly matching your working curl command
@@ -1922,11 +1797,9 @@ func (c *RestClient) GetNetworkBootDevicesForViosImmediate(ctx context.Context, 
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
-	c.logRawTraffic("REQUEST (PUT)", url, payload)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -1936,10 +1809,8 @@ func (c *RestClient) GetNetworkBootDevicesForViosImmediate(ctx context.Context, 
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(respBody))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-		c.Logger.Error("Request failed", "status", resp.Status, "body", string(respBody))
 		return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(respBody))
 	}
 
@@ -1956,7 +1827,6 @@ func (c *RestClient) GetNetworkBootDevicesForViosImmediate(ctx context.Context, 
 	jobID := jobIDElem.Text()
 
 	if debug {
-		c.Logger.Debug("GetNetworkBootDevices job submitted", "jobID", jobID)
 	}
 
 	// Wait for job completion

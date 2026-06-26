@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,33 +15,30 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: rmfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: rmfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
 
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
 	mappingName := "test_fcmap"
 	removeMapping := svc.FlashCopyMappingRemove{Force: true}
 
-	client.Logger.Info("Deleting FlashCopy mapping...", "name", mappingName)
+	log.Printf("Deleting FlashCopy mapping...: name=%v", mappingName)
 
 	if err := client.Rmfcmap(ctx,mappingName, removeMapping); err != nil {
-		client.Logger.Error("Rmfcmap error", "error", err)
+		log.Printf("Rmfcmap error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ Successfully deleted FlashCopy mapping", "name", mappingName)
+	log.Printf("✅ Successfully deleted FlashCopy mapping: name=%v", mappingName)
 }

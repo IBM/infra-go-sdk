@@ -4,19 +4,11 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/beevik/etree"
-	charmlog "github.com/charmbracelet/log"
 )
-
-// Logger wraps charmbracelet/log for structured logging
-type Logger struct {
-	*charmlog.Logger
-}
 
 // LparTemplateNS is the namespace for PartitionTemplate as used in the Python code
 const LparTemplateNS = `PartitionTemplate xmlns="http://www.ibm.com/xmlns/systems/power/firmware/templates/mc/2012_10/" xmlns:ns2="http://www.w3.org/XML/1998/namespace/k2"`
@@ -120,24 +112,11 @@ type JobResponseResults struct {
 	Parameters []JobResponseParameter `xml:"JobParameter"`
 }
 
-// Logger with prefix for HMC operations
-var hmcLogger = log.New(io.Discard, "[HMC] ", log.LstdFlags)
-
-// ReinitLogger reinitializes the HMC logger with a custom writer
-// Pass io.Discard to suppress output, or a file/buffer to capture logs
-func ReinitLogger(w io.Writer) {
-	if w == nil {
-		w = io.Discard
-	}
-	hmcLogger = log.New(w, "[HMC] ", log.LstdFlags)
-}
-
 // RestClient represents the REST client for HMC operations
 type RestClient struct {
 	hmcIP   string
 	session string
 	client  *http.Client
-	Logger  *Logger
 }
 
 // NewRestClient initializes a new RestClient with an insecure TLS HTTP client
@@ -148,20 +127,10 @@ func NewRestClient(hmcIP string) *RestClient {
 		},
 	}
 
-	// Create a default logger. We also set a prefix so all HMC logs are clearly marked!
-	defaultLogger := NewDefaultLogger()
-	defaultLogger.SetPrefix("[HMC]")
-
 	return &RestClient{
 		hmcIP:  hmcIP,
 		client: client,
-		Logger: defaultLogger,
 	}
-}
-
-// EnableVerboseLogging turns on debug-level output for the HMC client
-func (c *RestClient) EnableVerboseLogging() {
-	c.Logger.EnableDebug()
 }
 
 // Session returns the current session token

@@ -24,6 +24,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" || *lparName == "" {
 		log.Fatal("❌ Error: hmc-ip, hmc-user, hmc-pass, system-name, and lpar-name are required.")

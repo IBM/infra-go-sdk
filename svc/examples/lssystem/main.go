@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -16,10 +17,9 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: lssystem -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: lssystem -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
@@ -28,26 +28,25 @@ func main() {
 
 	// Enable debug logging if the verbose flag is passed
 	if *verbose {
-		client = client.WithDebug()
-		client.Logger.Debug("Verbose mode enabled. Connecting to SVC.", "ip", *svcIP, "user", *svcUser)
+		log.Printf("Verbose mode enabled. Connecting to SVC.: ip=%v user=%v", *svcIP, *svcUser)
 	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
-	client.Logger.Info("✅ Authenticated")
+	log.Println("✅ Authenticated")
 
-	client.Logger.Info("Fetching system information...")
+	log.Println("Fetching system information...")
 
 	// systemInfo is returned as a *svc.SystemInfo pointer
 	systemInfo, err := client.Lssystem(ctx)
 	if err != nil {
-		client.Logger.Error("lssystem error", "error", err)
+		log.Printf("lssystem error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ System information retrieved successfully!")
+	log.Println("✅ System information retrieved successfully!")
 
 	// ---------------------------------------------------------
 	// Option 1: Print specific fields directly from the struct

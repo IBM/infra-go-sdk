@@ -21,6 +21,7 @@ func main() {
 	showMAC := flag.Bool("show-mac", false, "Show VIOS trunk adapter MAC addresses instead of physical adapter inventory")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" || *viosName == "" {
 		log.Fatal("❌ Error: hmc-ip, hmc-user, hmc-pass, system-name, and vios-name are required")

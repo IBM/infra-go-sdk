@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -19,8 +20,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. FLAGS & VALIDATION
@@ -44,50 +43,43 @@ func main() {
 
 	verbose := flag.Bool("verbose", false, "Enable verbose XML and HTTP output")
 	flag.Parse()
+	_ = verbose
 
-	if *verbose {
-		cliLogger.EnableDebug()
-	} else {
-		cliLogger.SetLevel(0) // InfoLevel
-	}
 
 	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" || *viosName == "" {
 		fmt.Println("Usage: createvios -hmc-ip <ip> -hmc-user <user> -hmc-pass <pass> -system-name <sys> -vios-name <name>")
-		cliLogger.Fatal("Missing required arguments.")
+		log.Fatal("Missing required arguments.")
 	}
 
 	// =========================================================================
 	// 3. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", *hmcIP)
+	log.Printf("Logging into HMC: ip=%v", *hmcIP)
 	restClient := hmc.NewRestClient(*hmcIP)
 
-	if *verbose {
-		restClient.EnableVerboseLogging()
-	}
 
 	if err := restClient.Login(ctx, *username, *password, *verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
-		cliLogger.Info("Closing HMC Session...")
+		log.Println("Closing HMC Session...")
 		restClient.Logoff(ctx)
 	}()
 
-	cliLogger.Debug("Resolving System", "system", *sysName)
+	log.Printf("Resolving System: system=%v", *sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName, *verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve Managed System", "system", *sysName, "error", err)
+		log.Fatal("Failed to resolve Managed System")
 	}
 
 	// --- PRE-FLIGHT EXISTENCE CHECK ---
-	cliLogger.Info("Verifying if VIOS already exists...")
+	log.Println("Verifying if VIOS already exists...")
 	viosList, err := restClient.GetVirtualIOServersQuick(ctx, sysUUID, *verbose)
 	if err == nil {
 		for _, vios := range viosList {
 			if strings.EqualFold(vios.PartitionName, *viosName) {
 				fmt.Println("\n=========================================================================")
-				cliLogger.Info("✅ Virtual I/O Server already exists. Skipping creation.", "vios_name", *viosName, "uuid", vios.UUID)
+				log.Printf("✅ Virtual I/O Server already exists. Skipping creation.: vios_name=%v uuid=%v", *viosName, vios.UUID)
 				fmt.Println("=========================================================================")
 				os.Exit(0) // Idempotent Exit
 			}
@@ -96,7 +88,7 @@ func main() {
 
 	// Check Context immediately before executing heavy operations
 	if ctx.Err() != nil {
-		cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+		log.Fatal("Operation aborted by user (Ctrl+C)")
 	}
 
 	// =========================================================================
@@ -119,18 +111,18 @@ func main() {
 		DedicatedProc:    *dedicatedProc,
 	}
 
-	cliLogger.Info("Provisioning Virtual I/O Server...", "vios", *viosName, "mem_mb", req.DesiredMem, "cpus", req.DesiredProcUnits)
+	log.Printf("Provisioning Virtual I/O Server...: vios=%v mem_mb=%v cpus=%v", *viosName, req.DesiredMem, req.DesiredProcUnits)
 
 	newUUID, err := restClient.CreateVirtualIOServer(ctx, sysUUID, req, *verbose)
 	if err != nil {
 		if ctx.Err() != nil {
-			cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+			log.Fatal("Operation aborted by user (Ctrl+C)")
 		}
-		cliLogger.Fatal("Failed to provision VIOS", "error", err)
+		log.Fatal("Failed to provision VIOS")
 	}
 
 	fmt.Println("\n=========================================================================")
-	cliLogger.Info("SUCCESS: Virtual I/O Server Created!", "vios_name", *viosName, "uuid", newUUID)
+	log.Printf("SUCCESS: Virtual I/O Server Created!: vios_name=%v uuid=%v", *viosName, newUUID)
 	fmt.Println("=========================================================================")
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,22 +15,19 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: mkvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: mkvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 
 	ctx := context.Background()
 	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
@@ -45,12 +43,12 @@ func main() {
 		GrainSize:  &grainSize,
 	}
 
-	client.Logger.Info("Creating new volume...", "volume_name", volume.Name)
+	log.Printf("Creating new volume...: volume_name=%v", volume.Name)
 
 	if err := client.Mkvdisk(ctx,volume); err != nil {
-		client.Logger.Error("Mkvdisk error", "error", err)
+		log.Printf("Mkvdisk error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ Successfully created disk", "volume_name", volume.Name)
+	log.Printf("✅ Successfully created disk: volume_name=%v", volume.Name)
 }

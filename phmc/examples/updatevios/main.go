@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -18,8 +19,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. CONFIGURATION & FLAGS
@@ -43,16 +42,12 @@ func main() {
 	restart := flag.Bool("restart", false, "Automatically restart the VIOS after a successful update")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *sysName == "" || *viosName == "" {
-		cliLogger.Fatal("Error: hmc-pass, system-name, and vios-name are required.")
+		log.Fatal("Error: hmc-pass, system-name, and vios-name are required.")
 	}
 
-	if *verbose {
-		cliLogger.EnableDebug()
-	} else {
-		cliLogger.SetLevel(0) // InfoLevel
-	}
 
 	fmt.Println("=========================================================================")
 	fmt.Printf(" 🚀 Initiating VIOS Maintenance & Update (%s)\n", *resourceType)
@@ -64,98 +59,95 @@ func main() {
 	// =========================================================================
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", *hmcIP)
+	log.Printf("Logging into HMC: ip=%v", *hmcIP)
 	restClient := hmc.NewRestClient(*hmcIP)
 	
-	if *verbose {
-		restClient.EnableVerboseLogging()
-	}
 
 	if err := restClient.Login(ctx, *username, *password, *verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
 
-	cliLogger.Debug("Resolving System", "system", *sysName)
+	log.Printf("Resolving System: system=%v", *sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName, *verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve Managed System", "system", *sysName, "error", err)
+		log.Fatal("Failed to resolve Managed System")
 	}
 
-	cliLogger.Debug("Resolving VIOS", "vios", *viosName)
+	log.Printf("Resolving VIOS: vios=%v", *viosName)
 	viosUUID, err := hmc.GetViosID(ctx, restClient, sysUUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
-		cliLogger.Fatal("VIOS not found on system", "vios", *viosName, "system", *sysName)
+		log.Fatal("VIOS not found on system")
 	}
 
 	// =========================================================================
 	// 4. PRE-FLIGHT HMC REPOSITORY CLEANUP
 	// =========================================================================
-	cliLogger.Info("Verifying HMC internal repository capacity...")
+	log.Println("Verifying HMC internal repository capacity...")
 	
 	cachedUpdates, err := restClient.ListVIOSHMCUpdates(ctx, *verbose)
 	if err != nil {
-		cliLogger.Fatal("Failed to list cached VIOS updates on HMC", "error", err)
+		log.Fatal("Failed to list cached VIOS updates on HMC")
 	}
 
 	if len(cachedUpdates) >= 3 {
 		oldestImage := cachedUpdates[0] // Safely grab the first one in the list
-		cliLogger.Warn(fmt.Sprintf("HMC repository is full (%d/3 limit). Evicting oldest image: '%s'", len(cachedUpdates), oldestImage))
+		log.Printf("HMC repository is full (%d/3 limit). Evicting oldest: %s", len(cachedUpdates), oldestImage)
 		
 		err = restClient.DeleteVIOSHMCUpdate(ctx, oldestImage, *verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to delete stale update image", "error", err)
+			log.Fatal("Failed to delete stale update image")
 		}
-		cliLogger.Info("✅ Oldest image evicted successfully. Space secured for new update.")
+		log.Println("✅ Oldest image evicted successfully. Space secured for new update.")
 	} else {
-		cliLogger.Info(fmt.Sprintf("✅ HMC repository has available space (%d/3 used).", len(cachedUpdates)))
+		log.Printf("HMC repository has available space (%d/3 used).", len(cachedUpdates))
 	}
 
 	// =========================================================================
 	// 5. PREPARE FOR MAINTENANCE (FAILOVER)
 	// =========================================================================
-	cliLogger.Info("Validating redundancy and preparing VIOS for maintenance...")
+	log.Println("Validating redundancy and preparing VIOS for maintenance...")
 	
 	report, err := restClient.PrepareVIOSMaintenance(ctx, viosUUID, *forcePrepare, *verbose)
 	if err != nil {
 		if ctx.Err() != nil {
-			cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+			log.Fatal("Operation aborted by user (Ctrl+C)")
 		}
-		cliLogger.Fatal("Failed to prepare VIOS for maintenance", "error", err)
+		log.Fatal("Failed to prepare VIOS for maintenance")
 	}
 
 	// Evaluate the redundancy report
 	hasFailures := false
 	if len(report.VirtualSCSIValidationResults.Failure) > 0 {
-		cliLogger.Warn("VSCSI Redundancy Failures Detected", "messages", report.VirtualSCSIValidationResults.Failure)
+		log.Printf("VSCSI Redundancy Failures Detected: messages=%v", report.VirtualSCSIValidationResults.Failure)
 		hasFailures = true
 	}
 	if len(report.VirtualFCValidationResults.Failure) > 0 {
-		cliLogger.Warn("NPIV (vFC) Redundancy Failures Detected", "messages", report.VirtualFCValidationResults.Failure)
+		log.Println("NPIV (vFC")
 		hasFailures = true
 	}
 	if len(report.VirtualLANValidationResults.Failure) > 0 {
-		cliLogger.Warn("Virtual LAN Redundancy Failures Detected", "messages", report.VirtualLANValidationResults.Failure)
+		log.Printf("Virtual LAN Redundancy Failures Detected: messages=%v", report.VirtualLANValidationResults.Failure)
 		hasFailures = true
 	}
 	if len(report.VirtualNICValidationResults.Failure) > 0 {
-		cliLogger.Warn("vNIC Redundancy Failures Detected", "messages", report.VirtualNICValidationResults.Failure)
+		log.Printf("vNIC Redundancy Failures Detected: messages=%v", report.VirtualNICValidationResults.Failure)
 		hasFailures = true
 	}
 
 	// Halt if it's unsafe, unless the user explicitly bypassed safety checks
 	if hasFailures && !*forcePrepare {
-		cliLogger.Fatal("ABORTING UPDATE: Redundancy validation failed. Client LPARs would lose I/O paths! Use -force-prepare=true to override.")
+		log.Fatal("ABORTING UPDATE: Redundancy validation failed. Client LPARs would lose I/O paths! Use -force-prepare=true to override.")
 	} else if hasFailures && *forcePrepare {
-		cliLogger.Warn("Redundancy validation failed, but -force-prepare is true. PROCEEDING WITH UPDATE!")
+		log.Println("[WARN] Redundancy validation failed, but -force-prepare is true. PROCEEDING WITH UPDATE!")
 	} else {
-		cliLogger.Info("✅ Redundancy validation passed. VIOS I/O has been safely unconfigured/failed-over.")
+		log.Println("✅ Redundancy validation passed. VIOS I/O has been safely unconfigured/failed-over.")
 	}
 
 	// =========================================================================
 	// 6. EXECUTE VIOS UPDATE
 	// =========================================================================
-	cliLogger.Info("Configuring Update Options...")
+	log.Println("Configuring Update Options...")
 
 	opts := hmc.UpdateVIOSOptions{
 		ResourceType:    *resourceType,
@@ -168,29 +160,29 @@ func main() {
 		RestartVIOS:     *restart,
 	}
 
-	cliLogger.Warn("Triggering update. This will take a significant amount of time (10-45 minutes)...")
+	log.Println("Triggering update. This will take a significant amount of time (10-45 minutes")
 	
 	output, err := restClient.UpdateVIOS(ctx, viosUUID, opts, *verbose)
 	if err != nil {
 		if ctx.Err() != nil {
-			cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+			log.Fatal("Operation aborted by user (Ctrl+C)")
 		}
-		cliLogger.Fatal("VIOS Update Failed", "error", err)
+		log.Fatal("VIOS Update Failed")
 	}
 
 	// =========================================================================
 	// 7. DISPLAY RESULTS
 	// =========================================================================
 	fmt.Println("\n=========================================================================")
-	cliLogger.Info("✅ VIOS Update Process Completed Successfully!")
+	log.Println("✅ VIOS Update Process Completed Successfully!")
 	fmt.Println("=========================================================================")
 	fmt.Println("\n--- VIOS install.log Output ---")
 	fmt.Println(output)
 	fmt.Println("-------------------------------")
 
 	if *restart {
-		cliLogger.Info("The VIOS is now restarting to apply the updates.")
+		log.Println("The VIOS is now restarting to apply the updates.")
 	} else {
-		cliLogger.Warn("RestartVIOS was set to false. You must manually reboot the VIOS to apply the fixpack!")
+		log.Println("[WARN] RestartVIOS was set to false. You must manually reboot the VIOS to apply the fixpack!")
 	}
 }

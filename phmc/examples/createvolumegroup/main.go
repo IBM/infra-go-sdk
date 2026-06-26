@@ -23,6 +23,7 @@ func main() {
 	diskCount := flag.Int("disk-count", 1, "Number of free disks to allocate to the new VG")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *vgName == "" {
 		log.Fatal("Error: hmc-pass and vg-name are required.")
