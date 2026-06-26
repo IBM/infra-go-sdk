@@ -2202,3 +2202,104 @@ func (c *RestClient) GetRawLparXML(sysUUID, lparUUID string, debug bool) (string
 
 	return string(body), nil
 }
+// EnableKvmCapability enables the KVM capability flag on a specific LPAR
+// using the pristine GET-Modify-POST pattern required by the HMC.
+func (c *RestClient) EnableKvmCapability(ctx context.Context, lparUUID string, debug bool) error {
+	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
+
+	if debug {
+		c.Logger.Debug("Checking KVM capability status", "lparUUID", lparUUID)
+	}
+
+	// 1. Pristine GET to fetch the current LPAR XML state
+	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+	getReq.Header.Set("X-API-Session", c.session)
+	getReq.Header.Set("Accept", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+
+	getResp, err := c.client.Do(getReq)
+	if err != nil {
+		return err
+	}
+	defer getResp.Body.Close()
+
+	rawXML, _ := io.ReadAll(getResp.Body)
+	if getResp.StatusCode != 200 {
+		return fmt.Errorf("GET failed with status %d: %s", getResp.StatusCode, string(rawXML))
+	}
+
+	// 2. Parse the XML Document
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(rawXML); err != nil {
+		return err
+	}
+
+	lparElem := doc.FindElement(".//*[local-name()='LogicalPartition']")
+	if lparElem == nil {
+		return fmt.Errorf("LogicalPartition element not found in response")
+	}
+
+	// 3. Find or Create the KvmCapable element
+	kvmTag := lparElem.FindElement(".//*[local-name()='KvmCapable']")
+	if kvmTag != nil {
+		if kvmTag.Text() == "true" {
+			if debug {
+				c.Logger.Debug("KVM capability is already enabled on this LPAR")
+			}
+			return nil // Already enabled, idempotent exit
+		}
+		kvmTag.SetText("true")
+	} else {
+		newTag := lparElem.CreateElement("KvmCapable")
+		newTag.CreateAttr("kb", "UOD")
+		newTag.CreateAttr("kxe", "false")
+		newTag.SetText("true")
+	}
+
+	if debug {
+		c.Logger.Info("Pushing KVM capability enablement to HMC...")
+	}
+
+	// 4. POST the updated XML back to the HMC
+	postDoc := etree.NewDocument()
+	postDoc.SetRoot(lparElem.Copy())
+	postXML, _ := postDoc.WriteToString()
+
+	postReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(postXML))
+	if err != nil {
+		return err
+	}
+	
+	postReq.Header.Set("X-API-Session", c.session)
+	postReq.Header.Set("Content-Type", "application/vnd.ibm.powervm.uom+xml; type=LogicalPartition")
+	postReq.Header.Set("Accept", "application/atom+xml")
+
+	postResp, err := c.client.Do(postReq)
+	if err != nil {
+		return err
+	}
+	defer postResp.Body.Close()
+
+	body, _ := io.ReadAll(postResp.Body)
+
+	// Graceful Error Handling
+	if postResp.StatusCode >= 400 {
+		bodyStr := string(body)
+		// Catch known IBM DLPAR timeout/warnings just like other partition updates
+		if strings.Contains(bodyStr, "HSCL2957") || strings.Contains(bodyStr, "HSCL294D") {
+			if debug {
+				c.Logger.Warn("KVM capability enabled in profile, but DLPAR push timed out (LPAR is likely offline).")
+			}
+			return nil
+		}
+		return fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
+	}
+
+	if debug {
+		c.Logger.Info("Successfully enabled KVM Capability on the LPAR!")
+	}
+
+	return nil
+}

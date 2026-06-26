@@ -4031,3 +4031,64 @@ type UpdateVIOSOptions struct {
 	SaveFile        bool   // Flag to indicate if the remote VIOS update must be saved in the HMC
 	RestartVIOS     bool   // Flag to indicate if VIOS must be automatically restarted after update
 }
+
+
+// VirtualNetwork represents a Virtual LAN connectivity object across logical partitions on a Managed System.
+type VirtualNetwork struct {
+	XMLName          xml.Name `xml:"VirtualNetwork"`
+	SchemaVersion    string   `xml:"schemaVersion,attr,omitempty"`
+	UUID             string   `xml:"Metadata>Atom>AtomID,omitempty"`
+	NetworkName      string   `xml:"NetworkName"`
+	NetworkVLANID    int      `xml:"NetworkVLANID"`
+	TaggedNetwork    bool     `xml:"TaggedNetwork"`
+	AssociatedSwitch LinkXML  `xml:"AssociatedSwitch"` // Fixed: Matches the HMC XML schema
+}
+
+// CreateVirtualNetworkRequest holds the parameters needed to provision a new Virtual Network.
+type CreateVirtualNetworkRequest struct {
+	NetworkName   string
+	NetworkVLANID int
+	TaggedNetwork bool
+	VSwitchUUID   string // The UUID of the Virtual Switch to bind this network to
+}
+
+// CreateVirtualSwitchRequest holds the parameters needed to provision a new Virtual Switch.
+type CreateVirtualSwitchRequest struct {
+	SwitchName string
+	SwitchMode string // Optional: "Veb" (default) or "Vepa"
+}
+
+// LoadGroup represents a collection of Virtual Switches mapped to a specific Port VLAN ID.
+type LoadGroup struct {
+	PortVLANID      int       `xml:"PortVLANID"`
+	VirtualSwitches []LinkXML `xml:"VirtualSwitches>link"`
+}
+
+// NetworkBridge represents the REST API wrapper for Shared Ethernet Adapters.
+type NetworkBridge struct {
+	XMLName                xml.Name                `xml:"NetworkBridge"`
+	SchemaVersion          string                  `xml:"schemaVersion,attr,omitempty"`
+	UUID                   string                  `xml:"Metadata>Atom>AtomID,omitempty"`
+	FailoverEnabled        bool                    `xml:"FailoverEnabled"`
+	LoadBalancingEnabled   bool                    `xml:"LoadBalancingEnabled"`
+	ControlChannelID       int                     `xml:"ControlChannelID,omitempty"`
+	PortVLANID             int                     `xml:"PortVLANID"`
+	SharedEthernetAdapters []SharedEthernetAdapter `xml:"SharedEthernetAdapters>SharedEthernetAdapter"`
+	LoadGroups             []LoadGroup             `xml:"LoadGroups>LoadGroup"`
+}
+
+// CreateNetworkBridgeRequest holds the parameters needed to provision a new Network Bridge.
+// CreateNetworkBridgeRequest defines the parameters for provisioning a bridge.
+type CreateNetworkBridgeRequest struct {
+	PortVLANID             int
+	FailoverEnabled        bool
+	LoadBalancingEnabled   bool
+	ControlChannelID       int
+	PrimaryViosUUID        string
+	PrimaryBackingDevice   string
+	SecondaryViosUUID      string
+	SecondaryBackingDevice string
+	JumboFramesEnabled     bool
+	LargeSend              bool
+	LoadGroupVLANs         []int // Converted list of tracking data VLANs (e.g., [1127, 1128])
+}
