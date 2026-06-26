@@ -9,7 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/beevik/etree"
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc" // Adjust to your actual package path
+	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
 )
 
 // safeGetText safely extracts text from an etree Element

@@ -3,7 +3,7 @@ package utils
 import (
 	"os"
 
-	"github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+	"github.com/IBM/infra-go-sdk/svc"
 )
 
 func GetSVCClient() *svc.Client {

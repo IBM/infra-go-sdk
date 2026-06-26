@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
+	hmc "github.com/IBM/infra-go-sdk/phmc"
 )
 
 func printUsage() {

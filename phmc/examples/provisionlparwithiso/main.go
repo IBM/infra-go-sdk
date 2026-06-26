@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
+	hmc "github.com/IBM/infra-go-sdk/phmc"
 )
 
 // Rollback tracker to clean up resources on failure

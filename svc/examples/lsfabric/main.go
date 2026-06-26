@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/log"
-	svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+	svc "github.com/IBM/infra-go-sdk/svc"
 )
 
 func main() {

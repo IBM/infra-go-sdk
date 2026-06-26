@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc" // Adjust to your package path if necessary
+	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your package path if necessary
 )
 
 func main() {

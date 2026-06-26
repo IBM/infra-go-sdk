@@ -52,7 +52,7 @@ A comprehensive Go SDK for interacting with IBM PowerVM Hardware Management Cons
 ## 📦 Installation
 
 ```bash
-go get github.ibm.com/sudeeshjohn/infra-go-sdk/phmc
+go get github.com/IBM/infra-go-sdk/phmc
 ```
 
 ## 🎯 Quick Start
@@ -66,7 +66,7 @@ import (
     "context"
     "log"
     
-    hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
+    hmc "github.com/IBM/infra-go-sdk/phmc"
 )
 
 func main() {
@@ -394,8 +394,8 @@ This SDK integrates seamlessly with the SVC SDK (located in `svc/` directory of 
 
 ```go
 import (
-    hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
-    svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+    hmc "github.com/IBM/infra-go-sdk/phmc"
+    svc "github.com/IBM/infra-go-sdk/svc"
 )
 
 // Complete workflow:
@@ -496,7 +496,7 @@ Contributions are welcome! Please follow these guidelines:
 
 ```bash
 # Clone the repository
-git clone https://github.ibm.com/sudeeshjohn/infra-go-sdk.git
+git clone https://github.com/IBM/infra-go-sdk.git
 cd infra-go-sdk/phmc
 
 # Install dependencies
@@ -530,7 +530,7 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 For issues, questions, and contributions:
 
-- **Issues**: [GitHub Issues](https://github.ibm.com/sudeeshjohn/infra-go-sdk/issues)
+- **Issues**: [GitHub Issues](https://github.com/IBM/infra-go-sdk/issues)
 - **Examples**: Check the `examples/` directory for usage patterns
 - **Documentation**: See inline code documentation
 

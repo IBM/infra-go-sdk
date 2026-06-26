@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
+	hmc "github.com/IBM/infra-go-sdk/phmc"
 )
 
 func main() {

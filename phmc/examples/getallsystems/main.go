@@ -7,7 +7,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc" // Adjust to your package path
+	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your package path
 )
 
 func main() {

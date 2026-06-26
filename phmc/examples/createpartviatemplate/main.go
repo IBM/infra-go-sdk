@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/beevik/etree"
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
-	svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+	hmc "github.com/IBM/infra-go-sdk/phmc"
+	svc "github.com/IBM/infra-go-sdk/svc"
 )
 
 func main() {

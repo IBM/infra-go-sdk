@@ -15,7 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc" // Mapped to package path
+	hmc "github.com/IBM/infra-go-sdk/phmc" // Mapped to package path
 )
 
 // =========================================================================

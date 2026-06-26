@@ -1,4 +1,4 @@
-module github.ibm.com/sudeeshjohn/infra-go-sdk
+module github.com/IBM/infra-go-sdk
 
 go 1.26.2
 

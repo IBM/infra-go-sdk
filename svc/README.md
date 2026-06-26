@@ -14,13 +14,13 @@ A lightweight Go SDK for interacting with IBM Spectrum Virtualize / IBM SVC REST
 ## Installation
 
 ```bash
-go get github.ibm.com/sudeeshjohn/infra-go-sdk/svc
+go get github.com/IBM/infra-go-sdk/svc
 ```
 
 ## Import
 
 ```go
-import svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+import svc "github.com/IBM/infra-go-sdk/svc"
 ```
 
 ## Create a client
@@ -415,7 +415,7 @@ import (
  "log"
  "time"
 
- svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+ svc "github.com/IBM/infra-go-sdk/svc"
 )
 
 func main() {

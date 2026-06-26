@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+	"github.com/IBM/infra-go-sdk/svc"
 )
 
 func main() {

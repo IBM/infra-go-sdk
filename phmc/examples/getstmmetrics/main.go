@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc" // Mapped to package path [cite: 1]
+	hmc "github.com/IBM/infra-go-sdk/phmc" // Mapped to package path [cite: 1]
 )
 
 func main() {

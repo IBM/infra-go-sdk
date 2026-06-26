@@ -24,7 +24,7 @@ A complete Go SDK for IBM PowerVM Hardware Management Console (HMC) REST API aut
 **Quick Start:**
 
 ```go
-import hmc "github.ibm.com/sudeeshjohn/infra-go-sdk/phmc"
+import hmc "github.com/IBM/infra-go-sdk/phmc"
 
 client := hmc.NewHmcRestClient("hmc-ip")
 ctx := context.Background()
@@ -55,7 +55,7 @@ A lightweight Go SDK for IBM Spectrum Virtualize / IBM SAN Volume Controller (SV
 **Quick Start:**
 
 ```go
-import svc "github.ibm.com/sudeeshjohn/infra-go-sdk/svc"
+import svc "github.com/IBM/infra-go-sdk/svc"
 
 client := svc.NewClient("svc-hostname", "username", "password")
 ctx := context.Background()
@@ -73,18 +73,18 @@ systemInfo, _ := client.Lssystem(ctx)
 Install both SDKs:
 
 ```bash
-go get github.ibm.com/sudeeshjohn/infra-go-sdk/phmc
-go get github.ibm.com/sudeeshjohn/infra-go-sdk/svc
+go get github.com/IBM/infra-go-sdk/phmc
+go get github.com/IBM/infra-go-sdk/svc
 ```
 
 Or install individually:
 
 ```bash
 # PowerHMC SDK only
-go get github.ibm.com/sudeeshjohn/infra-go-sdk/phmc
+go get github.com/IBM/infra-go-sdk/phmc
 
 # SVC SDK only
-go get github.ibm.com/sudeeshjohn/infra-go-sdk/svc
+go get github.com/IBM/infra-go-sdk/svc
 ```
 
 ## 📋 Requirements

@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.ibm.com/sudeeshjohn/infra-go-sdk/svc" // Adjust if your package path differs
+	"github.com/IBM/infra-go-sdk/svc" // Adjust if your package path differs
 )
 
 func main() {
