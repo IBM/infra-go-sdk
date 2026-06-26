@@ -1,0 +1,60 @@
+name: Trivy Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF results
+
+jobs:
+  trivy:
+    name: Trivy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # -------------------------------------------------------------------------
+      # 1. Filesystem scan — source code, dependencies, misconfigurations
+      # -------------------------------------------------------------------------
+      - name: Trivy filesystem scan (table output)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          format: table
+
+      # -------------------------------------------------------------------------
+      # 2. Filesystem scan — SARIF upload to GitHub Security tab
+      # -------------------------------------------------------------------------
+      - name: Trivy filesystem scan (SARIF upload)
+        if: always()   # upload even when the table scan step fails
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH,MEDIUM
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
