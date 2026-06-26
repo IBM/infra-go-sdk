@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/beevik/etree v1.6.0
 	github.com/charmbracelet/log v1.0.0
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.53.0
 )
 
 require (
