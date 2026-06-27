@@ -408,19 +408,6 @@ import (
 
 See [`examples/createlparphyvol/`](examples/createlparphyvol/) for a complete end-to-end implementation.
 
-### Logging and Debugging
-
-Enable verbose logging for detailed API interactions:
-
-```go
-// Enable verbose mode
-client := hmc.NewHmcRestClient(hmcIP)
-client.EnableVerboseLogging()
-
-// Or use verbose flag in operations
-err := client.Login(ctx, username, password, true) // true = verbose
-```
-
 ### Error Handling
 
 All functions return errors that should be checked:
@@ -446,7 +433,6 @@ if strings.Contains(err.Error(), "not found") {
 - **`LogicalPartitionDetailed`**: Comprehensive LPAR configuration and state
 - **`VirtualIOServerQuick`**: VIOS information and configuration
 - **`PartitionTemplate`**: Template-based partition deployment
-- **`Logger`**: Structured logging with multiple levels
 
 ### Key Types
 
