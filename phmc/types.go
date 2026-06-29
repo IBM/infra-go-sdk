@@ -119,18 +119,67 @@ type RestClient struct {
 	client  *http.Client
 }
 
-// NewRestClient initializes a new RestClient with an insecure TLS HTTP client
+// NewRestClient initializes a new RestClient.
+// By default the client uses the standard TLS verification. Call
+// WithTLSInsecure() to skip certificate verification (e.g. for lab HMCs).
+//
+// Deprecated insecure-by-default behaviour has been removed; callers that
+// previously relied on it should chain .WithTLSInsecure():
+//
+//	restClient := hmc.NewRestClient(hmcIP).WithTLSInsecure()
 func NewRestClient(hmcIP string) *RestClient {
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	return &RestClient{
+		hmcIP: hmcIP,
+		client: &http.Client{
+			Timeout: 120 * time.Second,
 		},
 	}
+}
 
-	return &RestClient{
-		hmcIP:  hmcIP,
-		client: client,
+// WithTLSInsecure disables TLS certificate verification for all requests.
+// It clones the current transport (or http.DefaultTransport) to avoid
+// mutating the shared default, then sets InsecureSkipVerify.
+//
+// Call this before WithTransport if you need both options so that the inner
+// transport already has the correct TLS config when you wrap it.
+func (c *RestClient) WithTLSInsecure() *RestClient {
+	base := c.client.Transport
+	if base == nil {
+		base = http.DefaultTransport
 	}
+	if t, ok := base.(*http.Transport); ok {
+		cloned := t.Clone()
+		cloned.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		c.client.Transport = cloned
+	}
+	return c
+}
+
+// WithTransport replaces the HTTP transport used for all HMC requests.
+// Use this to inject middleware such as logging, metrics, retries, or
+// custom proxy/mTLS transports.
+//
+// Call WithTLSInsecure *before* WithTransport if you need both — the wrapped
+// transport will already have InsecureSkipVerify set on the inner layer.
+//
+//	restClient := hmc.NewRestClient(hmcIP).
+//	    WithTLSInsecure().
+//	    WithTransport(myLoggingTransport(restClient.HTTPTransport()))
+func (c *RestClient) WithTransport(rt http.RoundTripper) *RestClient {
+	c.client.Transport = rt
+	return c
+}
+
+// HTTPTransport returns the http.RoundTripper currently configured on the
+// client. This is useful when composing a wrapper transport:
+//
+//	base := restClient.HTTPTransport()  // grab the (possibly TLS-patched) transport
+//	restClient.WithTransport(myWrapper(base))
+func (c *RestClient) HTTPTransport() http.RoundTripper {
+	if c.client.Transport == nil {
+		return http.DefaultTransport
+	}
+	return c.client.Transport
 }
 
 // Session returns the current session token
