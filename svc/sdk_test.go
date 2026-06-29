@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/charmbracelet/log"
 )
 
 var (
@@ -43,7 +41,6 @@ func newTestClient(t *testing.T, transport http.RoundTripper) *Client {
 		Token:       "test-token",
 		TokenExpiry: time.Now().Add(10 * time.Minute),
 		HTTPClient:  httpClient,
-		Logger:      NewLogger(log.ErrorLevel, io.Discard),
 	}
 }
 
@@ -247,9 +244,6 @@ func TestNewClientDefaults(t *testing.T) {
 	if client.HTTPClient.Timeout != defaultHTTPTimeout {
 		t.Fatalf("unexpected default timeout: got %v want %v", client.HTTPClient.Timeout, defaultHTTPTimeout)
 	}
-	if client.Logger == nil {
-		t.Fatal("expected logger to be initialized")
-	}
 }
 
 func TestWithHTTPTimeout(t *testing.T) {
@@ -263,7 +257,6 @@ func TestWithHTTPTimeout(t *testing.T) {
 
 func TestEnsureTokenValidRefreshesExpiredToken(t *testing.T) {
 	client := NewClient("test.example.com", "user", "pass")
-	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
 	client.HTTPClient = &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			if req.URL.Path != "/rest/auth" {
@@ -456,7 +449,6 @@ func TestMkfcconsistgrpPayloadOmitsFalseAutodelete(t *testing.T) {
 
 func TestAuthenticateFailure(t *testing.T) {
 	client := NewClient("test.example.com", "user", "pass")
-	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
 	client.HTTPClient = &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return jsonResponse(http.StatusUnauthorized, `unauthorized`), nil
@@ -475,7 +467,6 @@ func TestAuthenticateFailure(t *testing.T) {
 
 func TestPostPropagatesTokenRefreshFailure(t *testing.T) {
 	client := NewClient("test.example.com", "user", "pass")
-	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
 	client.HTTPClient = &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("network down")
@@ -532,29 +523,6 @@ func TestPostReturnsTransportError(t *testing.T) {
 	}
 }
 
-func TestWithDebugInitializesLogger(t *testing.T) {
-	client := NewClient("host", "user", "pass")
-	client.Logger = nil
-
-	client.WithDebug()
-
-	if client.Logger == nil {
-		t.Fatal("expected debug logger to be initialized")
-	}
-}
-
-func TestWithLoggerSetsLogger(t *testing.T) {
-	client := NewClient("host", "user", "pass")
-	logger := NewLogger(log.InfoLevel, io.Discard)
-
-	got := client.WithLogger(logger)
-	if got != client {
-		t.Fatal("expected fluent return of same client")
-	}
-	if client.Logger != logger {
-		t.Fatal("expected logger to be assigned")
-	}
-}
 
 // Made with Bob
 
@@ -564,7 +532,6 @@ func TestSVCAuthenticationIntegration(t *testing.T) {
 	}
 
 	client := NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
 
 	if err := client.Authenticate(context.Background()); err != nil {
 		t.Fatalf("Authenticate failed against SVC %s: %v", *svcIP, err)
@@ -583,7 +550,6 @@ func TestSVCLssystemIntegration(t *testing.T) {
 	}
 
 	client := NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	client.Logger = NewLogger(log.ErrorLevel, io.Discard)
 
 	if err := client.Authenticate(context.Background()); err != nil {
 		t.Fatalf("Authenticate failed against SVC %s: %v", *svcIP, err)

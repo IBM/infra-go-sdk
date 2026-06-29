@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,21 +15,18 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: mkfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: mkfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
 
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
@@ -44,12 +42,12 @@ func main() {
 		AutoDelete:  true,
 	}
 
-	client.Logger.Info("Creating FlashCopy mapping...", "name", mapping.Name)
+	log.Printf("Creating FlashCopy mapping...: name=%v", mapping.Name)
 
 	if err := client.Mkfcmap(ctx,mapping); err != nil {
-		client.Logger.Error("Mkfcmap error", "error", err)
+		log.Printf("Mkfcmap error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ Successfully created FlashCopy mapping", "name", mapping.Name)
+	log.Printf("✅ Successfully created FlashCopy mapping: name=%v", mapping.Name)
 }

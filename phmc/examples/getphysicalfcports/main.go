@@ -21,6 +21,7 @@ func main() {
 	jsonOutput := flag.Bool("json", false, "Output in JSON format")
 
 	flag.Parse()
+	_ = verbose
 
 	// Validate required parameters
 	if *hmcIP == "" || *username == "" || *password == "" || *systemName == "" || *viosName == "" {

@@ -22,6 +22,7 @@ func main() {
 	verbose := flag.Bool("verbose", true, "Enable verbose logging")
 
 	flag.Parse()
+	_ = verbose
 
 	// Validate required parameters
 	if *profileName == "" {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"encoding/json"
 	"flag"
@@ -33,8 +34,6 @@ func main() {
 	defer stop()
 
 	// Initialize CLI Logger
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. SUBCOMMAND ROUTER & CONFIGURATION
@@ -101,62 +100,57 @@ func main() {
 		printUsage()
 		os.Exit(0)
 	default:
-		cliLogger.Error("Unknown command", "command", cmd)
+		log.Printf("Unknown command: command=%v", cmd)
 		printUsage()
 		os.Exit(1)
 	}
 
 	// Apply Verbosity to Logger
 	if verbose {
-		cliLogger.EnableDebug()
 	} else {
-		cliLogger.SetLevel(0) // InfoLevel
+		log.Printf(": %v", 0)
 	}
 
 	// --- Shared Validation ---
 	if password == "" || sysName == "" {
-		cliLogger.Fatal("Missing required arguments", "required", "hmc-pass, system-name")
+		log.Fatal("Missing required arguments")
 	}
 
 	if cmd == "get" || cmd == "delete" {
 		if switchName == "" {
-			cliLogger.Fatal(fmt.Sprintf("Missing required argument for %s", cmd), "required", "switch-name")
+			log.Fatalf("Missing required argument for %s", cmd)
 		}
 	}
 	if cmd == "create" {
 		if switchName == "" {
-			cliLogger.Fatal("Missing required argument for create", "required", "switch-name")
+			log.Fatal("Missing required argument for create")
 		}
 	}
 	if cmd == "update" {
 		if switchName == "" || (newSwitchName == "" && newSwitchMode == "") {
-			cliLogger.Fatal("Missing required arguments for update", "required", "switch-name AND (new-name OR new-mode)")
+			log.Fatal("Missing required arguments for update")
 		}
 	}
 
 	// =========================================================================
 	// 3. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", hmcIP)
+	log.Printf("Logging into HMC: ip=%v", hmcIP)
 	restClient := hmc.NewRestClient(hmcIP)
 
-	if verbose {
-		restClient.EnableVerboseLogging()
-	}
-
 	if err := restClient.Login(ctx, username, password, verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
-		cliLogger.Info("Closing HMC Session...")
+		log.Println("Closing HMC Session...")
 		restClient.Logoff(context.Background())
 	}()
 
-	cliLogger.Debug("Resolving System", "system", sysName)
+	log.Printf("Resolving System: system=%v", sysName)
 	// Fallback to searching quick all if GetManagedSystemByNameQuick doesn't exist yet
 	systems, err := restClient.GetManagedSystemQuickAll(ctx, verbose)
 	if err != nil {
-		cliLogger.Fatal("Failed to get managed systems", "error", err)
+		log.Fatal("Failed to get managed systems")
 	}
 
 	var sysUUID string
@@ -168,14 +162,14 @@ func main() {
 	}
 
 	if sysUUID == "" {
-		cliLogger.Fatal("Managed System not found on HMC", "system", sysName)
+		log.Fatal("Managed System not found on HMC")
 	}
 
 	// Helper to resolve Switch Name -> UUID for Get/Update/Delete operations
 	resolveSwitchUUID := func(name string) string {
 		switches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to resolve Virtual Switches", "error", err)
+			log.Fatal("Failed to resolve Virtual Switches")
 		}
 		for _, sw := range switches {
 			if strings.EqualFold(sw.SwitchName, name) {
@@ -187,7 +181,7 @@ func main() {
 
 	// Check Context before heavy operations
 	if ctx.Err() != nil {
-		cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+		log.Fatal("Operation aborted by user (Ctrl+C)")
 	}
 
 	// =========================================================================
@@ -200,15 +194,15 @@ func main() {
 	// LIST MODE
 	// -------------------------------------------------------------------------
 	case "list":
-		cliLogger.Info("Fetching Virtual Switch Inventory", "system", sysName)
+		log.Printf("Fetching Virtual Switch Inventory: system=%v", sysName)
 
 		switches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Virtual Switches", "error", err)
+			log.Fatal("Failed to fetch Virtual Switches")
 		}
 
 		if len(switches) == 0 {
-			cliLogger.Warn("No Virtual Switches found on this Managed System.")
+			log.Println("[WARN] No Virtual Switches found on this Managed System.")
 			os.Exit(0)
 		}
 
@@ -223,22 +217,22 @@ func main() {
 
 		w.Flush()
 		fmt.Println("=====================================================================================================")
-		cliLogger.Info("Scan Complete", "total_switches", len(switches))
+		log.Printf("Scan Complete: total_switches=%v", len(switches))
 
 	// -------------------------------------------------------------------------
 	// GET MODE (Singular Detail)
 	// -------------------------------------------------------------------------
 	case "get":
-		cliLogger.Info("Looking up Virtual Switch to retrieve details", "switch_name", switchName)
+		log.Printf("Looking up Virtual Switch to retrieve details: switch_name=%v", switchName)
 		targetUUID := resolveSwitchUUID(switchName)
 		if targetUUID == "" {
-			cliLogger.Fatal("Virtual Switch not found", "switch_name", switchName)
+			log.Fatal("Virtual Switch not found")
 		}
 
-		cliLogger.Info("Fetching detailed Virtual Switch config", "uuid", targetUUID)
+		log.Printf("Fetching detailed Virtual Switch config: uuid=%v", targetUUID)
 		detailedSwitch, err := restClient.GetVirtualSwitch(ctx, sysUUID, targetUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to get Virtual Switch details", "error", err)
+			log.Fatal("Failed to get Virtual Switch details")
 		}
 
 		fmt.Println("\n=========================================================================")
@@ -258,18 +252,18 @@ func main() {
 			SwitchMode: switchMode,
 		}
 
-		cliLogger.Info("Provisioning Virtual Switch", "name", switchName, "mode", switchMode)
+		log.Printf("Provisioning Virtual Switch: name=%v mode=%v", switchName, switchMode)
 
 		vSwitch, err := restClient.CreateVirtualSwitch(ctx, sysUUID, req, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to create Virtual Switch", "error", err)
+			log.Fatal("Failed to create Virtual Switch")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("✨ SUCCESS: Virtual Switch Provisioned!")
+		log.Println("✨ SUCCESS: Virtual Switch Provisioned!")
 		fmt.Printf("   Switch Name:    %s\n", vSwitch.SwitchName)
 		fmt.Printf("   Switch Mode:    %s\n", vSwitch.SwitchMode)
 		fmt.Printf("   UUID:           %s\n", vSwitch.UUID)
@@ -279,47 +273,47 @@ func main() {
 	// UPDATE MODE
 	// -------------------------------------------------------------------------
 	case "update":
-		cliLogger.Info("Looking up Virtual Switch to update", "switch_name", switchName)
+		log.Printf("Looking up Virtual Switch to update: switch_name=%v", switchName)
 		targetUUID := resolveSwitchUUID(switchName)
 		if targetUUID == "" {
-			cliLogger.Fatal("Virtual Switch not found", "switch_name", switchName)
+			log.Fatal("Virtual Switch not found")
 		}
 
-		cliLogger.Info("Updating Virtual Switch", "uuid", targetUUID)
+		log.Printf("Updating Virtual Switch: uuid=%v", targetUUID)
 		err := restClient.UpdateVirtualSwitch(ctx, sysUUID, targetUUID, newSwitchName, newSwitchMode, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to update Virtual Switch", "error", err)
+			log.Fatal("Failed to update Virtual Switch")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("✏️  SUCCESS: Virtual Switch Updated!")
+		log.Println("✏️  SUCCESS: Virtual Switch Updated!")
 		fmt.Println("=========================================================================")
 
 	// -------------------------------------------------------------------------
 	// DELETE MODE
 	// -------------------------------------------------------------------------
 	case "delete":
-		cliLogger.Warn("Looking up Virtual Switch for permanent deletion", "switch_name", switchName)
+		log.Printf("Looking up Virtual Switch for permanent deletion: switch_name=%v", switchName)
 		targetUUID := resolveSwitchUUID(switchName)
 		if targetUUID == "" {
-			cliLogger.Info("Virtual Switch not found. No action needed.", "switch_name", switchName)
+			log.Printf("Virtual Switch not found. No action needed.: switch_name=%v", switchName)
 			os.Exit(0) // Idempotent
 		}
 
-		cliLogger.Warn("Attempting to delete Virtual Switch", "switch_name", switchName, "uuid", targetUUID)
+		log.Printf("Attempting to delete Virtual Switch: switch_name=%v uuid=%v", switchName, targetUUID)
 		err := restClient.DeleteVirtualSwitch(ctx, sysUUID, targetUUID, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to delete Virtual Switch", "error", err)
+			log.Fatal("Failed to delete Virtual Switch")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("🗑️  SUCCESS: Virtual Switch Deleted!", "switch_name", switchName)
+		log.Printf("🗑️  SUCCESS: Virtual Switch Deleted!: switch_name=%v", switchName)
 		fmt.Println("=========================================================================")
 	}
 }

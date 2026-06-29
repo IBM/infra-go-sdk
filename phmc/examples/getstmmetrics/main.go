@@ -24,6 +24,7 @@ func main() {
 	lparName := flag.String("lpar-name", "", "Target LPAR Name to filter within PHYP (Optional)")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *sysName == "" {
 		log.Fatal("❌ Error: hmc-pass and system-name are required.")

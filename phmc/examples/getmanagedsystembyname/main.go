@@ -18,6 +18,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	
 	flag.Parse()
+	_ = verbose
 
 	restClient := hmc.NewRestClient(*hmcIP)
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {

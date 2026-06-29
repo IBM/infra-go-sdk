@@ -23,6 +23,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	
 	flag.Parse()
+	_ = verbose
 
 	// Validation
 	if *password == "" || *sysName == "" {

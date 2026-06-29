@@ -14,9 +14,6 @@ import (
 // FetchJobResponse retrieves the full job response and returns it as a structured JobResponse
 func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string, debug bool) (*JobResponse, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
-	if debug {
-		c.Logger.Debug("Fetching job response", "jobID", jobID, "url", url)
-	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -29,32 +26,18 @@ func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string, debug b
 	defer cancel()
 	req = req.WithContext(reqCtx)
 
-	c.logRawTraffic("REQUEST (GET)", url, "")
-
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
-
-	if debug {
-		c.Logger.Debug("Job response status", "status", resp.Status)
-	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading response failed: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
-
-	if debug {
-		c.Logger.Debug("Job response body", "body", string(body))
-	}
-
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status)
 		return nil, fmt.Errorf("request failed with status: %s", resp.Status)
 	}
 
@@ -86,10 +69,6 @@ func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string, debug b
 		return nil, fmt.Errorf("failed to unmarshal JobResponse: %v", err)
 	}
 
-	if debug {
-		c.Logger.Info("Parsed job response", "status", jobResp.Status, "parametersCount", len(jobResp.Results.Parameters))
-	}
-
 	return &jobResp, nil
 }
 
@@ -113,7 +92,7 @@ func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string, debug b
 //   - jobID: The job identifier to monitor
 //   - template: If true, uses template API endpoint; if false, uses UOM endpoint
 //   - timeoutInMin: Maximum time to wait for job completion (in minutes)
-//   - debug: If true, logs detailed status information
+//   - debug: If true, logs detailed status information (unused, kept for API compatibility)
 //
 // Returns:
 //   - *JobResponseDetail: Job response with status, results, and metadata (on success)
@@ -169,12 +148,9 @@ func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template 
 			req.Header.Set(key, value)
 		}
 
-		c.logRawTraffic("REQUEST (GET)", url, "")
-
 		// Execute request
 		resp, err := c.client.Do(req)
 		if err != nil {
-			c.Logger.Error("HTTP request failed", "error", err)
 			return nil, fmt.Errorf("HTTP request failed: %v", err)
 		}
 
@@ -185,11 +161,6 @@ func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template 
 			return nil, fmt.Errorf("failed to read response body: %v", err)
 		}
 
-		c.logRawTraffic("RESPONSE", url, string(body))
-
-		if debug {
-			c.Logger.Debug("Job Status Poll Response", "body", string(body))
-		}
 		// Parse XML and strip namespaces
 		doc, err = xmlStripNamespace(body)
 		if err != nil {
@@ -228,34 +199,17 @@ func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template 
 		jobResp = &jr
 		jobStatus = jobResp.Status
 
-		if debug {
-			c.Logger.Debug("Polled job status", "jobID", jobID, "status", jobStatus)
-		}
-
 		// Handle different job statuses according to IBM PowerVM HMC REST API documentation
 		// Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-job-status
 		switch jobStatus {
 		case "COMPLETED_OK":
-			// Job completed successfully
-			// Note: May still have warnings according to IBM documentation
-			if debug {
-				c.Logger.Info("Job completed successfully", "jobID", jobID)
-			}
 			return jobResp, nil
 
 		case "COMPLETED_WITH_WARNINGS":
-			// Job completed but issued warnings
-			if debug {
-				c.Logger.Warn("Job completed with warnings", "jobID", jobID)
-			}
 			// Return success - warnings are informational, not errors
 			return jobResp, nil
 
 		case "COMPLETED_WITH_ERROR":
-			// Job completed but encountered errors
-			if debug {
-				c.Logger.Error("Job completed with error", "jobID", jobID)
-			}
 			// Look for the 'result' parameter specifically
 			var errMsg string
 			for _, param := range jobResp.Results.Parameters {
@@ -268,94 +222,56 @@ func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template 
 			if errMsg == "" && len(jobResp.Results.Parameters) > 0 {
 				errMsg = jobResp.Results.Parameters[0].ParameterValue
 			}
-
 			if errMsg != "" {
-				if debug {
-					c.Logger.Error("Job error message", "jobID", jobID, "message", errMsg)
-				}
 				return nil, fmt.Errorf("job completed with error: %s", errMsg)
 			}
 			return nil, fmt.Errorf("job completed with error, but no result message found")
 
 		case "CANCELED_BEFORE_START":
-			// Job was canceled before it started execution
-			if debug {
-				c.Logger.Warn("Job was canceled before starting", "jobID", jobID)
-			}
 			return nil, fmt.Errorf("job was canceled before it could start")
 
 		case "CANCELED_WHILE_RUNNING":
-			// Job was canceled during execution
-			if debug {
-				c.Logger.Warn("Job was canceled while running", "jobID", jobID)
-			}
 			return nil, fmt.Errorf("job was canceled during execution")
 
 		case "FAILED_TO_START":
-			// Job failed to start - typically a configuration or prerequisite issue
-			if debug {
-				c.Logger.Error("Job failed to start", "jobID", jobID)
-			}
-			// Extract error message
 			errMsgElem := doc.FindElement("//ResponseException//Message")
 			if errMsgElem == nil {
 				errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
 			}
 			if errMsgElem != nil {
-				errMsg := errMsgElem.Text()
-				return nil, fmt.Errorf("job failed to start: %s", errMsg)
+				return nil, fmt.Errorf("job failed to start: %s", errMsgElem.Text())
 			}
 			return nil, fmt.Errorf("job failed to start")
 
 		case "FAILED_BEFORE_COMPLETION":
-			// Job failed during execution
-			if debug {
-				c.Logger.Error("Job failed before completion", "jobID", jobID)
-			}
-			// Extract error message
 			errMsgElem := doc.FindElement("//ResponseException//Message")
 			if errMsgElem == nil {
 				errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
 			}
 			if errMsgElem != nil {
-				errMsg := errMsgElem.Text()
-				return nil, fmt.Errorf("job failed during execution: %s", errMsg)
+				return nil, fmt.Errorf("job failed during execution: %s", errMsgElem.Text())
 			}
 			return nil, fmt.Errorf("job failed during execution")
 
 		case "FAILED_BEFORE_COMPLETION_RETRY":
-			// Job failed but HMC will retry the operation
-			// Continue polling - this is not a terminal state
-			if debug {
-				c.Logger.Info("Job failed but will be retried by HMC", "jobID", jobID)
-			}
-			// Don't return error - continue waiting for retry outcome
+			// Job failed but HMC will retry — continue polling
 			continue
 
 		case "NOT_STARTED":
-			// Job has not yet started execution
-			// Continue polling - job is queued but not running yet
-			if debug {
-				c.Logger.Debug("Job not started yet, waiting...", "jobID", jobID)
-			}
+			// Job is queued but not running yet — continue polling
 			continue
 
 		case "RUNNING":
-			// Job is currently executing - continue polling
+			// Job is currently executing — continue polling
 			continue
 
 		default:
-			// Unknown or undocumented status - treat as error
-			if debug {
-				c.Logger.Error("Unknown job status", "jobID", jobID, "status", jobStatus)
-			}
 			errMsgElem := doc.FindElement("//ResponseException//Message")
 			if errMsgElem == nil {
 				errMsgElem = doc.FindElement("//Results/JobParameter/ParameterValue")
 			}
 			if errMsgElem != nil {
-				errMsg := errMsgElem.Text()
-				return nil, fmt.Errorf("job encountered unknown status '%s': %s", jobStatus, errMsg)
+				return nil, fmt.Errorf("job encountered unknown status '%s': %s", jobStatus, errMsgElem.Text())
 			}
 			return nil, fmt.Errorf("job encountered unknown status: %s", jobStatus)
 		}
@@ -364,11 +280,7 @@ func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template 
 	// Timeout reached
 	operationNameElem := doc.FindElement("//OperationName")
 	if operationNameElem != nil {
-		operationName := operationNameElem.Text()
-		if debug {
-			c.Logger.Error("Job timed out", "jobID", jobID, "operation", operationName, "finalStatus", jobStatus)
-		}
-		return nil, fmt.Errorf("job %s timed out in state %s", operationName, jobStatus)
+		return nil, fmt.Errorf("job %s timed out in state %s", operationNameElem.Text(), jobStatus)
 	}
 	return nil, fmt.Errorf("job timed out")
 }
@@ -379,7 +291,7 @@ func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template 
 // Parameters:
 //   - jobID: The job identifier to delete
 //   - template: If true, uses template API endpoint; if false, uses UOM endpoint
-//   - debug: If true, logs detailed information
+//   - debug: Unused, kept for API compatibility
 //
 // Returns:
 //   - error: Error if the deletion fails, nil on success
@@ -392,10 +304,6 @@ func (c *RestClient) DeleteJob(ctx context.Context, jobID string, template bool,
 		url = fmt.Sprintf("https://%s/rest/api/templates/jobs/%s", c.hmcIP, jobID)
 	} else {
 		url = fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
-	}
-
-	if debug {
-		c.Logger.Debug("Deleting job", "jobID", jobID, "url", url)
 	}
 
 	// Create DELETE request
@@ -412,12 +320,9 @@ func (c *RestClient) DeleteJob(ctx context.Context, jobID string, template bool,
 	defer cancel()
 	req = req.WithContext(reqCtx)
 
-	c.logRawTraffic("REQUEST (DELETE)", url, "")
-
 	// Execute request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -428,31 +333,15 @@ func (c *RestClient) DeleteJob(ctx context.Context, jobID string, template bool,
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", url, string(body))
-
-	if debug {
-		c.Logger.Debug("Delete job response status", "status", resp.Status)
-		if len(body) > 0 {
-			c.Logger.Debug("Delete job response body", "body", string(body))
-		}
-	}
-
-	// Check response status
 	// DELETE typically returns 204 No Content on success, but may also return 200 OK
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		if len(body) > 0 {
-			c.Logger.Error("Failed to delete job", "status", resp.Status)
 			if debug {
 				return fmt.Errorf("failed to delete job (status %s): %s", resp.Status, string(body))
 			}
 			return fmt.Errorf("failed to delete job (status %s). Enable debug mode to see full response", resp.Status)
 		}
-		c.Logger.Error("Failed to delete job", "status", resp.Status)
 		return fmt.Errorf("failed to delete job with status: %s", resp.Status)
-	}
-
-	if debug {
-		c.Logger.Info("Job deleted successfully", "jobID", jobID)
 	}
 
 	return nil

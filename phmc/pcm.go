@@ -39,18 +39,13 @@ func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lpar
 	// Inject the literal string directly into the RawQuery property
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-		c.Logger.Debug("Fetching LPAR Aggregated Metrics Feed", "url", req.URL.String())
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml") // Safely accept both XML formats
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -60,10 +55,8 @@ func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lpar
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status)
 		if debug {
 			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 		}
@@ -106,9 +99,6 @@ func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lpar
 		snapshots = append(snapshots, snap)
 	}
 
-	if debug {
-		c.Logger.Info("Successfully parsed PCM Aggregated Metrics feed", "snapshotCount", len(snapshots))
-	}
 
 	return snapshots, nil
 }
@@ -125,11 +115,9 @@ func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string,
 
 	req.Header.Set("Accept", "*/*")
 
-	c.logRawTraffic("REQUEST (GET)", jsonURL, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err)
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -139,10 +127,8 @@ func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string,
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", jsonURL, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Error("Request failed", "status", resp.Status)
 		if debug {
 			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
 		}
@@ -151,13 +137,9 @@ func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string,
 
 	var payload PcmMetricsPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
-		c.Logger.Error("Failed to unmarshal JSON metrics payload", "error", err)
 		return nil, fmt.Errorf("failed to unmarshal JSON metrics payload: %v", err)
 	}
 
-	if debug {
-		c.Logger.Info("Successfully fetched and parsed PCM metrics JSON", "url", jsonURL)
-	}
 
 	return &payload, nil
 }
@@ -190,14 +172,10 @@ func (c *RestClient) GetManagedSystemAggregatedMetrics(ctx context.Context, syst
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-		c.Logger.Debug("Fetching Managed System Aggregated Metrics Feed", "url", req.URL.String())
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -210,7 +188,6 @@ func (c *RestClient) GetManagedSystemAggregatedMetrics(ctx context.Context, syst
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status %s", resp.Status)
@@ -276,7 +253,6 @@ func (c *RestClient) FetchSystemPcmMetricsPayload(ctx context.Context, jsonURL s
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*") // Bypass HTTP 406 MIME checking
 
-	c.logRawTraffic("REQUEST (GET)", jsonURL, "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -289,7 +265,6 @@ func (c *RestClient) FetchSystemPcmMetricsPayload(ctx context.Context, jsonURL s
 		return nil, fmt.Errorf("failed reading stream body payload: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", jsonURL, string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HMC rejected fetch with status: %s", resp.Status)
@@ -339,7 +314,6 @@ func (c *RestClient) GetManagedSystemLtmFeed(ctx context.Context, systemUUID str
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -352,7 +326,6 @@ func (c *RestClient) GetManagedSystemLtmFeed(ctx context.Context, systemUUID str
 		return nil, fmt.Errorf("failed reading LTM feed response byte buffer: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HMC rejected LTM raw metrics query with status: %s", resp.Status)
@@ -477,7 +450,6 @@ func (c *RestClient) GetManagedSystemPcmPreferences(ctx context.Context, systemU
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/xml, text/xml, */*")
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -490,7 +462,6 @@ func (c *RestClient) GetManagedSystemPcmPreferences(ctx context.Context, systemU
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HMC rejected GET request with status: %s", resp.Status)
@@ -595,7 +566,6 @@ func (c *RestClient) SetManagedSystemPcmPreferences(ctx context.Context, systemU
 	postReq.Header.Set("Content-Type", "application/xml")
 	postReq.Header.Set("Accept", "application/xml, text/xml, */*")
 
-	c.logRawTraffic("REQUEST (POST)", baseURL, postXML)
 
 	postResp, err := c.client.Do(postReq)
 	if err != nil {
@@ -604,7 +574,6 @@ func (c *RestClient) SetManagedSystemPcmPreferences(ctx context.Context, systemU
 	defer postResp.Body.Close()
 
 	postBody, _ := io.ReadAll(postResp.Body)
-	c.logRawTraffic("RESPONSE", baseURL, string(postBody))
 
 	// HMC returns 200 OK or 204 No Content for a successful preference update
 	if postResp.StatusCode >= 400 {
@@ -626,7 +595,6 @@ func (c *RestClient) GetManagementConsolePcmPreferences(ctx context.Context, deb
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/xml, text/xml, */*") // Bypass 406 Not Acceptable
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -639,7 +607,6 @@ func (c *RestClient) GetManagementConsolePcmPreferences(ctx context.Context, deb
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HMC rejected GET request with status: %s", resp.Status)
@@ -755,7 +722,6 @@ func (c *RestClient) SetManagementConsolePcmPreferences(ctx context.Context, pre
 	postReq.Header.Set("Content-Type", "application/xml")
 	postReq.Header.Set("Accept", "application/xml, text/xml, */*")
 
-	c.logRawTraffic("REQUEST (POST)", baseURL, postXML)
 
 	postResp, err := c.client.Do(postReq)
 	if err != nil {
@@ -764,7 +730,6 @@ func (c *RestClient) SetManagementConsolePcmPreferences(ctx context.Context, pre
 	defer postResp.Body.Close()
 
 	postBody, _ := io.ReadAll(postResp.Body)
-	c.logRawTraffic("RESPONSE", baseURL, string(postBody))
 
 	if postResp.StatusCode >= 400 {
 		return fmt.Errorf("HMC rejected POST request with status %s: %s", postResp.Status, string(postBody))
@@ -798,14 +763,10 @@ func (c *RestClient) GetLogicalPartitionProcessedMetrics(ctx context.Context, sy
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-		c.Logger.Debug("Fetching LPAR Processed Metrics Feed", "url", req.URL.String())
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -814,9 +775,6 @@ func (c *RestClient) GetLogicalPartitionProcessedMetrics(ctx context.Context, sy
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-			c.Logger.Debug("No processed metrics found for the specified time range (HTTP 204)")
-		}
 		return []PcmMetricsSnapshot{}, nil
 	}
 
@@ -825,7 +783,6 @@ func (c *RestClient) GetLogicalPartitionProcessedMetrics(ctx context.Context, sy
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status %s", resp.Status)
@@ -913,9 +870,6 @@ func (c *RestClient) FetchLparProcessedMetricsPayload(ctx context.Context, jsonU
 func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUUID string, debug bool) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 
-	if debug {
-		c.Logger.Debug("Checking LPAR Performance Data Collection permission", "lparUUID", lparUUID)
-	}
 
 	// 1. Pristine GET
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -950,9 +904,6 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 	perfTag := lparElem.FindElement(".//*[local-name()='AllowPerformanceDataCollection']")
 	if perfTag != nil {
 		if perfTag.Text() == "true" {
-			if debug {
-				c.Logger.Debug("Performance Data Collection is already enabled for this LPAR")
-			}
 			return nil // Already enabled, nothing to do
 		}
 		perfTag.SetText("true")
@@ -963,9 +914,6 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 		newTag.SetText("true")
 	}
 
-	if debug {
-		c.Logger.Info("Enabling AllowPerformanceDataCollection on LPAR natively...")
-	}
 
 	// 3. POST back
 	postDoc := etree.NewDocument()
@@ -992,9 +940,6 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 	if postResp.StatusCode >= 400 {
 		bodyStr := string(body)
 		if strings.Contains(bodyStr, "HSCL2957") || strings.Contains(bodyStr, "HSCL294D") {
-			if debug {
-				c.Logger.Warn("Collection enabled in profile, but DLPAR push timed out (LPAR likely offline).")
-			}
 			return nil
 		}
 		return fmt.Errorf("POST failed (%s): %s", postResp.Status, bodyStr)
@@ -1030,14 +975,10 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-		c.Logger.Debug("Fetching Managed System Processed Metrics Feed", "url", req.URL.String())
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1047,9 +988,6 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 
 	// Graceful handling of empty cache windows
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-			c.Logger.Debug("No processed metrics found for the specified time range (HTTP 204)")
-		}
 		return []PcmMetricsSnapshot{}, nil
 	}
 
@@ -1058,7 +996,6 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status %s", resp.Status)
@@ -1101,9 +1038,6 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 		snapshots = append(snapshots, snap)
 	}
 
-	if debug {
-		c.Logger.Info("Successfully parsed System Processed metrics feed", "snapshotCount", len(snapshots))
-	}
 
 	return snapshots, nil
 }
@@ -1119,9 +1053,6 @@ func (c *RestClient) FetchSysProcessedMetricsPayload(ctx context.Context, jsonUR
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*") // Avoid 406 Not Acceptable errors
 
-	if debug {
-		c.Logger.Debug("Downloading System Metrics JSON payload", "url", jsonURL)
-	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1171,14 +1102,10 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 
 	req.URL.RawQuery = rawQuery
 
-	if debug {
-		c.Logger.Debug("Fetching Short Term Monitor Metrics Feed", "url", req.URL.String())
-	}
 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "application/atom+xml, application/xml")
 
-	c.logRawTraffic("REQUEST (GET)", req.URL.String(), "")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1187,9 +1114,6 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		if debug {
-			c.Logger.Debug("No STM metrics found for the specified time range (HTTP 204)")
-		}
 		return []PcmMetricsSnapshot{}, nil
 	}
 
@@ -1198,7 +1122,6 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	c.logRawTraffic("RESPONSE", req.URL.String(), string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status %s", resp.Status)
@@ -1240,9 +1163,6 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 		snapshots = append(snapshots, snap)
 	}
 
-	if debug {
-		c.Logger.Info("Successfully parsed STM metrics feed", "snapshotCount", len(snapshots))
-	}
 
 	return snapshots, nil
 }
@@ -1257,9 +1177,6 @@ func (c *RestClient) FetchStmRawMetricsPayload(ctx context.Context, jsonURL stri
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*") // Avoid 406 Not Acceptable errors
 
-	if debug {
-		c.Logger.Debug("Downloading STM Metrics JSON payload", "url", jsonURL)
-	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1294,9 +1211,6 @@ func (c *RestClient) FetchStmRawViosMetricsPayload(ctx context.Context, jsonURL 
 	req.Header.Set("X-API-Session", c.session)
 	req.Header.Set("Accept", "*/*")
 
-	if debug {
-		c.Logger.Debug("Downloading VIOS STM Metrics JSON payload", "url", jsonURL)
-	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

@@ -27,6 +27,7 @@ func main() {
 
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *sysName == "" || *viosName == "" || *lparName == "" || *viosSlot <= 0 || *clientSlot <= 0 {
 		log.Fatal("❌ Error: hmc-pass, system-name, vios-name, lpar-name, and valid slot numbers are required.")

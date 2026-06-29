@@ -21,6 +21,7 @@ func main() {
 	lparName := flag.String("lpar-name", "", "Target LPAR Name")
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" {
 		log.Fatal("❌ Error: hmc-pass is required")

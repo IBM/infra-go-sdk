@@ -505,32 +505,6 @@ func main() {
 }
 ```
 
-## Logging
-
-The client uses a default warning-level logger. For visible progress in examples or applications, set an info or debug logger explicitly.
-
-Enable debug logging:
-
-```go
-client := svc.NewClient("svc-hostname-or-ip", "username", "REDACTED_HMC_PASS<==").WithTLSInsecure()
-client = client.WithDebug()
-```
-
-Enable info-level logging:
-
-```go
-logger := svc.NewLogger(log.InfoLevel, os.Stderr)
-client := svc.NewClient("svc-hostname-or-ip", "username", "REDACTED_HMC_PASS<==").WithTLSInsecure()
-client = client.WithLogger(logger)
-```
-
-Notes:
-
-- default client logger level is `Warn`
-- `WithDebug()` enables verbose request/response progress logs
-- several SDK operations now emit `Info` logs for visible progress when the logger level allows it
-- example programs such as `examples/lsfabric` configure visible output even without `-verbose`
-
 ## Running tests
 
 Unit and package tests:

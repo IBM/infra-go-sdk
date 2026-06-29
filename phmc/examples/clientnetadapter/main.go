@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -30,8 +31,6 @@ func main() {
 	defer stop()
 
 	// Initialize CLI Logger
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. SUBCOMMAND ROUTER & CONFIGURATION
@@ -86,65 +85,60 @@ func main() {
 		printUsage()
 		os.Exit(0)
 	default:
-		cliLogger.Error("Unknown command", "command", cmd)
+		log.Printf("Unknown command: command=%v", cmd)
 		printUsage()
 		os.Exit(1)
 	}
 
 	// Apply Verbosity to Logger
 	if verbose {
-		cliLogger.EnableDebug()
 	} else {
-		cliLogger.SetLevel(0) // 0 equates to InfoLevel
+		log.Printf(": %v", 0)
 	}
 
 	// --- Shared Validation ---
 	if password == "" || sysName == "" || lparName == "" {
-		cliLogger.Fatal("Missing required arguments", "required", "hmc-pass, system-name, lpar-name")
+		log.Fatal("Missing required arguments")
 	}
 
 	if cmd == "create" && vswitchName == "" {
-		cliLogger.Fatal("Missing required argument", "required", "vswitch")
+		log.Fatal("Missing required argument")
 	}
 
 	if cmd == "delete" && adapterUUID == "" {
-		cliLogger.Fatal("Missing required argument", "required", "adapter-uuid")
+		log.Fatal("Missing required argument")
 	}
 
 	// =========================================================================
 	// 3. AUTHENTICATION & SYSTEM/LPAR RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", hmcIP)
+	log.Printf("Logging into HMC: ip=%v", hmcIP)
 	restClient := hmc.NewRestClient(hmcIP)
 
-	if verbose {
-		restClient.EnableVerboseLogging()
-	}
-
 	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
-		cliLogger.Info("Closing HMC Session...")
+		log.Println("Closing HMC Session...")
 		restClient.Logoff(context.Background())
 	}()
 
-	cliLogger.Debug("Resolving System", "system", sysName)
+	log.Printf("Resolving System: system=%v", sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve Managed System", "system", sysName, "error", err)
+		log.Fatal("Failed to resolve Managed System")
 	}
 
-	cliLogger.Debug("Resolving LPAR", "lpar", lparName)
+	log.Printf("Resolving LPAR: lpar=%v", lparName)
 	lparDetails, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName, verbose)
 	if err != nil || lparUUID == "" {
-		cliLogger.Fatal("Failed to resolve LPAR Name", "lpar", lparName, "error", err)
+		log.Fatal("Failed to resolve LPAR Name")
 	}
-	cliLogger.Info("Target LPAR resolved", "uuid", lparUUID, "state", lparDetails.PartitionState)
+	log.Printf("Target LPAR resolved: uuid=%v state=%v", lparUUID, lparDetails.PartitionState)
 
 	// Check Context immediately before executing heavy operations
 	if ctx.Err() != nil {
-		cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+		log.Fatal("Operation aborted by user (Ctrl+C)")
 	}
 
 	// =========================================================================
@@ -157,15 +151,15 @@ func main() {
 	// LIST MODE
 	// -------------------------------------------------------------------------
 	case "list":
-		cliLogger.Info("Fetching Virtual Ethernet Adapters", "lpar", lparName)
+		log.Printf("Fetching Virtual Ethernet Adapters: lpar=%v", lparName)
 
 		adapters, err := restClient.GetClientNetworkAdapters(context.Background(), sysUUID, lparUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to retrieve client network adapters", "error", err)
+			log.Fatal("Failed to retrieve client network adapters")
 		}
 
 		if len(adapters) == 0 {
-			cliLogger.Warn("No Client Network Adapters found for this LPAR.")
+			log.Println("[WARN] No Client Network Adapters found for this LPAR.")
 			os.Exit(0)
 		}
 
@@ -182,16 +176,16 @@ func main() {
 		}
 		w.Flush()
 		fmt.Println("=====================================================================================================")
-		cliLogger.Info("Scan Complete", "total_found", len(adapters))
+		log.Printf("Scan Complete: total_found=%v", len(adapters))
 
 	// -------------------------------------------------------------------------
 	// CREATE MODE
 	// -------------------------------------------------------------------------
 	case "create":
-		cliLogger.Info("Resolving Target Virtual Switch", "vswitch", vswitchName)
+		log.Printf("Resolving Target Virtual Switch: vswitch=%v", vswitchName)
 		vswitches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to get Virtual Switches", "error", err)
+			log.Fatal("Failed to get Virtual Switches")
 		}
 
 		var vswitchUUID string
@@ -203,21 +197,21 @@ func main() {
 		}
 
 		if vswitchUUID == "" {
-			cliLogger.Fatal("Virtual Switch not found on Managed System", "vswitch", vswitchName)
+			log.Fatal("Virtual Switch not found on Managed System")
 		}
 
-		cliLogger.Info("Provisioning new Virtual Ethernet Adapter", "vlan", vlanID, "vswitch", vswitchName)
+		log.Printf("Provisioning new Virtual Ethernet Adapter: vlan=%v vswitch=%v", vlanID, vswitchName)
 
 		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, vlanID, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to provision Virtual Ethernet Adapter", "error", err)
+			log.Fatal("Failed to provision Virtual Ethernet Adapter")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("✨ SUCCESS: Virtual Ethernet Adapter Provisioned!")
+		log.Println("✨ SUCCESS: Virtual Ethernet Adapter Provisioned!")
 		fmt.Printf("   Adapter UUID:   %s\n", adapter.UUID)
 		fmt.Printf("   MAC Address:    %s\n", hmc.FormatMACAddress(adapter.MACAddress))
 		fmt.Printf("   VLAN ID:        %s\n", adapter.PortVLANID)
@@ -230,18 +224,18 @@ func main() {
 	// DELETE MODE
 	// -------------------------------------------------------------------------
 	case "delete":
-		cliLogger.Info("Deleting Virtual Ethernet Adapter", "adapter_uuid", adapterUUID)
+		log.Printf("Deleting Virtual Ethernet Adapter: adapter_uuid=%v", adapterUUID)
 
 		err := restClient.DeleteClientNetworkAdapter(context.Background(), lparUUID, adapterUUID, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to delete Virtual Ethernet Adapter", "error", err)
+			log.Fatal("Failed to delete Virtual Ethernet Adapter")
 		}
 
 		fmt.Println("\n=========================================================================")
-		cliLogger.Info("🗑️ SUCCESS: Virtual Ethernet Adapter Deleted!", "adapter_uuid", adapterUUID)
+		log.Printf("🗑️ SUCCESS: Virtual Ethernet Adapter Deleted!: adapter_uuid=%v", adapterUUID)
 		fmt.Println("=========================================================================")
 	}
 }

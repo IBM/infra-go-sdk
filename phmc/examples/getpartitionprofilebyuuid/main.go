@@ -22,6 +22,7 @@ func main() {
 	verbose := flag.Bool("verbose", true, "Enable verbose logging")
 
 	flag.Parse()
+	_ = verbose
 
 	fmt.Println("=== Get Single Partition Profile by UUID Example ===")
 	fmt.Println("This example retrieves a specific profile using GetLogicalPartitionProfile()")

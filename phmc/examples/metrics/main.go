@@ -60,6 +60,7 @@ func main() {
 	timeRange := flag.String("range", "1hr", "Time range horizon: 1hr, 1week, 1month, 1year")
 	verbose := flag.Bool("verbose", false, "Enable verbose debug logs")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *sysName == "" {
 		log.Fatal("❌ Error: --hmc-pass and --system-name are mandatory parameter requirements.")

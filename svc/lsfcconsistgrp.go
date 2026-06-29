@@ -46,7 +46,6 @@ func (c *Client) Lsfcconsistgrp(ctx context.Context, name string) ([]FlashCopyCo
 			result = []FlashCopyConsistGroupInfo{group}
 		} else {
 			// Fall back to array response (group with mappings)
-			c.Logger.Debug("Falling back to array parsing for consistency group mappings")
 			var rawResponse []map[string]interface{}
 			if err := json.Unmarshal(data, &rawResponse); err != nil {
 				return nil, fmt.Errorf("failed to parse response: %v", err)

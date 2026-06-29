@@ -18,6 +18,7 @@ func main() {
 	sysName := flag.String("system-name", "", "System Name")
 	verbose := flag.Bool("verbose", false, "Verbose")
 	flag.Parse()
+	_ = verbose
 
 	client := hmc.NewRestClient(*hmcIP)
 	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {

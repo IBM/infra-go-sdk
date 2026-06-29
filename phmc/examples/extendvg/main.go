@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -19,8 +20,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. FLAGS & VALIDATION
@@ -36,46 +35,39 @@ func main() {
 
 	verbose := flag.Bool("verbose", false, "Enable verbose XML and HTTP output")
 	flag.Parse()
+	_ = verbose
 
-	if *verbose {
-		cliLogger.EnableDebug()
-	} else {
-		cliLogger.SetLevel(0) // InfoLevel
-	}
 
 	if *hmcIP == "" || *username == "" || *password == "" || *sysName == "" || *viosName == "" || *vgName == "" || *pvs == "" {
 		fmt.Println("Usage: extendvg -hmc-ip <ip> -hmc-user <user> -hmc-pass <pass> -system-name <sys> -vios-name <vios> -vg-name <vg> -pvs <hdiskX,hdiskY>")
-		cliLogger.Fatal("Missing required arguments.")
+		log.Fatal("Missing required arguments.")
 	}
 
 	// =========================================================================
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", *hmcIP)
+	log.Printf("Logging into HMC: ip=%v", *hmcIP)
 	restClient := hmc.NewRestClient(*hmcIP)
 
-	if *verbose {
-		restClient.EnableVerboseLogging()
-	}
 
 	if err := restClient.Login(ctx, *username, *password, *verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
-		cliLogger.Info("Closing HMC Session...")
+		log.Println("Closing HMC Session...")
 		restClient.Logoff(ctx)
 	}()
 
-	cliLogger.Debug("Resolving System", "system", *sysName)
+	log.Printf("Resolving System: system=%v", *sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName, *verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve Managed System", "system", *sysName, "error", err)
+		log.Fatal("Failed to resolve Managed System")
 	}
 
-	cliLogger.Debug("Resolving VIOS", "vios", *viosName)
+	log.Printf("Resolving VIOS: vios=%v", *viosName)
 	viosUUID, err := hmc.GetViosID(ctx, restClient, sysUUID, *viosName, *verbose)
 	if err != nil || viosUUID == "" {
-		cliLogger.Fatal("VIOS not found on system", "vios", *viosName, "system", *sysName)
+		log.Fatal("VIOS not found on system")
 	}
 
 	// Split and clean the requested physical volume list
@@ -83,24 +75,24 @@ func main() {
 
 	// Check Context immediately before executing heavy operations
 	if ctx.Err() != nil {
-		cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+		log.Fatal("Operation aborted by user (Ctrl+C)")
 	}
 
 	// =========================================================================
 	// 4. EXECUTE EXTENSION
 	// =========================================================================
-	cliLogger.Info("Initiating Volume Group Extension", "vios", *viosName, "vg", *vgName, "targets", len(pvList))
+	log.Printf("Initiating Volume Group Extension: vios=%v vg=%v targets=%v", *viosName, *vgName, len(pvList))
 
 	err = restClient.ExtendVolumeGroup(ctx, *sysName, viosUUID, *viosName, *vgName, pvList, *verbose)
 	if err != nil {
 		if ctx.Err() != nil {
-			cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+			log.Fatal("Operation aborted by user (Ctrl+C)")
 		}
-		cliLogger.Fatal("Failed to extend Volume Group", "error", err)
+		log.Fatal("Failed to extend Volume Group")
 	}
 
 	fmt.Println("\n=========================================================================")
-	cliLogger.Info("SUCCESS: Volume Group Extended!", "vg", *vgName, "added_pvs", pvList)
+	log.Printf("SUCCESS: Volume Group Extended!: vg=%v added_pvs=%v", *vgName, pvList)
 	fmt.Println("=========================================================================")
 }
 

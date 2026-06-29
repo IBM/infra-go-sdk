@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"encoding/json"
 	"flag"
@@ -29,8 +30,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -101,23 +100,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	if verbose {
-		cliLogger.EnableDebug()
-	}
 
-	cliLogger.Info("Logging into HMC", "ip", hmcIP)
+	log.Printf("Logging into HMC: ip=%v", hmcIP)
 	restClient := hmc.NewRestClient(hmcIP)
-	if verbose {
-		restClient.EnableVerboseLogging()
-	}
 	if err := restClient.Login(ctx, username, password, verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
 
 	systems, err := restClient.GetManagedSystemQuickAll(ctx, verbose)
 	if err != nil {
-		cliLogger.Fatal("Failed to fetch tracking configuration matrices", "error", err)
+		log.Fatal("Failed to fetch tracking configuration matrices")
 	}
 	var sysUUID string
 	for _, sys := range systems {
@@ -127,7 +120,7 @@ func main() {
 		}
 	}
 	if sysUUID == "" {
-		cliLogger.Fatal("Managed System target identifier could not be verified", "name", sysName)
+		log.Fatal("Managed System target identifier could not be verified")
 	}
 
 	resolveBridgeUUID := func(vlan int) string {
@@ -144,7 +137,7 @@ func main() {
 	case "list":
 		bridges, err := restClient.GetNetworkBridges(ctx, sysUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to list active bridges", "error", err)
+			log.Fatal("Failed to list active bridges")
 		}
 		fmt.Println("=====================================================================================================")
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
@@ -159,11 +152,11 @@ func main() {
 	case "get":
 		uuid := resolveBridgeUUID(portVlan)
 		if uuid == "" {
-			cliLogger.Fatal("Network Bridge target context could not be resolved for VLAN tag", "vlan", portVlan)
+			log.Fatal("Network Bridge target context could not be resolved for VLAN tag")
 		}
 		bridge, err := restClient.GetNetworkBridge(ctx, sysUUID, uuid, verbose)
 		if err != nil {
-			cliLogger.Fatal("Get metadata processing operational execution phase failed", "error", err)
+			log.Fatal("Get metadata processing operational execution phase failed")
 		}
 		pretty, _ := json.MarshalIndent(bridge, "", "  ")
 		fmt.Println(string(pretty))
@@ -181,7 +174,7 @@ func main() {
 			for _, p := range parts {
 				v, err := strconv.Atoi(strings.TrimSpace(p))
 				if err != nil {
-					cliLogger.Fatal("Malformed load-group-vlans parameters detected; integer casting aborted", "token", p)
+					log.Fatal("Malformed load-group-vlans parameters detected; integer casting aborted")
 				}
 				loadBalancedVLANs = append(loadBalancedVLANs, v)
 			}
@@ -203,30 +196,30 @@ func main() {
 
 		bridge, err := restClient.CreateNetworkBridge(ctx, sysUUID, req, verbose)
 		if err != nil {
-			cliLogger.Fatal("Bridge deployment orchestration routine mapping failure", "error", err)
+			log.Fatal("Bridge deployment orchestration routine mapping failure")
 		}
-		cliLogger.Info("✨ SUCCESS: Network Bridge Created!", "uuid", bridge.UUID)
+		log.Printf("✨ SUCCESS: Network Bridge Created!: uuid=%v", bridge.UUID)
 
 	case "update":
 		uuid := resolveBridgeUUID(portVlan)
 		if uuid == "" {
-			cliLogger.Fatal("Network Bridge target asset matching parameters not found", "vlan", portVlan)
+			log.Fatal("Network Bridge target asset matching parameters not found")
 		}
 		err := restClient.UpdateNetworkBridge(ctx, sysUUID, uuid, failover, loadBalancing, largeSend, jumboFrames, verbose)
 		if err != nil {
-			cliLogger.Fatal("Target asset modification transaction rejected", "error", err)
+			log.Fatal("Target asset modification transaction rejected")
 		}
-		cliLogger.Info("✏️ SUCCESS: Network Bridge Configuration Updated!")
+		log.Println("✏️ SUCCESS: Network Bridge Configuration Updated!")
 
 	case "delete":
 		uuid := resolveBridgeUUID(portVlan)
 		if uuid == "" {
-			cliLogger.Info("Network profile configuration space is already clean. Skipping execution.")
+			log.Println("Network profile configuration space is already clean. Skipping execution.")
 			return
 		}
 		if err := restClient.DeleteNetworkBridge(ctx, sysUUID, uuid, verbose); err != nil {
-			cliLogger.Fatal("Target asset destructive decommissioning transaction rejected", "error", err)
+			log.Fatal("Target asset destructive decommissioning transaction rejected")
 		}
-		cliLogger.Info("🗑️ SUCCESS: Network Bridge Configurations Swept!")
+		log.Println("🗑️ SUCCESS: Network Bridge Configurations Swept!")
 	}
 }

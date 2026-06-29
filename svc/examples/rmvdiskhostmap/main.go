@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,10 +15,10 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: rmvdiskhostmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: rmvdiskhostmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 
@@ -25,12 +26,9 @@ func main() {
 
 	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
@@ -41,12 +39,12 @@ func main() {
 		VDisk: "test_volume2",
 	}
 
-	client.Logger.Info("Mapping volume to host...", "volume", mapping.VDisk, "host", mapping.Host)
+	log.Printf("Mapping volume to host...: volume=%v host=%v", mapping.VDisk, mapping.Host)
 
 	if err := client.Mkvdiskhostmap(ctx,mapping); err != nil {
-		client.Logger.Error("Mkvdiskhostmap error", "error", err)
+		log.Printf("Mkvdiskhostmap error: error=%v", err)
 		os.Exit(1)
 	}
 	
-	client.Logger.Info("✅ Successfully created volume host mapping", "volume", mapping.VDisk, "host", mapping.Host)
+	log.Printf("✅ Successfully created volume host mapping: volume=%v host=%v", mapping.VDisk, mapping.Host)
 }

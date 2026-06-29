@@ -25,6 +25,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" {
 		log.Fatal("❌ Error: hmc-pass is required.")

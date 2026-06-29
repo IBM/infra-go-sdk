@@ -37,6 +37,7 @@ func main() {
 	svcPass := flag.String("svc-pass", "", "SVC password")
 
 	flag.Parse()
+	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 

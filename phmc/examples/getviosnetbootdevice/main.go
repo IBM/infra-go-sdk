@@ -28,6 +28,7 @@ func main() {
 	viosName := flag.String("vios-name", "", "Target VIOS Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *sysName == "" || *viosName == "" {
 		log.Fatal("❌ Error: hmc-pass, system-name, and vios-name are required")

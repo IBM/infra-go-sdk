@@ -31,6 +31,7 @@ func main() {
 
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	if *password == "" || *sysName == "" || *viosName == "" || *lparName == "" {
 		log.Fatal("❌ Error: Missing required arguments.")

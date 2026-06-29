@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -16,45 +17,40 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: lsvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: lsvdisk -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
 
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
 	volumeName := "test_volume2"
-	client.Logger.Info("Searching for volume...", "volume", volumeName)
+	log.Printf("Searching for volume...: volume=%v", volumeName)
 
 	foundVolume, err := client.LsVdiskByName(ctx,volumeName)
 	if err != nil {
 		if strings.Contains(err.Error(), "CMMVC5754E") {
-			client.Logger.Warn("No disk found with name", "volume", volumeName)
+			log.Printf("No disk found with name: volume=%v", volumeName)
 		} else {
-			client.Logger.Error("LsVdiskByName error", "error", err)
+			log.Printf("LsVdiskByName error: error=%v", err)
 			os.Exit(1)
 		}
 	} else {
 		fcMapCount, _ := strconv.Atoi(foundVolume.FCMapCount)
-		client.Logger.Info("✅ Successfully retrieved disk", "name", foundVolume.Name)
-		client.Logger.Debug("Disk Details",
-			"mdisk_grp", foundVolume.MdiskGrpName,
+		log.Printf("✅ Successfully retrieved disk: name=%v", foundVolume.Name)
+		log.Printf("[DEBUG] Disk Details %v", "mdisk_grp", foundVolume.MdiskGrpName,
 			"capacity", foundVolume.Capacity,
 			"status", foundVolume.Status,
 			"type", foundVolume.Type,
 			"fc_map_count", fcMapCount,
-			"uid", foundVolume.VdiskUID,
-		)
+			"uid", foundVolume.VdiskUID,)
 	}
 }

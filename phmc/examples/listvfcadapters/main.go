@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -22,46 +23,37 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	// Initialize CLI Logger
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
-	if *verbose {
-		cliLogger.EnableDebug()
-	} else {
-		cliLogger.SetLevel(0) // Info level
-	}
 
 	if *password == "" || *sysName == "" || *lparName == "" {
-		cliLogger.Fatal("Missing required arguments", "required", "hmc-pass, system-name, lpar-name")
+		log.Fatal("Missing required arguments")
 	}
 
 	// =========================================================================
 	// AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	restClient := hmc.NewRestClient(*hmcIP)
-	if *verbose {
-		restClient.EnableVerboseLogging()
-	}
 
 	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
 
 	// Resolve System Name -> UUID
-	cliLogger.Debug("Resolving System", "system", *sysName)
+	log.Printf("Resolving System: system=%v", *sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve System", "error", err)
+		log.Fatal("Failed to resolve System")
 	}
 
 	// Resolve LPAR Name -> UUID
-	cliLogger.Debug("Resolving LPAR", "lpar", *lparName)
+	log.Printf("Resolving LPAR: lpar=%v", *lparName)
 	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
 	if err != nil || lparUUID == "" {
-		cliLogger.Fatal("Failed to resolve LPAR", "error", err)
+		log.Fatal("Failed to resolve LPAR")
 	}
 
 	// =========================================================================
@@ -69,11 +61,11 @@ func main() {
 	// =========================================================================
 	adapters, err := restClient.GetVirtualFibreChannelClientAdapters(lparUUID, *verbose)
 	if err != nil {
-		cliLogger.Fatal("Failed to retrieve vFC adapters", "error", err)
+		log.Fatal("Failed to retrieve vFC adapters")
 	}
 
 	if len(adapters) == 0 {
-		cliLogger.Info("No Virtual Fibre Channel Adapters found for this LPAR.")
+		log.Println("No Virtual Fibre Channel Adapters found for this LPAR.")
 		os.Exit(0)
 	}
 

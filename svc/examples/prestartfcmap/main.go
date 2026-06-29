@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,33 +15,30 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: prestartfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: prestartfcmap -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 
 	ctx := context.Background()
 	
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
 	mapping := svc.FlashCopyMappingID{ID: "test_fcmap"}
 
-	client.Logger.Info("Preparing FlashCopy mapping...", "id", mapping.ID)
+	log.Printf("Preparing FlashCopy mapping...: id=%v", mapping.ID)
 
 	if err := client.Prestartfcmap(ctx,mapping); err != nil {
-		client.Logger.Error("Prestartfcmap error", "error", err)
+		log.Printf("Prestartfcmap error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ Successfully prepared FlashCopy mapping", "id", mapping.ID)
+	log.Printf("✅ Successfully prepared FlashCopy mapping: id=%v", mapping.ID)
 }

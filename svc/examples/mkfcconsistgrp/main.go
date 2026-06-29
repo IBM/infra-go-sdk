@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -14,21 +15,18 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: mkfcconsistgrp -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: mkfcconsistgrp -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 	ctx := context.Background()
 
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
@@ -37,12 +35,12 @@ func main() {
 		AutoDelete: false,
 	}
 
-	client.Logger.Info("Creating FlashCopy consistency group...", "name", group.Name)
+	log.Printf("Creating FlashCopy consistency group...: name=%v", group.Name)
 
 	if err := client.Mkfcconsistgrp(ctx,group); err != nil {
-		client.Logger.Error("Mkfcconsistgrp error", "error", err)
+		log.Printf("Mkfcconsistgrp error: error=%v", err)
 		os.Exit(1)
 	}
 
-	client.Logger.Info("✅ Successfully created FlashCopy consistency group", "name", group.Name)
+	log.Printf("✅ Successfully created FlashCopy consistency group: name=%v", group.Name)
 }

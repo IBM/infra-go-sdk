@@ -38,6 +38,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
@@ -202,7 +203,7 @@ func main() {
 	// =========================================================================
 	// 4. MAP VIRTUAL DISK TO LPAR
 	// =========================================================================
-	log.Printf("[HMC] Step 3: Attaching Virtual Disk '%s' to LPAR '%s'...", *diskName, *lparName)
+	log.Printf("Step 3: Attaching Virtual Disk '%s' to LPAR '%s'...: *diskName=%v", *lparName)
 	
 	mappingUUID, err := restClient.CreateVirtualDiskMaps(sysUUID, storage.viosUUID, finalLparUUID, []string{*diskName}, *verbose)
 	if err != nil {
@@ -210,9 +211,9 @@ func main() {
 	}
 	
 	if mappingUUID == "SUCCESS_WITH_RMC_WARNING" {
-		log.Printf("[HMC] ✅ Disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
+		log.Println("✅ Disk mapped successfully! (Ignored expected RMC warning for offline LPAR)")
 	} else {
-		log.Printf("[HMC] ✅ Disk mapped successfully!")
+		log.Println("✅ Disk mapped successfully!")
 	}
 
 	// =========================================================================
@@ -223,12 +224,12 @@ func main() {
 		log.Fatalf("❌ Network Configuration Failed in background: %v", err)
 	}
 
-	log.Printf("[HMC] Step 5: Saving active configuration to profile 'default_profile'...")
+	log.Println("Step 5: Saving active configuration to profile 'default_profile'...")
 	err = restClient.SaveCurrentLparConfig(context.Background(), finalLparUUID, "default_profile", true, *verbose)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
-	log.Printf("[HMC] ✅ Configuration permanently saved to profile.")
+	log.Println("✅ Configuration permanently saved to profile.")
 
 	// =========================================================================
 	// 6. POWER ON THE LPAR
@@ -248,7 +249,7 @@ func main() {
 	profileUUID := profileHref[len(profileHref)-36:]
 	
 	if *verbose {
-		log.Printf("[HMC] Using default profile '%s' (UUID: %s)", lparDetails.DefaultProfileName, profileUUID)
+		log.Printf("Using default profile '%s' (UUID: %s): lparDetails.DefaultProfileName=%v", profileUUID)
 	}
 
 	// Create PowerOnOptions

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"fmt"
@@ -30,8 +31,6 @@ func main() {
 	defer stop()
 
 	// Initialize CLI Logger
-	cliLogger := hmc.NewDefaultLogger()
-	cliLogger.SetPrefix("[CLI]")
 
 	// =========================================================================
 	// 2. SUBCOMMAND ROUTER & CONFIGURATION
@@ -94,75 +93,70 @@ func main() {
 		printUsage()
 		os.Exit(0)
 	default:
-		cliLogger.Error("Unknown command", "command", cmd)
+		log.Printf("Unknown command: command=%v", cmd)
 		printUsage()
 		os.Exit(1)
 	}
 
 	// Apply Verbosity to Logger
 	if verbose {
-		cliLogger.EnableDebug()
 	} else {
-		cliLogger.SetLevel(0) // InfoLevel
+		log.Printf(": %v", 0)
 	}
 
 	// --- Shared Validation ---
 	if password == "" || sysName == "" {
-		cliLogger.Fatal("Missing required arguments", "required", "hmc-pass, system-name")
+		log.Fatal("Missing required arguments")
 	}
 
 	if cmd != "list" && viosName == "" {
-		cliLogger.Fatal("Missing required argument", "required", "vios-name")
+		log.Fatal("Missing required argument")
 	}
 
 	if cmd == "create" {
 		if vgName == "" {
-			cliLogger.Fatal("Missing required argument", "required", "vg-name")
+			log.Fatal("Missing required argument")
 		}
 		if repSize <= 0 {
-			cliLogger.Fatal("Invalid argument", "error", "rep-size must be greater than 0")
+			log.Fatal("Invalid argument")
 		}
 	}
 	if cmd == "extend" && addSize <= 0 {
-		cliLogger.Fatal("Invalid argument", "error", "add-size must be greater than 0")
+		log.Fatal("Invalid argument")
 	}
 
 	// =========================================================================
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	cliLogger.Info("Logging into HMC", "ip", hmcIP)
+	log.Printf("Logging into HMC: ip=%v", hmcIP)
 	restClient := hmc.NewRestClient(hmcIP)
 
-	if verbose {
-		restClient.EnableVerboseLogging()
-	}
-
 	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
-		cliLogger.Fatal("HMC Logon failed", "error", err)
+		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
-		cliLogger.Info("Closing HMC Session...")
+		log.Println("Closing HMC Session...")
 		restClient.Logoff(context.Background())
 	}()
 
-	cliLogger.Debug("Resolving System", "system", sysName)
+	log.Printf("Resolving System: system=%v", sysName)
 	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
 	if err != nil || sysUUID == "" {
-		cliLogger.Fatal("Failed to resolve Managed System", "system", sysName, "error", err)
+		log.Fatal("Failed to resolve Managed System")
 	}
 
 	var targetViosUUID string
 	if viosName != "" {
-		cliLogger.Debug("Resolving VIOS", "vios", viosName)
+		log.Printf("Resolving VIOS: vios=%v", viosName)
 		targetViosUUID, err = hmc.GetViosID(context.Background(), restClient, sysUUID, viosName, verbose)
 		if err != nil || targetViosUUID == "" {
-			cliLogger.Fatal("VIOS not found on system", "vios", viosName, "system", sysName)
+			log.Fatal("VIOS not found on system")
 		}
 	}
 
 	// Check Context immediately before executing heavy operations
 	if ctx.Err() != nil {
-		cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+		log.Fatal("Operation aborted by user (Ctrl+C)")
 	}
 
 	// =========================================================================
@@ -175,11 +169,11 @@ func main() {
 	// LIST MODE
 	// -------------------------------------------------------------------------
 	case "list":
-		cliLogger.Info("Fetching Virtual Media Repository Inventory", "system", sysName)
+		log.Printf("Fetching Virtual Media Repository Inventory: system=%v", sysName)
 
 		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
 		if err != nil || len(viosList) == 0 {
-			cliLogger.Fatal("Failed to fetch VIOS instances for system", "system", sysName)
+			log.Fatal("Failed to fetch VIOS instances for system")
 		}
 
 		reposFound := 0
@@ -197,65 +191,63 @@ func main() {
 			for _, vg := range vgList {
 				if vg.MediaRepositoryName != "" {
 					reposFound++
-					cliLogger.Info("Media Repository Found",
-						"vios", vios.PartitionName,
+					log.Printf("[INFO] Media Repository Found %v", "vios", vios.PartitionName,
 						"volume_group", vg.GroupName,
 						"repo_name", vg.MediaRepositoryName,
-						"capacity_gb", vg.MediaRepositorySize,
-					)
+						"capacity_gb", vg.MediaRepositorySize,)
 				}
 			}
 		}
 
 		if reposFound == 0 {
-			cliLogger.Warn("No Virtual Media Repositories found matching your criteria.")
+			log.Println("[WARN] No Virtual Media Repositories found matching your criteria.")
 		} else {
-			cliLogger.Info("Scan Complete", "total_repositories", reposFound)
+			log.Printf("Scan Complete: total_repositories=%v", reposFound)
 		}
 
 	// -------------------------------------------------------------------------
 	// CREATE MODE
 	// -------------------------------------------------------------------------
 	case "create":
-		cliLogger.Info("Initiating Media Repository Creation", "vios", viosName, "vg", vgName, "size_mb", repSize)
+		log.Printf("Initiating Media Repository Creation: vios=%v vg=%v size_mb=%v", viosName, vgName, repSize)
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
-		cliLogger.Debug("Verifying if a Media Repository already exists on this VIOS...")
+		log.Println("Verifying if a Media Repository already exists on this VIOS...")
 		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Volume Groups to verify repository existence", "error", err)
+			log.Fatal("Failed to fetch Volume Groups to verify repository existence")
 		}
 
 		for _, vg := range vgList {
 			if vg.MediaRepositoryName != "" {
-				cliLogger.Info("Media Repository already exists. Skipping creation.", "vios", viosName, "vg", vg.GroupName, "repo_name", vg.MediaRepositoryName)
+				log.Printf("Media Repository already exists. Skipping creation.: vios=%v vg=%v repo_name=%v", viosName, vg.GroupName, vg.MediaRepositoryName)
 				os.Exit(0) // Idempotent Exit
 			}
 		}
 
-		cliLogger.Info("Executing Media Repository creation via VIOS...", "size_mb", repSize)
+		log.Printf("Executing Media Repository creation via VIOS...: size_mb=%v", repSize)
 
 		err = restClient.CreateMediaRepository(context.Background(), sysName, targetViosUUID, viosName, vgName, repSize, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to create Media Repository", "error", err)
+			log.Fatal("Failed to create Media Repository")
 		}
 
-		cliLogger.Info("SUCCESS: Virtual Media Repository Created!", "vios", viosName, "vg", vgName)
+		log.Printf("SUCCESS: Virtual Media Repository Created!: vios=%v vg=%v", viosName, vgName)
 
 	// -------------------------------------------------------------------------
 	// EXTEND MODE
 	// -------------------------------------------------------------------------
 	case "extend":
-		cliLogger.Info("Initiating Media Repository Extension", "vios", viosName, "add_size_mb", addSize)
+		log.Printf("Initiating Media Repository Extension: vios=%v add_size_mb=%v", viosName, addSize)
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
-		cliLogger.Debug("Verifying if Media Repository exists...")
+		log.Println("Verifying if Media Repository exists...")
 		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Volume Groups to verify repository existence", "error", err)
+			log.Fatal("Failed to fetch Volume Groups to verify repository existence")
 		}
 
 		repoExists := false
@@ -267,32 +259,32 @@ func main() {
 		}
 
 		if !repoExists {
-			cliLogger.Fatal("Virtual Media Repository does not exist on VIOS. Cannot extend.", "vios", viosName)
+			log.Fatal("Virtual Media Repository does not exist on VIOS. Cannot extend.")
 		}
 
-		cliLogger.Info("Extending Media Repository", "vios", viosName, "add_mb", addSize)
+		log.Printf("Extending Media Repository: vios=%v add_mb=%v", viosName, addSize)
 
 		err = restClient.ChangeMediaRepository(context.Background(), sysName, targetViosUUID, viosName, addSize, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to extend Media Repository", "error", err)
+			log.Fatal("Failed to extend Media Repository")
 		}
 
-		cliLogger.Info("SUCCESS: Virtual Media Repository Extended!", "vios", viosName, "added_mb", addSize)
+		log.Printf("SUCCESS: Virtual Media Repository Extended!: vios=%v added_mb=%v", viosName, addSize)
 
 	// -------------------------------------------------------------------------
 	// DELETE MODE
 	// -------------------------------------------------------------------------
 	case "delete":
-		cliLogger.Warn("Initiating permanent Media Repository Deletion", "vios", viosName, "repo_name", repoName)
+		log.Printf("Initiating permanent Media Repository Deletion: vios=%v repo_name=%v", viosName, repoName)
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
-		cliLogger.Debug("Verifying if Media Repository exists...")
+		log.Println("Verifying if Media Repository exists...")
 		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
 		if err != nil {
-			cliLogger.Fatal("Failed to fetch Volume Groups to verify repository existence", "error", err)
+			log.Fatal("Failed to fetch Volume Groups to verify repository existence")
 		}
 
 		repoExists := false
@@ -305,20 +297,20 @@ func main() {
 		}
 
 		if !repoExists {
-			cliLogger.Info("Virtual Media Repository not found on VIOS. No action needed.", "vios", viosName, "repo_name", repoName)
+			log.Printf("Virtual Media Repository not found on VIOS. No action needed.: vios=%v repo_name=%v", viosName, repoName)
 			os.Exit(0) // Idempotent Exit
 		}
 
-		cliLogger.Warn("Attempting to permanently delete Virtual Media Repository", "repo_name", repoName, "vios", viosName, "force", force)
+		log.Printf("Attempting to permanently delete Virtual Media Repository: repo_name=%v vios=%v force=%v", repoName, viosName, force)
 
 		err = restClient.DeleteMediaRepository(context.Background(), sysName, targetViosUUID, viosName, repoName, force, verbose)
 		if err != nil {
 			if ctx.Err() != nil {
-				cliLogger.Fatal("Operation aborted by user (Ctrl+C)")
+				log.Fatal("Operation aborted by user (Ctrl+C)")
 			}
-			cliLogger.Fatal("Failed to delete Media Repository", "error", err)
+			log.Fatal("Failed to delete Media Repository")
 		}
 
-		cliLogger.Info("SUCCESS: Virtual Media Repository Deleted!", "repo_name", repoName, "vios", viosName)
+		log.Printf("SUCCESS: Virtual Media Repository Deleted!: repo_name=%v vios=%v", repoName, viosName)
 	}
 }

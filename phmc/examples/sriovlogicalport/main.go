@@ -41,6 +41,7 @@ func main() {
 	logicalPortsRaw := flag.String("logical-ports", "", "Comma-separated list of Logical Port IDs or Location Codes to delete")
 
 	flag.Parse()
+	_ = verbose
 
 	// --- Validation ---
 	if *password == "" || *sysName == "" || *lparName == "" {

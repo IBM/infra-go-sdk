@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"context"
 	"flag"
 	"os"
@@ -15,22 +16,19 @@ func main() {
 	svcUser := flag.String("svc-user", "", "SVC username (required)")
 	svcPass := flag.String("svc-pass", "", "SVC password (required)")
 	flag.Parse()
-	logger := svc.NewDefaultLogger()
+	_ = verbose
 
 	if *svcIP == "" || *svcUser == "" || *svcPass == "" {
-		logger.Fatal("Usage: mkhost -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
+		log.Fatal("Usage: mkhost -svc-ip <ip> -svc-user <user> -svc-pass <pass>")
 	}
 
 
 	ctx := context.Background()
 
 	client := svc.NewClient(*svcIP, *svcUser, *svcPass).WithTLSInsecure()
-	if *verbose {
-		client = client.WithDebug()
-	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		client.Logger.Error("Authentication error", "error", err)
+		log.Printf("Authentication error: error=%v", err)
 		os.Exit(1)
 	}
 
@@ -41,17 +39,17 @@ func main() {
 		Protocol: "scsi",
 	}
 
-	client.Logger.Info("Attempting to create host...", "host_name", hostParams.Name)
+	log.Printf("Attempting to create host...: host_name=%v", hostParams.Name)
 
 	err := client.Mkhost(ctx,hostParams)
 	if err != nil {
 		if strings.Contains(err.Error(), "CMMVC6035E") || strings.Contains(err.Error(), "object already exists") {
-			client.Logger.Info("✅ Host already exists, skipping creation", "host_name", hostParams.Name)
+			log.Printf("✅ Host already exists, skipping creation: host_name=%v", hostParams.Name)
 		} else {
-			client.Logger.Error("Mkhost error", "error", err)
+			log.Printf("Mkhost error: error=%v", err)
 			os.Exit(1)
 		}
 	} else {
-		client.Logger.Info("✅ Successfully created host", "host_name", hostParams.Name)
+		log.Printf("✅ Successfully created host: host_name=%v", hostParams.Name)
 	}
 }

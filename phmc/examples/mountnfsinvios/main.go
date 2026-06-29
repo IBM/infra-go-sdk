@@ -30,6 +30,7 @@ func main() {
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	flag.Parse()
+	_ = verbose
 
 	// Validate required parameters
 	if *password == "" || *sysName == "" || *viosName == "" {

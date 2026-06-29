@@ -22,6 +22,7 @@ func main() {
 	useFallback := flag.Bool("fallback", true, "Use SSH fallback if REST API fails")
 
 	flag.Parse()
+	_ = verbose
 
 	// Validate required flags
 	if *hmcIP == "" || *username == "" || *password == "" || *systemName == "" || *lparName == "" {

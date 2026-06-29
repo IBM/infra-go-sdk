@@ -24,6 +24,7 @@ func main() {
 	timeout := flag.Int("timeout", 10, "Timeout in minutes for job completion")
 
 	flag.Parse()
+	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 	//req := req.WithContext(ctx)

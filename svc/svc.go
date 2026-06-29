@@ -22,17 +22,14 @@ type Client struct {
 	Token       string
 	TokenExpiry time.Time
 	HTTPClient  *http.Client
-	Logger      *Logger
 	mu          sync.Mutex
 }
-
 
 const (
 	defaultPort        = 7443
 	defaultHTTPTimeout = 120 * time.Second
 	fabricTimeout      = 300 * time.Second // Fabric operations can take longer
 )
-
 
 func NewClient(host, username, password string) *Client {
 	return &Client{
@@ -43,17 +40,7 @@ func NewClient(host, username, password string) *Client {
 		HTTPClient: &http.Client{
 			Timeout: defaultHTTPTimeout,
 		},
-		Logger: NewDefaultLogger(), // Initialize with the default (Warn) logger
 	}
-}
-func (c *Client) WithLogger(logger *Logger) *Client {
-	c.Logger = logger
-	return c
-}
-// WithDebug is a quick helper to turn on debug logging for the client
-func (c *Client) WithDebug() *Client {
-	c.Logger = NewDebugLogger()
-	return c
 }
 
 func (c *Client) WithPort(port int) {
@@ -142,50 +129,36 @@ func (c *Client) post(ctx context.Context, endpoint string, payload map[string]i
 func (c *Client) postWithHTTPClient(ctx context.Context, httpClient *http.Client, endpoint string, payload map[string]interface{}) ([]byte, error) {
 	activeToken, err := c.ensureTokenValid(ctx, httpClient)
 	if err != nil {
-		c.Logger.Error("Token validation failed", "error", err)
 		return nil, fmt.Errorf("token refresh failed: %v", err)
 	}
 
 	url := fmt.Sprintf("%s/rest/%s", c.baseURL(), endpoint)
-	c.Logger.Debug("→ HTTP Request", "method", "POST", "url", url, "endpoint", endpoint)
 
 	var body io.Reader
 	if payload != nil {
 		jsonBody, err := json.Marshal(payload)
 		if err != nil {
-			c.Logger.Error("Failed to marshal payload", "error", err)
 			return nil, err
 		}
-		c.Logger.Debug("  Request Body:", "payload", string(jsonBody))
 		body = bytes.NewBuffer(jsonBody)
 	}
 
-	// Use NewRequestWithContext here
 	req, err := http.NewRequestWithContext(ctx, "POST", url, body)
 	if err != nil {
-		c.Logger.Error("Failed to create HTTP request", "error", err)
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Auth-Token", activeToken)
 
-	start := time.Now()
 	resp, err := httpClient.Do(req)
-	duration := time.Since(start)
-
 	if err != nil {
-		c.Logger.Error("HTTP request failed", "error", err, "duration", duration)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 
-	c.Logger.Debug("← HTTP Response", "status", resp.StatusCode, "duration", duration)
-	c.Logger.Debug("  Response Body:", "payload", string(respBody))
-
 	if resp.StatusCode != 200 {
-		c.Logger.Warn("Non-200 response received", "status", resp.StatusCode, "response", string(respBody))
 		return nil, errors.New(string(respBody))
 	}
 
