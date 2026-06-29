@@ -49,12 +49,37 @@ func (c *Client) WithPort(port int) {
 
 func (c *Client) WithTLSInsecure() *Client {
 	c.InsecureTLS = true
-	
-	// Clone the default transport to preserve connection pooling!
-	customTransport := http.DefaultTransport.(*http.Transport).Clone()
-	customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	
-	c.HTTPClient.Transport = customTransport
+
+	// Start from whatever transport is already set (e.g. one the caller
+	// supplied via WithTransport), falling back to http.DefaultTransport.
+	base := c.HTTPClient.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+
+	// Only *http.Transport can have its TLS config patched — clone it to
+	// avoid mutating the shared default.  If the caller set a non-Transport
+	// RoundTripper they are responsible for TLS config themselves.
+	if t, ok := base.(*http.Transport); ok {
+		cloned := t.Clone()
+		cloned.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		c.HTTPClient.Transport = cloned
+	}
+	return c
+}
+
+// WithTransport replaces the HTTP transport used for all requests.
+// It can be used to inject middleware such as logging, metrics, retries, or
+// custom proxy/mTLS transports.
+//
+// Call WithTLSInsecure *before* WithTransport if you need both — the wrapped
+// transport will already have InsecureSkipVerify set on the inner layer.
+//
+//	client := svc.NewClient(ip, user, pass).
+//	    WithTLSInsecure().
+//	    WithTransport(myLoggingTransport(client.HTTPClient.Transport))
+func (c *Client) WithTransport(rt http.RoundTripper) *Client {
+	c.HTTPClient.Transport = rt
 	return c
 }
 
