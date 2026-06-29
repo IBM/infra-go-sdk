@@ -1,15 +1,16 @@
 package main
 
 import (
-	"log"
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -41,6 +42,8 @@ func main() {
 	forcePrepare := flag.Bool("force-prepare", false, "Proceed with update even if redundancy validation fails")
 	restart := flag.Bool("restart", false, "Automatically restart the VIOS after a successful update")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -60,22 +63,22 @@ func main() {
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 	
 
-	if err := restClient.Login(ctx, *username, *password, *verbose); err != nil {
+	if err := restClient.Login(ctx, *username, *password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
 
 	log.Printf("Resolving System: system=%v", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve Managed System")
 	}
 
 	log.Printf("Resolving VIOS: vios=%v", *viosName)
-	viosUUID, err := hmc.GetViosID(ctx, restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(ctx, restClient, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatal("VIOS not found on system")
 	}
@@ -85,7 +88,7 @@ func main() {
 	// =========================================================================
 	log.Println("Verifying HMC internal repository capacity...")
 	
-	cachedUpdates, err := restClient.ListVIOSHMCUpdates(ctx, *verbose)
+	cachedUpdates, err := restClient.ListVIOSHMCUpdates(ctx)
 	if err != nil {
 		log.Fatal("Failed to list cached VIOS updates on HMC")
 	}
@@ -94,7 +97,7 @@ func main() {
 		oldestImage := cachedUpdates[0] // Safely grab the first one in the list
 		log.Printf("HMC repository is full (%d/3 limit). Evicting oldest: %s", len(cachedUpdates), oldestImage)
 		
-		err = restClient.DeleteVIOSHMCUpdate(ctx, oldestImage, *verbose)
+		err = restClient.DeleteVIOSHMCUpdate(ctx, oldestImage)
 		if err != nil {
 			log.Fatal("Failed to delete stale update image")
 		}
@@ -108,7 +111,7 @@ func main() {
 	// =========================================================================
 	log.Println("Validating redundancy and preparing VIOS for maintenance...")
 	
-	report, err := restClient.PrepareVIOSMaintenance(ctx, viosUUID, *forcePrepare, *verbose)
+	report, err := restClient.PrepareVIOSMaintenance(ctx, viosUUID, *forcePrepare)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -162,7 +165,7 @@ func main() {
 
 	log.Println("Triggering update. This will take a significant amount of time (10-45 minutes")
 	
-	output, err := restClient.UpdateVIOS(ctx, viosUUID, opts, *verbose)
+	output, err := restClient.UpdateVIOS(ctx, viosUUID, opts)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.Fatal("Operation aborted by user (Ctrl+C)")

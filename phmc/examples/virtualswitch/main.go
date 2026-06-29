@@ -1,11 +1,11 @@
 package main
 
 import (
-	"log"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func printUsage() {
@@ -51,6 +52,7 @@ func main() {
 
 	// Shared Variables
 	var hmcIP, username, password, sysName, switchName string
+	var debug, debugFull bool
 	var verbose bool
 
 	// Action-Specific Variables
@@ -61,6 +63,8 @@ func main() {
 		fs.StringVar(&hmcIP, "hmc-ip", "", "HMC IP address")
 		fs.StringVar(&username, "hmc-user", "", "HMC username")
 		fs.StringVar(&password, "hmc-pass", "", "HMC password")
+		fs.BoolVar(&debug,     "debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+		fs.BoolVar(&debugFull, "debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 		fs.StringVar(&sysName, "system-name", "", "Managed System Name (Required)")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose XML and HTTP output")
 	}
@@ -136,9 +140,9 @@ func main() {
 	// 3. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", hmcIP)
-	restClient := hmc.NewRestClient(hmcIP)
+	restClient := exutil.NewClient(hmcIP, debug, debugFull)
 
-	if err := restClient.Login(ctx, username, password, verbose); err != nil {
+	if err := restClient.Login(ctx, username, password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
@@ -148,7 +152,7 @@ func main() {
 
 	log.Printf("Resolving System: system=%v", sysName)
 	// Fallback to searching quick all if GetManagedSystemByNameQuick doesn't exist yet
-	systems, err := restClient.GetManagedSystemQuickAll(ctx, verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(ctx)
 	if err != nil {
 		log.Fatal("Failed to get managed systems")
 	}
@@ -167,7 +171,7 @@ func main() {
 
 	// Helper to resolve Switch Name -> UUID for Get/Update/Delete operations
 	resolveSwitchUUID := func(name string) string {
-		switches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID, verbose)
+		switches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to resolve Virtual Switches")
 		}
@@ -196,7 +200,7 @@ func main() {
 	case "list":
 		log.Printf("Fetching Virtual Switch Inventory: system=%v", sysName)
 
-		switches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID, verbose)
+		switches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Virtual Switches")
 		}
@@ -230,7 +234,7 @@ func main() {
 		}
 
 		log.Printf("Fetching detailed Virtual Switch config: uuid=%v", targetUUID)
-		detailedSwitch, err := restClient.GetVirtualSwitch(ctx, sysUUID, targetUUID, verbose)
+		detailedSwitch, err := restClient.GetVirtualSwitch(ctx, sysUUID, targetUUID)
 		if err != nil {
 			log.Fatal("Failed to get Virtual Switch details")
 		}
@@ -254,7 +258,7 @@ func main() {
 
 		log.Printf("Provisioning Virtual Switch: name=%v mode=%v", switchName, switchMode)
 
-		vSwitch, err := restClient.CreateVirtualSwitch(ctx, sysUUID, req, verbose)
+		vSwitch, err := restClient.CreateVirtualSwitch(ctx, sysUUID, req)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -280,7 +284,7 @@ func main() {
 		}
 
 		log.Printf("Updating Virtual Switch: uuid=%v", targetUUID)
-		err := restClient.UpdateVirtualSwitch(ctx, sysUUID, targetUUID, newSwitchName, newSwitchMode, verbose)
+		err := restClient.UpdateVirtualSwitch(ctx, sysUUID, targetUUID, newSwitchName, newSwitchMode)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -304,7 +308,7 @@ func main() {
 		}
 
 		log.Printf("Attempting to delete Virtual Switch: switch_name=%v uuid=%v", switchName, targetUUID)
-		err := restClient.DeleteVirtualSwitch(ctx, sysUUID, targetUUID, verbose)
+		err := restClient.DeleteVirtualSwitch(ctx, sysUUID, targetUUID)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")

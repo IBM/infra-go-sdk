@@ -8,7 +8,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -24,6 +24,8 @@ func main() {
 	enforceAll := flag.Bool("enforce-all", true, "Automatically turn on LTM and Aggregation for ALL systems")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -32,8 +34,8 @@ func main() {
 	}
 
 	// 1. CONNECT & LOGON
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -43,7 +45,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n⚙️  Fetching Global PCM Configuration for HMC at '%s'...\n", *hmcIP)
 	
-	prefs, err := restClient.GetManagementConsolePcmPreferences(context.Background(), *verbose)
+	prefs, err := restClient.GetManagementConsolePcmPreferences(context.Background())
 	if err != nil {
 		log.Fatalf("❌ Failed to retrieve global PCM preferences: %v", err)
 	}
@@ -103,7 +105,7 @@ func main() {
 	if needsUpdate {
 		fmt.Println("\n⚠️  Configuration mismatch detected. Pushing bulk PCM configuration updates to HMC...")
 		
-		err = restClient.SetManagementConsolePcmPreferences(context.Background(), prefs, *verbose)
+		err = restClient.SetManagementConsolePcmPreferences(context.Background(), prefs)
 		if err != nil {
 			log.Fatalf("❌ Failed to push global PCM configuration update: %v", err)
 		}

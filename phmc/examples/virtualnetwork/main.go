@@ -1,11 +1,11 @@
 package main
 
 import (
-	"log"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func printUsage() {
@@ -51,6 +52,7 @@ func main() {
 
 	// Shared Variables
 	var hmcIP, username, password, sysName, netName string
+	var debug, debugFull bool
 	var verbose bool
 
 	// Action-Specific Variables
@@ -63,6 +65,8 @@ func main() {
 		fs.StringVar(&hmcIP, "hmc-ip", "", "HMC IP address")
 		fs.StringVar(&username, "hmc-user", "", "HMC username")
 		fs.StringVar(&password, "hmc-pass", "", "HMC password")
+		fs.BoolVar(&debug,     "debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+		fs.BoolVar(&debugFull, "debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 		fs.StringVar(&sysName, "system-name", "", "Managed System Name (Required)")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose XML and HTTP output")
 	}
@@ -144,9 +148,9 @@ func main() {
 	// 3. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", hmcIP)
-	restClient := hmc.NewRestClient(hmcIP)
+	restClient := exutil.NewClient(hmcIP, debug, debugFull)
 
-	if err := restClient.Login(ctx, username, password, verbose); err != nil {
+	if err := restClient.Login(ctx, username, password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
@@ -155,7 +159,7 @@ func main() {
 	}()
 
 	log.Printf("Resolving System: system=%v", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve Managed System")
 	}
@@ -177,7 +181,7 @@ func main() {
 	case "list":
 		log.Printf("Fetching Virtual Network Inventory: system=%v", sysName)
 
-		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
+		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Virtual Networks")
 		}
@@ -207,7 +211,7 @@ func main() {
 		log.Printf("Looking up Virtual Network to retrieve details: net_name=%v", netName)
 
 		// 1. Fetch all networks to map the Name to the UUID
-		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
+		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Virtual Networks for resolution")
 		}
@@ -227,7 +231,7 @@ func main() {
 		log.Printf("Fetching detailed Virtual Network config: uuid=%v", targetUUID)
 		
 		// 2. Query the exact UUID
-		detailedVnet, err := restClient.GetVirtualNetwork(ctx, sysUUID, targetUUID, verbose)
+		detailedVnet, err := restClient.GetVirtualNetwork(ctx, sysUUID, targetUUID)
 		if err != nil {
 			log.Fatal("Failed to get Virtual Network details")
 		}
@@ -246,7 +250,7 @@ func main() {
 	// -------------------------------------------------------------------------
 	case "create":
 		log.Printf("Resolving Target Virtual Switch: vswitch=%v", vswitchName)
-		vswitches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID, verbose)
+		vswitches, err := restClient.GetVirtualSwitchQuickAll(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to get Virtual Switches")
 		}
@@ -272,7 +276,7 @@ func main() {
 
 		log.Printf("Provisioning Virtual Network: name=%v vlan=%v", netName, vlanID)
 
-		vnet, err := restClient.CreateVirtualNetwork(ctx, sysUUID, req, verbose)
+		vnet, err := restClient.CreateVirtualNetwork(ctx, sysUUID, req)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -294,7 +298,7 @@ func main() {
 	case "update":
 		log.Printf("Looking up Virtual Network to update: net_name=%v", netName)
 
-		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
+		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Virtual Networks for resolution")
 		}
@@ -313,7 +317,7 @@ func main() {
 
 		log.Printf("Renaming Virtual Network: old_name=%v new_name=%v", netName, newNetName)
 
-		err = restClient.UpdateVirtualNetwork(ctx, sysUUID, targetUUID, newNetName, verbose)
+		err = restClient.UpdateVirtualNetwork(ctx, sysUUID, targetUUID, newNetName)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -331,7 +335,7 @@ func main() {
 	case "delete":
 		log.Printf("Looking up Virtual Network for permanent deletion: net_name=%v", netName)
 
-		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID, verbose)
+		networks, err := restClient.GetVirtualNetworks(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Virtual Networks for resolution")
 		}
@@ -351,7 +355,7 @@ func main() {
 
 		log.Printf("Attempting to delete Virtual Network: net_name=%v uuid=%v", netName, targetUUID)
 
-		err = restClient.DeleteVirtualNetwork(ctx, sysUUID, targetUUID, verbose)
+		err = restClient.DeleteVirtualNetwork(ctx, sysUUID, targetUUID)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")

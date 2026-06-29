@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -20,6 +20,8 @@ func main() {
 	sysName := flag.String("system-name", "", "Managed System Name")
 	lparName := flag.String("lpar-name", "", "Target LPAR Name")
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -43,8 +45,8 @@ func main() {
 
 	// 1. Initialize & Login
 	fmt.Println("Step 1: Connecting to HMC...")
-	client := hmc.NewRestClient(*hmcIP)
-	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
+	client := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := client.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}
 	defer client.Logoff(context.Background())
@@ -52,7 +54,7 @@ func main() {
 
 	// 2. Resolve System UUID
 	fmt.Printf("Step 2: Resolving System UUID for '%s'...", *sysName)
-	_, sysUUID, err := client.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := client.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ Managed System '%s' not found: %v", *sysName, err)
 	}
@@ -60,7 +62,7 @@ func main() {
 
 	// 3. Resolve LPAR UUID and get details
 	fmt.Printf("Step 3: Resolving LPAR UUID for '%s'...", *lparName)
-	lparDetails, lparUUID, err := client.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	lparDetails, lparUUID, err := client.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found on system '%s': %v", *lparName, *sysName, err)
 	}
@@ -69,7 +71,7 @@ func main() {
 
 	// 4. Get LPAR detailed information for profile
 	fmt.Println("Step 4: Fetching LPAR detailed information...")
-	lparDetailed, err := client.GetLogicalPartitionDetailed(context.Background(), lparUUID, *verbose)
+	lparDetailed, err := client.GetLogicalPartitionDetailed(context.Background(), lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to get LPAR details: %v", err)
 	}
@@ -90,7 +92,7 @@ func main() {
 	}
 
 	fmt.Println("Step 5: Fetching network boot devices from profile...")
-	bootDevices, err := client.GetNetworkBootDevicesForLpar(context.Background(), lparUUID, profileUUID, *verbose)
+	bootDevices, err := client.GetNetworkBootDevicesForLpar(context.Background(), lparUUID, profileUUID)
 	if err != nil {
 		log.Fatalf("❌ GetNetworkBootDevices failed: %v", err)
 	}

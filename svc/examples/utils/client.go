@@ -17,11 +17,5 @@ func GetSVCClient() *svc.Client {
 		os.Exit(1)
 	}
 
-	client := svc.NewClient(ip, username, password).WithTLSInsecure()
-	
-	// Automatically turn on debug if requested via env var
-	if os.Getenv("SVC_DEBUG") == "true" {
-	}
-
-	return client
+	return svc.NewClient(ip, username, password).WithTLSInsecure()
 }

@@ -8,7 +8,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -24,6 +24,8 @@ func main() {
 	lparName := flag.String("lpar-name", "", "Target LPAR Name")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -34,8 +36,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -46,7 +48,7 @@ func main() {
 	
 	// 1. Resolve System Name to UUID using GetManagedSystemQuickAll
 	if *verbose { fmt.Printf("🔍 Resolving System '%s' (Quick)...\n", *sysName) }
-	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), *verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background())
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch quick systems list: %v", err)
 	}
@@ -64,7 +66,7 @@ func main() {
 
 	// 2. Resolve LPAR Name to UUID using GetLogicalPartitionsQuickAll
 	if *verbose { fmt.Printf("🔍 Resolving LPAR '%s' on %s (Quick)...\n", *lparName, sysUUID) }
-	lpars, err := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID, *verbose)
+	lpars, err := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch quick LPARs list: %v", err)
 	}
@@ -107,7 +109,7 @@ func main() {
 
 	// Loop through and fetch each property individually
 	for _, prop := range properties {
-		value, err := restClient.GetLogicalPartitionQuickProperty(lparUUID, prop, *verbose)
+		value, err := restClient.GetLogicalPartitionQuickProperty(lparUUID, prop)
 		if err != nil {
 			// Print the error in the table without crashing the script
 			fmt.Fprintf(w, "%s\tERROR: %v\n", prop, err)

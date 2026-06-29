@@ -9,7 +9,7 @@ import (
 	"sort"
 	"text/tabwriter"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -22,6 +22,8 @@ func main() {
 	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -33,12 +35,12 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
 	if *verbose {
 		log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
 	}
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		if *verbose {
 			log.Fatalf("Logon failed: %v", err)
 		}
@@ -61,7 +63,7 @@ func main() {
 		fmt.Printf("\nResolving System UUID for '%s'...\n", *sysName)
 	}
 	// Use the quick endpoint for fast system resolution
-	sysQuick, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	sysQuick, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		if *verbose {
 			log.Fatalf("System '%s' not found: %v", *sysName, err)
@@ -76,7 +78,7 @@ func main() {
 		fmt.Println("Downloading Advanced Partition configurations (this may take a moment)...")
 	}
 	
-	partitions, err := restClient.GetLogicalPartitionsInSystem(sysUUID, *verbose)
+	partitions, err := restClient.GetLogicalPartitionsInSystem(sysUUID)
 	if err != nil {
 		if *verbose {
 			log.Fatalf("Failed to retrieve advanced configurations: %v", err)

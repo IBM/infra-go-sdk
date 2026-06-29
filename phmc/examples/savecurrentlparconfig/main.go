@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -16,14 +16,16 @@ func main() {
 	hmcIP := flag.String("hmc-ip", "", "HMC IP address")
 	username := flag.String("hmc-user", "", "HMC Username")
 	password := flag.String("hmc-pass", "", "HMC Password")
-	
+
 	sysName := flag.String("system-name", "", "Managed System Name")
 	lparName := flag.String("lpar-name", "", "Name of the LPAR to save")
-	
+
 	profileName := flag.String("profile-name", "default_profile", "Name of the target profile")
 	force := flag.Bool("force", true, "Overwrite the profile if it already exists")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -38,8 +40,8 @@ func main() {
 	// =========================================================================
 	// 1. AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -48,15 +50,15 @@ func main() {
 	// 2. RESOLVE SYSTEM AND LPAR UUIDS
 	// =========================================================================
 	fmt.Printf("🔍 Resolving System '%s' and LPAR '%s'...\n", *sysName, *lparName)
-	
+
 	// Resolve System UUID
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	// Resolve LPAR UUID
-	_,lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_,lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found on System '%s'.", *lparName, *sysName)
 	}
@@ -65,8 +67,8 @@ func main() {
 	// 3. EXECUTE SAVE JOB
 	// =========================================================================
 	fmt.Printf("🚀 Initiating SaveCurrentConfig Job (Target Profile: '%s', Force: %t)...\n", *profileName, *force)
-	
-	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *profileName, *force, *verbose)
+
+	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *profileName, *force)
 	if err != nil {
 		log.Fatalf("❌ Failed to save configuration: %v", err)
 	}

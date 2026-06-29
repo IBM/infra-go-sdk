@@ -14,7 +14,7 @@ import (
 )
 
 // DeployPartitionTemplate deploys a partition template to a managed system
-func (c *RestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug bool) (string, error) {
+func (c *RestClient) DeployPartitionTemplate(draftUUID, cecUUID string) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/deploy", c.hmcIP, draftUUID)
 
 	// Operation details for the job request
@@ -31,7 +31,7 @@ func (c *RestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug bo
 	}
 
 	// Create the XML payload for the job request
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create job request payload: %v", err)
 	}
@@ -102,7 +102,7 @@ func (c *RestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug bo
 	jobID := jobIDElem.Text()
 
 	// Fetch and return the job status
-	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -122,14 +122,11 @@ func (c *RestClient) DeployPartitionTemplate(draftUUID, cecUUID string, debug bo
 		}
 	}
 
-	if jobResp.Status == "FAILED" || jobResp.Status == "COMPLETED_WITH_ERROR" {
-	}
-
 	return jobResp.Status, err
 }
 
 // GetPartitionTemplateID retrieves the AtomID for a partition template by name
-func (c *RestClient) GetPartitionTemplateID(name string, debug bool) (string, error) {
+func (c *RestClient) GetPartitionTemplateID(name string) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -180,7 +177,7 @@ func (c *RestClient) GetPartitionTemplateID(name string, debug bool) (string, er
 }
 
 // ListPartitionTemplateIDs retrieves all PartitionTemplate AtomIDs
-func (c *RestClient) ListPartitionTemplateIDs(debug bool) ([]string, error) {
+func (c *RestClient) ListPartitionTemplateIDs() ([]string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate?draft=false&detail=table", c.hmcIP)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -232,10 +229,10 @@ func (c *RestClient) ListPartitionTemplateIDs(debug bool) ([]string, error) {
 }
 
 // GetPartitionTemplate retrieves the full PartitionTemplate XML by UUID or name
-func (c *RestClient) GetPartitionTemplate(uuid, name string, debug bool) (*etree.Element, error) {
+func (c *RestClient) GetPartitionTemplate(uuid, name string) (*etree.Element, error) {
 	if uuid == "" && name != "" {
 		var err error
-		uuid, err = c.GetPartitionTemplateID(name, debug)
+		uuid, err = c.GetPartitionTemplateID(name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get template UUID for name %s: %v", name, err)
 		}
@@ -294,9 +291,9 @@ func (c *RestClient) GetPartitionTemplate(uuid, name string, debug bool) (*etree
 }
 
 // CopyPartitionTemplate copies a partition template from one name to another
-func (c *RestClient) CopyPartitionTemplate(fromName, toName string, debug bool) error {
+func (c *RestClient) CopyPartitionTemplate(fromName, toName string) error {
 
-	templateDoc, err := c.GetPartitionTemplate("", fromName, debug)
+	templateDoc, err := c.GetPartitionTemplate("", fromName)
 	if err != nil || templateDoc == nil {
 		return fmt.Errorf("failed to fetch source template %s: %v", fromName, err)
 	}
@@ -365,7 +362,7 @@ func (c *RestClient) CopyPartitionTemplate(fromName, toName string, debug bool) 
 }
 
 // UpdatePartitionTemplate updates an existing partition template with the provided XML
-func (c *RestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Element, debug bool) error {
+func (c *RestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Element) error {
 	if uuid == "" {
 		return fmt.Errorf("UUID cannot be empty")
 	}
@@ -408,7 +405,6 @@ func (c *RestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Ele
 	}
 	defer resp.Body.Close()
 
-	// Read the response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %v", err)
@@ -417,17 +413,14 @@ func (c *RestClient) UpdatePartitionTemplate(uuid string, templateXML *etree.Ele
 
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		if debug {
-			return fmt.Errorf("request failed with status: %d, body: %s", resp.StatusCode, string(body))
-		}
-		return fmt.Errorf("request failed with status: %d. Enable debug mode to see full response", resp.StatusCode)
+		return fmt.Errorf("request failed with status: %d: %s", resp.StatusCode, string(body))
 	}
 
 	return nil
 }
 
 // CreatePartition creates a partition using a template UUID
-func (c *RestClient) CreatePartition(systemUUID, templateUUID, osType string, debug bool) (string, error) {
+func (c *RestClient) CreatePartition(systemUUID, templateUUID, osType string) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/do/CreatePartitionFromTemplate", c.hmcIP, systemUUID)
 
 	payload := JobRequest{
@@ -497,10 +490,10 @@ func (c *RestClient) CreatePartition(systemUUID, templateUUID, osType string, de
 }
 
 // DeletePartitionTemplate deletes a partition template by name
-func (c *RestClient) DeletePartitionTemplate(templateName string, debug bool) error {
+func (c *RestClient) DeletePartitionTemplate(templateName string) error {
 
 	// Fetch the partition template to get the UUID
-	templateDoc, err := c.GetPartitionTemplate("", templateName, debug)
+	templateDoc, err := c.GetPartitionTemplate("", templateName)
 	if err != nil || templateDoc == nil {
 		return fmt.Errorf("failed to fetch partition template %s: %v", templateName, err)
 	}
@@ -553,7 +546,7 @@ func (c *RestClient) DeletePartitionTemplate(templateName string, debug bool) er
 
 // TransformPartitionTemplate transforms a draft partition template for a managed system
 // Returns a TransformResult struct with the transformation details
-func (c *RestClient) TransformPartitionTemplate(draftUUID, cecUUID string, debug bool) (*TransformResult, error) {
+func (c *RestClient) TransformPartitionTemplate(draftUUID, cecUUID string) (*TransformResult, error) {
 	url := fmt.Sprintf("https://%s/rest/api/templates/PartitionTemplate/%s/do/transform", c.hmcIP, draftUUID)
 
 	// Define operation details
@@ -570,7 +563,7 @@ func (c *RestClient) TransformPartitionTemplate(draftUUID, cecUUID string, debug
 	}
 
 	// Create XML payload using createJobRequestPayload
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
@@ -632,7 +625,7 @@ func (c *RestClient) TransformPartitionTemplate(draftUUID, cecUUID string, debug
 	jobID := jobIDElem.Text()
 
 	// Monitor job status
-	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}
@@ -658,10 +651,10 @@ func (c *RestClient) TransformPartitionTemplate(draftUUID, cecUUID string, debug
 
 // CheckPartitionTemplate checks a partition template for a managed system
 // Returns a TemplateValidationResult struct with validation details
-func (c *RestClient) CheckPartitionTemplate(templateName, cecUUID string, debug bool) (*TemplateValidationResult, error) {
+func (c *RestClient) CheckPartitionTemplate(templateName, cecUUID string) (*TemplateValidationResult, error) {
 
 	// Fetch the partition template to get the UUID
-	templateDoc, err := c.GetPartitionTemplate("", templateName, debug)
+	templateDoc, err := c.GetPartitionTemplate("", templateName)
 	if err != nil || templateDoc == nil {
 		return nil, fmt.Errorf("failed to fetch partition template %s: %v", templateName, err)
 	}
@@ -689,7 +682,7 @@ func (c *RestClient) CheckPartitionTemplate(templateName, cecUUID string, debug 
 	}
 
 	// Create XML payload using createJobRequestPayload
-	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", debug, true)
+	payload, err := createJobRequestPayload(reqdOperation, jobParams, "V1_0", true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job request payload: %v", err)
 	}
@@ -751,7 +744,7 @@ func (c *RestClient) CheckPartitionTemplate(templateName, cecUUID string, debug 
 	jobID := jobIDElem.Text()
 
 	// Monitor job status
-	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10, debug)
+	jobResp, err := c.FetchJobStatus(context.Background(), jobID, true, 10)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch job status: %v", err)
 	}

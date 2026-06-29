@@ -8,6 +8,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -35,6 +36,8 @@ func main() {
 	netmask := flag.String("netmask", "", "Subnet mask (for netboot)")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -63,8 +66,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -77,7 +80,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("\n🔍 Resolving System UUID for '%s'...\n", *sysName)
 	}
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
@@ -89,7 +92,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("🔍 Resolving LPAR UUID for '%s'...\n", *lparName)
 	}
-	lpar, partUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	lpar, partUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || partUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found: %v", *lparName, err)
 	}
@@ -109,7 +112,7 @@ func main() {
 	if *verbose {
 		fmt.Println("🔍 Fetching partition profile...")
 	}
-	lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), partUUID, *verbose)
+	lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), partUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to retrieve LPAR details: %v", err)
 	}
@@ -132,7 +135,7 @@ func main() {
 	
 	if *netboot {
 		fmt.Printf("\n🔍 Translating MAC %s to Location Code...\n", *macAddr)
-		locationCode, err = restClient.GetLocationCodeByMac(context.Background(), sysUUID, partUUID, *macAddr, *verbose)
+		locationCode, err = restClient.GetLocationCodeByMac(context.Background(), sysUUID, partUUID, *macAddr)
 		if err != nil {
 			log.Fatalf("❌ MAC translation failed: %v", err)
 		}
@@ -161,7 +164,7 @@ func main() {
 		Netmask:      *netmask,
 	}
 	
-	status, err := restClient.PowerOnPartition(ctx,partUUID, options, *verbose)
+	status, err := restClient.PowerOnPartition(ctx,partUUID, options)
 	
 	if err != nil {
 		log.Fatalf("❌ Power On failed: %v", err)

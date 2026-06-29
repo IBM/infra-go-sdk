@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -34,6 +35,8 @@ func main() {
 	pvs := flag.String("pvs", "", "Comma-separated list of Physical Volumes to add (e.g. hdisk5,hdisk6) (Required)")
 
 	verbose := flag.Bool("verbose", false, "Enable verbose XML and HTTP output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -47,10 +50,10 @@ func main() {
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
 
-	if err := restClient.Login(ctx, *username, *password, *verbose); err != nil {
+	if err := restClient.Login(ctx, *username, *password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
@@ -59,13 +62,13 @@ func main() {
 	}()
 
 	log.Printf("Resolving System: system=%v", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve Managed System")
 	}
 
 	log.Printf("Resolving VIOS: vios=%v", *viosName)
-	viosUUID, err := hmc.GetViosID(ctx, restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(ctx, restClient, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatal("VIOS not found on system")
 	}
@@ -83,7 +86,7 @@ func main() {
 	// =========================================================================
 	log.Printf("Initiating Volume Group Extension: vios=%v vg=%v targets=%v", *viosName, *vgName, len(pvList))
 
-	err = restClient.ExtendVolumeGroup(ctx, *sysName, viosUUID, *viosName, *vgName, pvList, *verbose)
+	err = restClient.ExtendVolumeGroup(ctx, *sysName, viosUUID, *viosName, *vgName, pvList)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.Fatal("Operation aborted by user (Ctrl+C)")

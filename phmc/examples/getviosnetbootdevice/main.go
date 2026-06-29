@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -27,6 +28,8 @@ func main() {
 	sysName := flag.String("system-name", "", "Managed System Name")
 	viosName := flag.String("vios-name", "", "Target VIOS Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -44,8 +47,8 @@ func main() {
 
 	// 1. Initialize & Login
 	fmt.Println("\nStep 1: Connecting to HMC...")
-	client := hmc.NewRestClient(*hmcIP)
-	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
+	client := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := client.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}
 	defer client.Logoff(context.Background())
@@ -53,7 +56,7 @@ func main() {
 
 	// 2. Resolve System UUID
 	fmt.Printf("Step 2: Resolving System UUID for '%s'...\n", *sysName)
-	_, sysUUID, err := client.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := client.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ Managed System '%s' not found: %v", *sysName, err)
 	}
@@ -61,7 +64,7 @@ func main() {
 
 	// 3. Resolve VIOS UUID
 	fmt.Printf("Step 3: Resolving VIOS UUID for '%s'...\n", *viosName)
-	viosUUID, err := hmc.GetViosID(context.Background(), client, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), client, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found on system '%s': %v", *viosName, *sysName, err)
 	}
@@ -69,7 +72,7 @@ func main() {
 
 	// 4. Fetch the Comprehensive VIOS Details to extract the Profile UUID
 	fmt.Println("Step 4: Fetching detailed VIOS configuration to extract Profile UUID...")
-	viosDetailed, err := client.GetVirtualIOServer(context.Background(), viosUUID, *verbose)
+	viosDetailed, err := client.GetVirtualIOServer(context.Background(), viosUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to get VIOS details: %v", err)
 	}
@@ -92,7 +95,7 @@ func main() {
 
 	// 5. Fetch Network Boot Devices from profile
 	fmt.Println("\nStep 5: Firing GetNetworkBootDevices Job for VIOS profile...")
-	bootDevices, err := client.GetNetworkBootDevicesForVios(context.Background(), viosUUID, profileUUID, *verbose)
+	bootDevices, err := client.GetNetworkBootDevicesForVios(context.Background(), viosUUID, profileUUID)
 	if err != nil {
 		log.Fatalf("❌ GetNetworkBootDevices failed: %v", err)
 	}

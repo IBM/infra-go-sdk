@@ -8,7 +8,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -17,18 +17,20 @@ func main() {
 	password := flag.String("hmc-pass", "", "Pass")
 	sysName := flag.String("system-name", "", "System Name")
 	verbose := flag.Bool("verbose", false, "Verbose")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
-	client := hmc.NewRestClient(*hmcIP)
-	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
+	client := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := client.Login(context.Background(), *username, *password); err != nil {
 		log.Fatal(err)
 	}
 	defer client.Logoff(context.Background())
 
-	_, sysUUID, _ := client.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, _ := client.GetManagedSystemByNameQuick(context.Background(), *sysName)
 
-	partitions, err := client.GetLogicalPartitionsAdv(sysUUID, *verbose)
+	partitions, err := client.GetLogicalPartitionsAdv(sysUUID)
 	if err != nil {
 		log.Fatal(err)
 	}

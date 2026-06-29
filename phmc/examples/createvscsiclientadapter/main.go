@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -16,20 +16,22 @@ func main() {
 	lparUUID := flag.String("lpar-uuid", "", "LPAR UUID (required)")
 	viosID   := flag.Int("vios-id",   1,  "Target VIOS partition ID")
 	viosSlot := flag.Int("vios-slot", 0,  "Available slot number on the target VIOS (required)")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 
 	if *hmcIP == "" || *username == "" || *password == "" || *lparUUID == "" || *viosSlot == 0 {
 		log.Fatal("Usage: createvscsiclientadapter -hmc-ip <ip> -hmc-user <user> -hmc-pass <pass> -lpar-uuid <uuid> -vios-id <id> -vios-slot <slot>")
 	}
 
-	client := hmc.NewRestClient(*hmcIP)
-	if err := client.Login(context.Background(), *username, *password, false); err != nil {
+	client := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := client.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("Login failed: %v", err)
 	}
 	defer client.Logoff(context.Background())
 
 	fmt.Printf("Provisioning vSCSI Client Adapter mapped to VIOS %d, Slot %d...\n", *viosID, *viosSlot)
-	adapterUUID, err := client.CreateVirtualSCSIClientAdapter(*lparUUID, *viosID, *viosSlot, true)
+	adapterUUID, err := client.CreateVirtualSCSIClientAdapter(*lparUUID, *viosID, *viosSlot)
 	if err != nil {
 		log.Fatalf("Failed: %v", err)
 	}

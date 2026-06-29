@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -20,6 +20,8 @@ func main() {
 	lparName := flag.String("lpar-name", "IMAGE_WORK-a9cbb4a2-00029acc", "Target LPAR Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -31,20 +33,20 @@ func main() {
 	// AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("Resolving System UUID for '%s'...\n", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	fmt.Printf("Resolving LPAR UUID for '%s'...\n", *lparName)
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -55,7 +57,7 @@ func main() {
 	fmt.Printf("\n📡 Discovering Dedicated Virtual NICs on LPAR '%s'...\n", *lparName)
 	fmt.Println("=========================================================================")
 
-	vnics, err := restClient.GetDedicatedVirtualNICs(context.Background(), lparUUID, *verbose)
+	vnics, err := restClient.GetDedicatedVirtualNICs(context.Background(), lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch Dedicated vNICs: %v", err)
 	}
@@ -83,7 +85,7 @@ func main() {
 	fmt.Printf("\n📡 Discovering Underlying SR-IOV Logical Ports on LPAR '%s'...\n", *lparName)
 	fmt.Println("=========================================================================")
 
-	logicalPorts, err := restClient.GetSRIOVLogicalPorts(context.Background(), lparUUID, *verbose)
+	logicalPorts, err := restClient.GetSRIOVLogicalPorts(context.Background(), lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch SR-IOV Logical Ports: %v", err)
 	}

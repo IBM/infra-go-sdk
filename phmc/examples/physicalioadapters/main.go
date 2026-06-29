@@ -14,6 +14,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func printUsage() {
@@ -48,6 +49,7 @@ func main() {
 
 	// Variables
 	var hmcIP, username, password, sysName, lparName, targets, lparProfile string
+	var debug, debugFull bool
 	var verbose, forceSave bool
 
 	// ✨ HELPER 1: Global flags used by ALL commands
@@ -55,6 +57,8 @@ func main() {
 		fs.StringVar(&hmcIP, "hmc-ip", "", "HMC IP address")
 		fs.StringVar(&username, "hmc-user", "", "HMC username")
 		fs.StringVar(&password, "hmc-pass", "", "HMC password")
+		fs.BoolVar(&debug,     "debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+		fs.BoolVar(&debugFull, "debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 		fs.StringVar(&sysName, "system-name", "", "Managed System Name")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose HTTP output")
 	}
@@ -117,9 +121,9 @@ func main() {
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", hmcIP)
-	restClient := hmc.NewRestClient(hmcIP)
+	restClient := exutil.NewClient(hmcIP, debug, debugFull)
 	
-	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
@@ -128,13 +132,13 @@ func main() {
 	}()
 
 	log.Printf("Resolving System: system=%v", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("System not found")
 	}
 
 	log.Println("Fetching detailed hardware inventory")
-	detailedSystem, err := restClient.GetManagedSystem(context.Background(), sysUUID, verbose)
+	detailedSystem, err := restClient.GetManagedSystem(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatal("Failed to fetch detailed system info")
 	}
@@ -146,7 +150,7 @@ func main() {
 	if lparName != "" {
 		log.Printf("Resolving LPAR: lpar=%v", lparName)
 		var resolvedLparUUID string
-		lparObj, resolvedLparUUID, err = restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName, verbose)
+		lparObj, resolvedLparUUID, err = restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName)
 		if err != nil || resolvedLparUUID == "" {
 			log.Fatal("LPAR not found")
 		}
@@ -266,7 +270,7 @@ func main() {
 		}
 		// -------------------------------------
 
-		status, err := restClient.PowerOffPartition(ctx, lparUUID, "Immediate", false, verbose)
+		status, err := restClient.PowerOffPartition(ctx, lparUUID, "Immediate", false)
 		if err != nil {
 			log.Fatal("Failed to power off LPAR")
 		}
@@ -299,7 +303,7 @@ func main() {
 	beforeFile := fmt.Sprintf("%s/lpar_before_phyio_%s.xml", outDir, timestamp)
 	afterFile := fmt.Sprintf("%s/lpar_after_phyio_%s.xml", outDir, timestamp)
 
-	if beforeXML, err := restClient.GetRawLparXML(sysUUID, lparUUID, verbose); err == nil {
+	if beforeXML, err := restClient.GetRawLparXML(sysUUID, lparUUID); err == nil {
 		os.WriteFile(beforeFile, []byte(beforeXML), 0644)
 		log.Printf("Saved BEFORE state: file=%v", beforeFile)
 	}
@@ -310,7 +314,7 @@ func main() {
 	log.Printf("Executing Operation: command=%s targets=%d lpar=%s", cmd, len(cleanTargets), lparName)
 
 	if cmd == "attach" {
-		processed, skipped, err = restClient.MapPhysicalIOAdapters(ctx, sysUUID, lparUUID, lparName, cleanTargets, detailedSystem, verbose)
+		processed, skipped, err = restClient.MapPhysicalIOAdapters(ctx, sysUUID, lparUUID, lparName, cleanTargets, detailedSystem)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Aborted by user (Ctrl+C)")
@@ -318,7 +322,7 @@ func main() {
 			log.Fatal("Attachment Failed")
 		}
 	} else if cmd == "detach" {
-		processed, skipped, err = restClient.UnmapPhysicalIOAdapters(ctx, sysUUID, lparUUID, lparName, cleanTargets, detailedSystem, verbose)
+		processed, skipped, err = restClient.UnmapPhysicalIOAdapters(ctx, sysUUID, lparUUID, lparName, cleanTargets, detailedSystem)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Aborted by user (Ctrl+C)")
@@ -332,7 +336,7 @@ func main() {
 	// =========================================================================
 	if len(processed) > 0 {
 		log.Printf("Saving active configuration to LPAR profile: profile=%v", lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, lparProfile, forceSave, verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, lparProfile, forceSave)
 		if saveErr != nil {
 			log.Printf("Physical adapters modified dynamically, but failed to save LPAR profile: error=%v", saveErr)
 		} else {
@@ -362,7 +366,7 @@ func main() {
 
 	if len(processed) > 0 {
 		log.Println("Fetching AFTER state for Diff Tool...")
-		if afterXML, err := restClient.GetRawLparXML(sysUUID, lparUUID, verbose); err == nil {
+		if afterXML, err := restClient.GetRawLparXML(sysUUID, lparUUID); err == nil {
 			os.WriteFile(afterFile, []byte(afterXML), 0644)
 			diffCmd := fmt.Sprintf("code --diff %s %s", beforeFile, afterFile)
 			log.Printf("Diff ready: command=%v", diffCmd)
@@ -378,7 +382,7 @@ func main() {
 		log.Printf("Restoring original LPAR power state...: lpar=%v", lparName)
 
 		// Get LPAR detailed info to accurately extract the saved profile UUID
-		lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID, verbose)
+		lparDetailed, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID)
 		if err != nil {
 			log.Fatal("Failed to retrieve LPAR details for Power On")
 		}
@@ -396,7 +400,7 @@ func main() {
 			OSType:      lparObj.OperatingSystemType, 
 		}
 
-		status, err := restClient.PowerOnPartition(ctx, lparUUID, options, verbose)
+		status, err := restClient.PowerOnPartition(ctx, lparUUID, options)
 		if err != nil {
 			log.Fatal("Failed to power on LPAR")
 		}

@@ -7,6 +7,7 @@ import (
 	"log"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -26,6 +27,8 @@ func main() {
 	clientSlot := flag.Int("client-slot", 50, "Target Virtual Slot Number on the Client LPAR")
 
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -37,8 +40,8 @@ func main() {
 	// 1. AUTHENTICATION
 	// =========================================================================
 	fmt.Printf("🔌 Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -49,7 +52,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("\n🔍 Resolving System '%s'...\n", *sysName)
 	}
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
@@ -57,7 +60,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("🔍 Resolving VIOS '%s' to UUID...\n", *viosName)
 	}
-	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found: %v", *viosName, err)
 	}
@@ -65,7 +68,7 @@ func main() {
 	if *verbose {
 		fmt.Printf("🔍 Resolving LPAR '%s' to Partition ID...\n", *lparName)
 	}
-	lparDetails, _, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	lparDetails, _, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparDetails == nil {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -78,7 +81,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n🚀 Provisioning vSCSI Server Adapter (vhost) on VIOS '%s' (Slot %d) pointing to LPAR ID %d (Slot %d)...\n", *viosName, *viosSlot, clientLparID, *clientSlot)
 	
-	adapterUUID, err := restClient.CreateVirtualSCSIServerAdapter(viosUUID, clientLparID, *viosSlot, *clientSlot, *verbose)
+	adapterUUID, err := restClient.CreateVirtualSCSIServerAdapter(viosUUID, clientLparID, *viosSlot, *clientSlot)
 	if err != nil {
 		log.Fatalf("❌ Failed: %v", err)
 	}

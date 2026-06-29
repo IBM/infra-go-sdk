@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -19,6 +19,8 @@ func main() {
 	password := flag.String("hmc-pass", "", "HMC password")
 	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -30,8 +32,8 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -41,13 +43,13 @@ func main() {
 	// 1. DYNAMIC SYSTEM & VIOS DISCOVERY
 	// =========================================================================
 	fmt.Printf("\nResolving System Name: %s...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System %s not found: %v", *sysName, err)
 	}
 
 	fmt.Println("Discovering Virtual I/O Servers...")
-	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch VIOS instances: %v", err)
 	}
@@ -64,7 +66,7 @@ func main() {
 		fmt.Printf("===============================================================================\n")
 
 		// First, get the list of Volume Groups to discover their UUIDs
-		vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, *verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID)
 		if err != nil {
 			log.Printf("⚠️ Warning: Failed to fetch Volume Groups list for %s: %v", vios.PartitionName, err)
 			continue
@@ -82,7 +84,7 @@ func main() {
 			fmt.Printf("\n  -> Fetching specific details for Volume Group '%s' (UUID: %s)...\n", discoveredVG.GroupName, discoveredVG.UUID)
 
 			// Call the new targeted API function
-			detailedVG, err := restClient.GetVolumeGroup(vios.UUID, discoveredVG.UUID, *verbose)
+			detailedVG, err := restClient.GetVolumeGroup(vios.UUID, discoveredVG.UUID)
 			if err != nil {
 				log.Printf("  ❌ Failed to fetch specific details for %s: %v", discoveredVG.GroupName, err)
 				continue

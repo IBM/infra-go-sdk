@@ -8,7 +8,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -25,7 +25,8 @@ func main() {
 	mediaName := flag.String("media-name", "sno-0-agent-1776731165", "Specific media name to query (e.g., 'rhel9.iso')")
 	deleteMedia := flag.Bool("delete", false, "Set to true to delete the specified -media-name")
 	
-	debug := flag.Bool("debug", false, "Enable debug output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 
 	if *password == "" || *sysName == "" || *viosName == "" {
@@ -39,8 +40,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *debug); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -54,7 +55,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n[Test 1] Fetching ALL Virtual Optical Media...\n")
 	
-	allMedia, err := restClient.GetVirtualOpticalMedias(context.Background(), *sysName, *viosName, *debug)
+	allMedia, err := restClient.GetVirtualOpticalMedias(context.Background(), *sysName, *viosName)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch all media: %v", err)
 	}
@@ -78,7 +79,7 @@ func main() {
 	if *mediaName != "" {
 		fmt.Printf("\n[Test 2] Querying specific media '%s'...\n", *mediaName)
 		
-		media, err := restClient.GetVirtualOpticalMedia(context.Background(), *sysName, *viosName, *mediaName, *debug)
+		media, err := restClient.GetVirtualOpticalMedia(context.Background(), *sysName, *viosName, *mediaName)
 		if err != nil {
 			fmt.Printf("   ⚠️  Media not found or error occurred: %v\n", err)
 		} else {
@@ -92,7 +93,7 @@ func main() {
 			if *deleteMedia {
 				fmt.Printf("\n[Test 3] Deleting media '%s'...\n", *mediaName)
 				
-				err := restClient.DeleteVirtualOpticalMedia(context.Background(), *sysName, *viosName, *mediaName, *debug)
+				err := restClient.DeleteVirtualOpticalMedia(context.Background(), *sysName, *viosName, *mediaName)
 				if err != nil {
 					log.Fatalf("   ❌ Failed to delete media: %v", err)
 				}

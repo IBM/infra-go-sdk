@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -20,6 +21,8 @@ func main() {
 	viosName := flag.String("vios-name", "", "Target VIOS Name")
 	showMAC := flag.Bool("show-mac", false, "Show VIOS trunk adapter MAC addresses instead of physical adapter inventory")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -27,37 +30,37 @@ func main() {
 		log.Fatal("❌ Error: hmc-ip, hmc-user, hmc-pass, system-name, and vios-name are required")
 	}
 
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	// 1. Resolve System
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
 
 	// 2. Resolve VIOS UUID using the VIOS quick inventory
-	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found on system '%s': %v", *viosName, *sysName, err)
 	}
 
 	if *showMAC {
-		printVIOSMACCandidates(restClient, viosUUID, *viosName, *verbose)
+		printVIOSMACCandidates(restClient, viosUUID, *viosName)
 		return
 	}
 
-	printVIOSPhysicalAdapterCandidates(restClient, sysUUID, viosUUID, *viosName, *verbose)
+	printVIOSPhysicalAdapterCandidates(restClient, sysUUID, viosUUID, *viosName)
 }
 
-func printVIOSMACCandidates(restClient *hmc.RestClient, viosUUID, viosName string, verbose bool) {
+func printVIOSMACCandidates(restClient *hmc.RestClient, viosUUID, viosName string) {
 	fmt.Printf("\n🚀 Fetching VIOS trunk adapters for '%s'...\n", viosName)
 	fmt.Printf("✅ VIOS UUID: %s\n\n", viosUUID)
 
-	viosDetails, err := restClient.GetVirtualIOServer(context.Background(), viosUUID, verbose)
+	viosDetails, err := restClient.GetVirtualIOServer(context.Background(), viosUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch VIOS details: %v", err)
 	}
@@ -101,8 +104,8 @@ func printVIOSMACCandidates(restClient *hmc.RestClient, viosUUID, viosName strin
 	fmt.Println("⚠️  These MAC addresses come from VIOS trunk adapters and are not HMC GetNetworkBootDevices results.")
 }
 
-func printVIOSPhysicalAdapterCandidates(restClient *hmc.RestClient, sysUUID, viosUUID, viosName string, verbose bool) {
-	inventory, err := restClient.GetManagedSystem(context.Background(), sysUUID, verbose)
+func printVIOSPhysicalAdapterCandidates(restClient *hmc.RestClient, sysUUID, viosUUID, viosName string) {
+	inventory, err := restClient.GetManagedSystem(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch managed system inventory: %v", err)
 	}

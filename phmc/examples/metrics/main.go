@@ -16,6 +16,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Mapped to package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 // =========================================================================
@@ -59,6 +60,8 @@ func main() {
 	viosName := flag.String("vios-name", "", "Target VIOS Name (Optional)")
 	timeRange := flag.String("range", "1hr", "Time range horizon: 1hr, 1week, 1month, 1year")
 	verbose := flag.Bool("verbose", false, "Enable verbose debug logs")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -77,21 +80,21 @@ func main() {
 	// =========================================================================
 	// 2. CONNECT AND AUTHENTICATE TO HMC NETWORK
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon transaction rejected: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	// Resolve the base managed system physical host hardware ID
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ Physical system configuration target '%s' not found.", *sysName)
 	}
 
 	var lparUUID string
 	if scope == "LPAR" {
-		_, resolvedUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+		_, resolvedUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 		if err != nil || resolvedUUID == "" {
 			log.Fatalf("❌ Logical partition target '%s' not found on system '%s'.", *lparName, *sysName)
 		}

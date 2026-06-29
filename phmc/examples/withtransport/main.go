@@ -177,7 +177,7 @@ func main() {
 	ctx := context.Background()
 
 	log.Println("Logging in…")
-	if err := restClient.Login(ctx, *hmcUser, *hmcPass, false); err != nil {
+	if err := restClient.Login(ctx, *hmcUser, *hmcPass); err != nil {
 		log.Fatalf("login failed: %v", err)
 	}
 	log.Println("Logged in successfully")
@@ -190,7 +190,7 @@ func main() {
 	}()
 
 	log.Println("Fetching managed systems…")
-	systems, err := restClient.GetManagedSystemQuickAll(ctx, false)
+	systems, err := restClient.GetManagedSystemQuickAll(ctx)
 	if err != nil {
 		log.Fatalf("GetManagedSystemQuickAll failed: %v", err)
 	}

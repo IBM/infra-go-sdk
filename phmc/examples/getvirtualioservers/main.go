@@ -1,25 +1,33 @@
 package main
 
 import (
+	"flag"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your package path if necessary
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
 	// --- Configuration ---
-	hmcIP        := ""
-	username     := ""
-	password     := ""
-	targetSystem := "" // The name of the managed system we want to query
-	verbose      := false
+	hmcIP    := flag.String("hmc-ip",    "", "HMC IP address")
+	username := flag.String("hmc-user",  "", "HMC username")
+	password := flag.String("hmc-pass",  "", "HMC password")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
+	flag.Parse()
 
+	hmcIPVal    := *hmcIP
+	usernameVal := *username
+	passwordVal := *password
+
+	targetSystem := "" // The name of the managed system we want to query
 	// 1. Initialize and Login
-	restClient := hmc.NewRestClient(hmcIP)
-	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
+	restClient := exutil.NewClient(hmcIPVal, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), usernameVal, passwordVal); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -28,7 +36,7 @@ func main() {
 
 	// 2. Fetch the Quick list to resolve the UUID for targetSystem
 	fmt.Println("Fetching Managed Systems inventory to resolve UUID...")
-	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background())
 	if err != nil {
 		log.Fatalf("Error retrieving systems: %v", err)
 	}
@@ -49,7 +57,7 @@ func main() {
 
 	// 3. Fetch the Comprehensive VIOS Details using the dynamically resolved UUID
 	fmt.Println("Fetching Virtual I/O Servers...")
-	viosList, err := restClient.GetVirtualIOServers(systemUUID, verbose)
+	viosList, err := restClient.GetVirtualIOServers(systemUUID)
 	if err != nil {
 		log.Fatalf("Error fetching VIOS details: %v", err)
 	}

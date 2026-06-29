@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -21,6 +21,8 @@ func main() {
 	lparName := flag.String("lpar-name", "", "LPAR name (required)")
 	verbose := flag.Bool("verbose", true, "Enable verbose logging")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -38,8 +40,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -49,7 +51,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Resolving managed system: %s\n", *systemName)
 	
-	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *systemName, *verbose)
+	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *systemName)
 	if err != nil {
 		log.Fatalf("❌ Failed to get managed system: %v", err)
 	}
@@ -62,7 +64,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Resolving LPAR: %s\n", *lparName)
 	
-	lpar, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, *lparName, *verbose)
+	lpar, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, *lparName)
 	if err != nil {
 		log.Fatalf("❌ Failed to get LPAR: %v", err)
 	}
@@ -78,7 +80,7 @@ func main() {
 	fmt.Println("Retrieving partition profiles...")
 	fmt.Println()
 
-	profiles, err := restClient.GetLogicalPartitionProfiles(context.Background(), lparUUID, *verbose)
+	profiles, err := restClient.GetLogicalPartitionProfiles(context.Background(), lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to retrieve partition profiles: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"log"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -30,6 +31,8 @@ func main() {
 	nfsLink := flag.Bool("nfslink", false, "Create an NFS link to the file instead of copying it (Requires -source-file)")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -51,8 +54,8 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -61,12 +64,12 @@ func main() {
 	// RESOLVE SYSTEM & VIOS UUID
 	// =========================================================================
 	fmt.Printf("\nResolving System Name: %s...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
 
-	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found on system '%s'.", *viosName, *sysName)
 	}
@@ -88,7 +91,7 @@ func main() {
 		fmt.Println("   🔒 Applying Read-Only (-ro) protection to the media.")
 	}
 
-	err = restClient.CreateVirtualOpticalMedia(context.Background(), *sysName, viosUUID, *viosName, *mediaName, *sourceFile, *mediaSize, *readOnly, *nfsLink, *verbose)
+	err = restClient.CreateVirtualOpticalMedia(context.Background(), *sysName, viosUUID, *viosName, *mediaName, *sourceFile, *mediaSize, *readOnly, *nfsLink)
 	if err != nil {
 		log.Fatalf("❌ Failed to create/import Virtual Optical Media: %v", err)
 	}

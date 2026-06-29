@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -20,6 +20,8 @@ func main() {
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
 	useSSH := flag.Bool("ssh", true, "Use SSH instead of REST API (bypasses CLIRunner limitations)")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -43,11 +45,11 @@ func main() {
 		fmt.Printf("Connecting to HMC at %s via SSH...\n", *hmcIP)
 
 		// Create HMC client (needed for the method)
-		client := hmc.NewRestClient(*hmcIP)
+		client := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
 		// Close virtual terminal via SSH
 		fmt.Printf("\nClosing virtual terminal for LPAR '%s' on system '%s' via SSH...\n", *lparName, *systemName)
-		if err := client.CloseVirtualTerminalViaSSH(*hmcIP, *username, *password, *systemName, *lparName, *verbose); err != nil {
+		if err := client.CloseVirtualTerminalViaSSH(*hmcIP, *username, *password, *systemName, *lparName); err != nil {
 			log.Fatalf("Failed to close virtual terminal via SSH: %v", err)
 		}
 
@@ -56,17 +58,17 @@ func main() {
 		// Use REST API method
 		fmt.Println("Using REST API CLIRunner to close virtual terminal...")
 		fmt.Printf("Connecting to HMC at %s...\n", *hmcIP)
-		client := hmc.NewRestClient(*hmcIP)
+		client := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
 		// Login to HMC
-		if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
+		if err := client.Login(context.Background(), *username, *password); err != nil {
 			log.Fatalf("Failed to login to HMC: %v", err)
 		}
 		fmt.Println("✓ Successfully logged in to HMC")
 
 		// Close virtual terminal
 		fmt.Printf("\nClosing virtual terminal for LPAR '%s' on system '%s' via REST API...\n", *lparName, *systemName)
-		if err := client.CloseVirtualTerminal(context.Background(), *systemName, *lparName, *verbose); err != nil {
+		if err := client.CloseVirtualTerminal(context.Background(), *systemName, *lparName); err != nil {
 			log.Fatalf("Failed to close virtual terminal: %v", err)
 		}
 

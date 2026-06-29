@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -20,6 +20,8 @@ func main() {
 	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -32,9 +34,9 @@ func main() {
 	// PHASE 1: HMC AUTHENTICATION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 	
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -45,14 +47,14 @@ func main() {
 	// PHASE 2: RESOLVE MANAGED SYSTEM & VIOS UUIDs
 	// =========================================================================
 	fmt.Printf("\nStep 1: Locating System [%s]...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("System %s not found: %v", *sysName, err)
 	}
 	fmt.Printf("✅ Found System UUID: %s\n", sysUUID)
 
 	fmt.Printf("Step 2: Fetching Virtual I/O Servers for System...\n")
-	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("Failed to fetch VIOS partitions: %v", err)
 	}
@@ -74,7 +76,7 @@ func main() {
 		fmt.Printf("======================================================\n")
 
 		// Call the new SDK method
-		adapters, err := restClient.GetVirtualSCSIServerAdapters(vios.UUID, *verbose)
+		adapters, err := restClient.GetVirtualSCSIServerAdapters(vios.UUID)
 		if err != nil {
 			log.Printf("⚠️ Warning: Failed to fetch adapters for VIOS %s: %v", vios.PartitionName, err)
 			continue

@@ -9,7 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/beevik/etree"
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 // safeGetText safely extracts text from an etree Element
@@ -33,6 +33,8 @@ func main() {
 	value := flag.String("value", "running", "Value to match (e.g., running, 'AIX/Linux')")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -43,8 +45,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -54,7 +56,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n🔍 Searching HMC for Partitions where %s == %s...\n", *property, *value)
 	
-	partitions, err := restClient.SearchLogicalPartitions(*property, *value, *verbose)
+	partitions, err := restClient.SearchLogicalPartitions(*property, *value)
 	if err != nil {
 		log.Fatalf("❌ Search failed: %v", err)
 	}

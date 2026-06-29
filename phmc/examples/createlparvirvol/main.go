@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -36,9 +37,9 @@ func main() {
 	// Processor Configuration
 	dedicatedProc := flag.Bool("dedicated-proc", false, "Use dedicated processors (default: shared)")
 	
-	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
-	_ = verbose
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
@@ -49,14 +50,14 @@ func main() {
 	// =========================================================================
 	// 1. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("[HMC] Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
-	sysUUID := resolveSystemUUID(restClient, *sysName, *verbose)
-	ensureLparDoesNotExist(restClient, sysUUID, *lparName, *verbose)
+	sysUUID := resolveSystemUUID(restClient, *sysName)
+	ensureLparDoesNotExist(restClient, sysUUID, *lparName)
 
 	// =========================================================================
 	// 2. PARALLEL EXECUTION WITH CHANNELS
@@ -117,7 +118,7 @@ func main() {
 			}
 		}
 
-		lparDetails, err := restClient.CreateLogicalPartition(sysUUID, req, *verbose)
+		lparDetails, err := restClient.CreateLogicalPartition(sysUUID, req)
 		if err != nil {
 			lparErrCh <- fmt.Errorf("LPAR Creation failed: %v", err)
 			return
@@ -130,7 +131,7 @@ func main() {
 
 		// Attach Network Adapter
 		log.Printf("[Branch 1] Resolving Virtual Switch '%s'...", *vswitchName)
-		switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, *verbose)
+		switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID)
 		if err != nil {
 			networkErrCh <- fmt.Errorf("Failed to retrieve Virtual Switches: %v", err)
 			return
@@ -149,7 +150,7 @@ func main() {
 		}
 
 		log.Printf("[Branch 1] Attaching VLAN %d to LPAR...", *vlanID)
-		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID)
 		if err != nil {
 			networkErrCh <- fmt.Errorf("Failed to add network adapter: %v", err)
 			return
@@ -167,7 +168,7 @@ func main() {
 	go func() {
 		log.Printf("[Branch 2] Discovering optimal Volume Group for %d MB disk...", *diskSize)
 		
-		viosUUID, viosName, err := provisionVirtualDisk(restClient, *sysName, sysUUID, *diskName, *targetVios, *targetVg, *diskSize, *verbose)
+		viosUUID, viosName, err := provisionVirtualDisk(restClient, *sysName, sysUUID, *diskName, *targetVios, *targetVg, *diskSize)
 		if err != nil {
 			storageErrCh <- err
 			return
@@ -205,7 +206,7 @@ func main() {
 	// =========================================================================
 	log.Printf("Step 3: Attaching Virtual Disk '%s' to LPAR '%s'...: *diskName=%v", *lparName)
 	
-	mappingUUID, err := restClient.CreateVirtualDiskMaps(sysUUID, storage.viosUUID, finalLparUUID, []string{*diskName}, *verbose)
+	mappingUUID, err := restClient.CreateVirtualDiskMaps(sysUUID, storage.viosUUID, finalLparUUID, []string{*diskName})
 	if err != nil {
 		log.Fatalf("[HMC] Storage Mapping Failed: %v", err)
 	}
@@ -225,7 +226,7 @@ func main() {
 	}
 
 	log.Println("Step 5: Saving active configuration to profile 'default_profile'...")
-	err = restClient.SaveCurrentLparConfig(context.Background(), finalLparUUID, "default_profile", true, *verbose)
+	err = restClient.SaveCurrentLparConfig(context.Background(), finalLparUUID, "default_profile", true)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
@@ -248,9 +249,6 @@ func main() {
 	}
 	profileUUID := profileHref[len(profileHref)-36:]
 	
-	if *verbose {
-		log.Printf("Using default profile '%s' (UUID: %s): lparDetails.DefaultProfileName=%v", profileUUID)
-	}
 
 	// Create PowerOnOptions
 	options := &hmc.PowerOnOptions{
@@ -259,7 +257,7 @@ func main() {
 		OSType:      *osType,
 	}
 	
-	_, err = restClient.PowerOnPartition(ctx,finalLparUUID, options, *verbose)
+	_, err = restClient.PowerOnPartition(ctx,finalLparUUID, options)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}
@@ -276,8 +274,8 @@ func main() {
 // WORKFLOW HELPER FUNCTIONS
 // =========================================================================
 
-func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bool) string {
-	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
+func resolveSystemUUID(restClient *hmc.RestClient, systemName string) string {
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background())
 	if err != nil {
 		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
 	}
@@ -290,18 +288,18 @@ func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bo
 	return ""
 }
 
-func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
-	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName, false)
+func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string) {
+	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName)
 	if err == nil && existingUUID != "" {
 		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
 	}
 }
 
 // provisionVirtualDisk performs Smart Capacity Discovery to find the best VG, then creates the disk.
-func provisionVirtualDisk(restClient *hmc.RestClient, sysName, sysUUID, diskName, targetVios, targetVg string, diskSizeMB int, verbose bool) (string, string, error) {
+func provisionVirtualDisk(restClient *hmc.RestClient, sysName, sysUUID, diskName, targetVios, targetVg string, diskSizeMB int) (string, string, error) {
 	requiredGB := float64(diskSizeMB) / 1024.0
 
-	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID)
 	if err != nil || len(viosList) == 0 {
 		return "", "", fmt.Errorf("failed to fetch VIOS instances for system")
 	}
@@ -315,7 +313,7 @@ func provisionVirtualDisk(restClient *hmc.RestClient, sysName, sysUUID, diskName
 			continue
 		}
 
-		vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID)
 		if err != nil { continue }
 
 		for _, vg := range vgList {
@@ -369,7 +367,7 @@ func provisionVirtualDisk(restClient *hmc.RestClient, sysName, sysUUID, diskName
 	}
 
 	// Create the disk via the Smart CLI Wrapper
-	err = restClient.CreateVirtualDisk(context.Background(), sysName, finalViosUUID, finalViosName, finalVgName, diskName, diskSizeMB, verbose)
+	err = restClient.CreateVirtualDisk(context.Background(), sysName, finalViosUUID, finalViosName, finalVgName, diskName, diskSizeMB)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create Virtual Disk via CLI: %v", err)
 	}

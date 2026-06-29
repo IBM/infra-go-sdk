@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -23,6 +23,8 @@ func main() {
 	lparName := flag.String("lpar-name", "", "LPAR Name (Required)")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -33,8 +35,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -43,13 +45,13 @@ func main() {
 	// RESOLUTION: NAME -> UUID
 	// =========================================================================
 	fmt.Printf("Resolving System '%s' to UUID...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ Failed to resolve Managed System: %v", err)
 	}
 
 	fmt.Printf("Resolving LPAR '%s' to UUID...\n", *lparName)
-	_,lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ Failed to resolve LPAR Name '%s'. Does it exist on system '%s'?\n", *lparName, *sysName)
 	}
@@ -59,7 +61,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Fetching exhaustive details for LPAR UUID: %s...\n", lparUUID)
 	
-	lpar, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID, *verbose)
+	lpar, err := restClient.GetLogicalPartitionDetailed(context.Background(), lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Error: %v", err)
 	}

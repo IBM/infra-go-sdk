@@ -8,6 +8,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -19,6 +20,8 @@ func main() {
 	password := flag.String("hmc-pass", "", "HMC password")
 	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -27,14 +30,14 @@ func main() {
 	}
 
 	// 1. CONNECT & LOGON
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	// 2. RESOLVE SYSTEM TARGET
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
@@ -43,7 +46,7 @@ func main() {
 	fmt.Printf("\n⚙️  Ensuring System Metrics Tracing is active on '%s'...\n", *sysName)
 	pcmCmd := fmt.Sprintf("chlparutil -m %s -r config -s 30", *sysName)
 	
-	output, err := hmc.CliRunnerViaSSH(*hmcIP, *username, *password, pcmCmd, *verbose)
+	output, err := hmc.CliRunnerViaSSH(*hmcIP, *username, *password, pcmCmd)
 	if err != nil {
 		log.Printf("⚠️ Warning: Configuration checkpoint notice: %v\nOutput: %s", err, output)
 	} else {
@@ -57,7 +60,7 @@ func main() {
 		Feed:    "bySource", 
 	}
 
-	snapshots, err := restClient.GetManagedSystemAggregatedMetrics(context.Background(), sysUUID, opts, *verbose)
+	snapshots, err := restClient.GetManagedSystemAggregatedMetrics(context.Background(), sysUUID, opts)
 	if err != nil {
 		log.Fatalf("❌ Failed to resolve system metrics catalog: %v", err)
 	}
@@ -89,7 +92,7 @@ func main() {
 			fmt.Printf("\n📥 Fetching full framework payload from window target link: %s\n", snap.Updated)
 		}
 		
-		metrics, err := restClient.FetchSystemPcmMetricsPayload(context.Background(), snap.JSONLink, false)
+		metrics, err := restClient.FetchSystemPcmMetricsPayload(context.Background(), snap.JSONLink)
 		if err != nil {
 			log.Printf("⚠️ Failed to fetch metrics payload from HMC: %v", err)
 			continue

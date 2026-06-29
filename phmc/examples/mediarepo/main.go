@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func printUsage() {
@@ -47,6 +48,7 @@ func main() {
 
 	// Shared Variables
 	var hmcIP, username, password, sysName, viosName string
+	var debug, debugFull bool
 	var verbose bool
 
 	// Action-Specific Variables
@@ -59,6 +61,8 @@ func main() {
 		fs.StringVar(&hmcIP, "hmc-ip", "", "HMC IP address")
 		fs.StringVar(&username, "hmc-user", "", "HMC username")
 		fs.StringVar(&password, "hmc-pass", "", "HMC password")
+		fs.BoolVar(&debug,     "debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+		fs.BoolVar(&debugFull, "debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 		fs.StringVar(&sysName, "system-name", "", "Managed System Name (Required)")
 		fs.StringVar(&viosName, "vios-name", "", "Target VIOS Name (Optional for list, Required for others)")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose output")
@@ -129,9 +133,9 @@ func main() {
 	// 3. AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", hmcIP)
-	restClient := hmc.NewRestClient(hmcIP)
+	restClient := exutil.NewClient(hmcIP, debug, debugFull)
 
-	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
@@ -140,7 +144,7 @@ func main() {
 	}()
 
 	log.Printf("Resolving System: system=%v", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve Managed System")
 	}
@@ -148,7 +152,7 @@ func main() {
 	var targetViosUUID string
 	if viosName != "" {
 		log.Printf("Resolving VIOS: vios=%v", viosName)
-		targetViosUUID, err = hmc.GetViosID(context.Background(), restClient, sysUUID, viosName, verbose)
+		targetViosUUID, err = hmc.GetViosID(context.Background(), restClient, sysUUID, viosName)
 		if err != nil || targetViosUUID == "" {
 			log.Fatal("VIOS not found on system")
 		}
@@ -171,7 +175,7 @@ func main() {
 	case "list":
 		log.Printf("Fetching Virtual Media Repository Inventory: system=%v", sysName)
 
-		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, verbose)
+		viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID)
 		if err != nil || len(viosList) == 0 {
 			log.Fatal("Failed to fetch VIOS instances for system")
 		}
@@ -183,7 +187,7 @@ func main() {
 				continue
 			}
 
-			vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID, verbose)
+			vgList, err := restClient.GetVolumeGroups(context.Background(), vios.UUID)
 			if err != nil {
 				continue
 			}
@@ -213,7 +217,7 @@ func main() {
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		log.Println("Verifying if a Media Repository already exists on this VIOS...")
-		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Volume Groups to verify repository existence")
 		}
@@ -227,7 +231,7 @@ func main() {
 
 		log.Printf("Executing Media Repository creation via VIOS...: size_mb=%v", repSize)
 
-		err = restClient.CreateMediaRepository(context.Background(), sysName, targetViosUUID, viosName, vgName, repSize, verbose)
+		err = restClient.CreateMediaRepository(context.Background(), sysName, targetViosUUID, viosName, vgName, repSize)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -245,7 +249,7 @@ func main() {
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		log.Println("Verifying if Media Repository exists...")
-		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Volume Groups to verify repository existence")
 		}
@@ -264,7 +268,7 @@ func main() {
 
 		log.Printf("Extending Media Repository: vios=%v add_mb=%v", viosName, addSize)
 
-		err = restClient.ChangeMediaRepository(context.Background(), sysName, targetViosUUID, viosName, addSize, verbose)
+		err = restClient.ChangeMediaRepository(context.Background(), sysName, targetViosUUID, viosName, addSize)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -282,7 +286,7 @@ func main() {
 
 		// --- PRE-FLIGHT EXISTENCE CHECK ---
 		log.Println("Verifying if Media Repository exists...")
-		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID, verbose)
+		vgList, err := restClient.GetVolumeGroups(context.Background(), targetViosUUID)
 		if err != nil {
 			log.Fatal("Failed to fetch Volume Groups to verify repository existence")
 		}
@@ -303,7 +307,7 @@ func main() {
 
 		log.Printf("Attempting to permanently delete Virtual Media Repository: repo_name=%v vios=%v force=%v", repoName, viosName, force)
 
-		err = restClient.DeleteMediaRepository(context.Background(), sysName, targetViosUUID, viosName, repoName, force, verbose)
+		err = restClient.DeleteMediaRepository(context.Background(), sysName, targetViosUUID, viosName, repoName, force)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
