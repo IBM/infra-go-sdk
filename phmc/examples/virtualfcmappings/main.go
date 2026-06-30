@@ -11,6 +11,7 @@ import (
 
 	// Required to parse the pristine XML for idempotency check
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -32,6 +33,8 @@ func main() {
 	deleteMode := flag.Bool("delete", false, "Set to true to DELETE the NPIV mappings instead of creating them")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -43,23 +46,23 @@ func main() {
 	// AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found.", *viosName)
 	}
 
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -70,7 +73,7 @@ func main() {
 	fmt.Printf("\n[Validate] Discovering physical FC ports on VIOS '%s'...\n", *viosName)
 	
 	// ✨ USING THE NEW RESILIENT SDK FUNCTION ✨
-	fcPorts, err := restClient.GetPhysicalFibreChannelPorts(context.Background(), viosUUID, *verbose)
+	fcPorts, err := restClient.GetPhysicalFibreChannelPorts(context.Background(), viosUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch physical FC ports: %v", err)
 	}
@@ -169,7 +172,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n[Diff Tool] Fetching 'BEFORE' XML state (ViosFCMapping)...\n")
 	
-	beforeXML, err := restClient.GetRawViosXML(viosUUID, "ViosFCMapping", *verbose)
+	beforeXML, err := restClient.GetRawViosXML(viosUUID, "ViosFCMapping")
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch before XML: %v", err)
 	}
@@ -190,7 +193,7 @@ func main() {
 		// and hand the targets directly to the SDK!
 		fmt.Printf("\n⚠️  Attempting to DELETE mapping targets %v from LPAR '%s'...\n", selectedPorts, *lparName)
 		
-		operationStatus, err = restClient.DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID, selectedPorts, *verbose)
+		operationStatus, err = restClient.DeleteVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID, selectedPorts)
 		if err != nil {
 			log.Fatalf("❌ vFC Deletion Failed: %v", err)
 		}
@@ -206,7 +209,7 @@ func main() {
 		// We no longer skip already mapped ports. If the user passes 'fcs0', we map it.
 		// If they run the script again, we map it again, generating new WWPNs!
 		fmt.Printf("\n⚠️  Attempting to MAP %d vFC port(s) to LPAR '%s'...\n", len(selectedPorts), *lparName)
-		operationStatus, err = restClient.CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID, selectedPorts, *verbose)
+		operationStatus, err = restClient.CreateVirtualFibreChannelMaps(sysUUID, viosUUID, lparUUID, selectedPorts)
 		if err != nil {
 			log.Fatalf("❌ vFC Mapping Failed: %v", err)
 		}
@@ -222,7 +225,7 @@ func main() {
 	// 4. DUMP "AFTER" XML
 	// =========================================================================
 	fmt.Printf("\n[Diff Tool] Fetching 'AFTER' XML state (ViosFCMapping)...\n")
-	afterXML, err := restClient.GetRawViosXML(viosUUID, "ViosFCMapping", *verbose)
+	afterXML, err := restClient.GetRawViosXML(viosUUID, "ViosFCMapping")
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch after XML: %v", err)
 	}
@@ -238,7 +241,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: vFC topology modified dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {
@@ -254,7 +257,7 @@ func main() {
 	// We only show this if we are not deleting
 	if !*deleteMode {
 		fmt.Printf("\n[Audit] Fetching updated NPIV Mapping Details...\n")
-		mappings, auditErr := restClient.GetVirtualFibreChannelMaps(context.Background(), viosUUID, lparUUID, *verbose)
+		mappings, auditErr := restClient.GetVirtualFibreChannelMaps(context.Background(), viosUUID, lparUUID)
 		if auditErr != nil {
 			fmt.Printf("⚠️  Failed to retrieve mapping details: %v\n", auditErr)
 		} else if len(mappings) == 0 {

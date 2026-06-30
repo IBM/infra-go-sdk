@@ -11,6 +11,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Mapped to package path [cite: 1]
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -23,6 +24,8 @@ func main() {
 	sysName := flag.String("system-name", "", "Managed System Name")
 	lparName := flag.String("lpar-name", "", "Target LPAR Name to filter within PHYP (Optional)")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -31,21 +34,21 @@ func main() {
 	}
 
 	// 1. CONNECT & LOGON
-	restClient := hmc.NewRestClient(*hmcIP) // Initializes insecure TLS client [cite: 128]
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil { // Authenticates with session token [cite: 106, 118]
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull) // Initializes insecure TLS client [cite: 128]
+	if err := restClient.Login(context.Background(), *username, *password); err != nil { // Authenticates with session token [cite: 106, 118]
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background()) // Flushes connections gracefully on exit [cite: 111, 117]
 
 	// 2. RESOLVE SYSTEM & LPAR TARGETS
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose) // Resolves system UUID from JSON cache [cite: 1598]
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName) // Resolves system UUID from JSON cache [cite: 1598]
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	var lparUUID string
 	if *lparName != "" {
-		_, resolvedUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose) // Resolves target LPAR [cite: 1595]
+		_, resolvedUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName) // Resolves target LPAR [cite: 1595]
 		if err != nil || resolvedUUID == "" {
 			log.Printf("⚠️  Warning: Target LPAR '%s' could not be resolved. Skipping LPAR filter.", *lparName)
 		} else {
@@ -83,7 +86,7 @@ func main() {
 		StartTS: time.Now().Add(-15 * time.Minute),
 	}
 
-	snapshots, err := restClient.GetShortTermMonitorMetrics(context.Background(), sysUUID, opts, *verbose)
+	snapshots, err := restClient.GetShortTermMonitorMetrics(context.Background(), sysUUID, opts)
 	if err != nil {
 		log.Fatalf("❌ Failed to resolve STM catalog: %v", err)
 	}
@@ -116,7 +119,7 @@ func main() {
 	// =========================================================================
 	if phypLink != "" {
 		fmt.Printf("\n⬇️  Downloading RAW [PHYP] Payload from: %s\n", phypLink)
-		phypMetrics, err := restClient.FetchStmRawMetricsPayload(context.Background(), phypLink, *verbose)
+		phypMetrics, err := restClient.FetchStmRawMetricsPayload(context.Background(), phypLink)
 		if err != nil {
 			log.Printf("❌ Failed to parse PHYP metrics: %v", err)
 		} else {
@@ -157,7 +160,7 @@ func main() {
 	// =========================================================================
 	if viosLink != "" {
 		fmt.Printf("\n⬇️  Downloading RAW [VIOS] Payload from: %s\n", viosLink)
-		viosMetrics, err := restClient.FetchStmRawViosMetricsPayload(context.Background(), viosLink, *verbose)
+		viosMetrics, err := restClient.FetchStmRawViosMetricsPayload(context.Background(), viosLink)
 		if err != nil {
 			log.Printf("❌ Failed to parse VIOS metrics: %v", err)
 		} else {

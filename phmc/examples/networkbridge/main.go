@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func printUsage() {
@@ -43,6 +44,7 @@ func main() {
 	deleteCmd := flag.NewFlagSet("delete", flag.ExitOnError)
 
 	var hmcIP, username, password, sysName, loadGroupVlanStr string
+	var debug, debugFull bool
 	var portVlan, controlChannel int
 	var verbose, failover, loadBalancing, largeSend, jumboFrames bool
 	var primaryVios, primaryDev, secondaryVios, secondaryDev, dummyVswitch string
@@ -51,6 +53,8 @@ func main() {
 		fs.StringVar(&hmcIP, "hmc-ip", "", "HMC IP address")
 		fs.StringVar(&username, "hmc-user", "", "HMC username")
 		fs.StringVar(&password, "hmc-pass", "", "HMC password")
+		fs.BoolVar(&debug,     "debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+		fs.BoolVar(&debugFull, "debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 		fs.StringVar(&sysName, "system-name", "", "Managed System Name")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose XML and HTTP traffic logs")
 	}
@@ -102,13 +106,13 @@ func main() {
 
 
 	log.Printf("Logging into HMC: ip=%v", hmcIP)
-	restClient := hmc.NewRestClient(hmcIP)
-	if err := restClient.Login(ctx, username, password, verbose); err != nil {
+	restClient := exutil.NewClient(hmcIP, debug, debugFull)
+	if err := restClient.Login(ctx, username, password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
 
-	systems, err := restClient.GetManagedSystemQuickAll(ctx, verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(ctx)
 	if err != nil {
 		log.Fatal("Failed to fetch tracking configuration matrices")
 	}
@@ -124,7 +128,7 @@ func main() {
 	}
 
 	resolveBridgeUUID := func(vlan int) string {
-		bridges, _ := restClient.GetNetworkBridges(ctx, sysUUID, verbose)
+		bridges, _ := restClient.GetNetworkBridges(ctx, sysUUID)
 		for _, b := range bridges {
 			if b.PortVLANID == vlan {
 				return b.UUID
@@ -135,7 +139,7 @@ func main() {
 
 	switch cmd {
 	case "list":
-		bridges, err := restClient.GetNetworkBridges(ctx, sysUUID, verbose)
+		bridges, err := restClient.GetNetworkBridges(ctx, sysUUID)
 		if err != nil {
 			log.Fatal("Failed to list active bridges")
 		}
@@ -154,7 +158,7 @@ func main() {
 		if uuid == "" {
 			log.Fatal("Network Bridge target context could not be resolved for VLAN tag")
 		}
-		bridge, err := restClient.GetNetworkBridge(ctx, sysUUID, uuid, verbose)
+		bridge, err := restClient.GetNetworkBridge(ctx, sysUUID, uuid)
 		if err != nil {
 			log.Fatal("Get metadata processing operational execution phase failed")
 		}
@@ -162,10 +166,10 @@ func main() {
 		fmt.Println(string(pretty))
 
 	case "create":
-		primaryViosUUID, _ := hmc.GetViosID(ctx, restClient, sysUUID, primaryVios, verbose)
+		primaryViosUUID, _ := hmc.GetViosID(ctx, restClient, sysUUID, primaryVios)
 		secondaryViosUUID := ""
 		if failover {
-			secondaryViosUUID, _ = hmc.GetViosID(ctx, restClient, sysUUID, secondaryVios, verbose)
+			secondaryViosUUID, _ = hmc.GetViosID(ctx, restClient, sysUUID, secondaryVios)
 		}
 
 		var loadBalancedVLANs []int
@@ -194,7 +198,7 @@ func main() {
 			LoadGroupVLANs:         loadBalancedVLANs,
 		}
 
-		bridge, err := restClient.CreateNetworkBridge(ctx, sysUUID, req, verbose)
+		bridge, err := restClient.CreateNetworkBridge(ctx, sysUUID, req)
 		if err != nil {
 			log.Fatal("Bridge deployment orchestration routine mapping failure")
 		}
@@ -205,7 +209,7 @@ func main() {
 		if uuid == "" {
 			log.Fatal("Network Bridge target asset matching parameters not found")
 		}
-		err := restClient.UpdateNetworkBridge(ctx, sysUUID, uuid, failover, loadBalancing, largeSend, jumboFrames, verbose)
+		err := restClient.UpdateNetworkBridge(ctx, sysUUID, uuid, failover, loadBalancing, largeSend, jumboFrames)
 		if err != nil {
 			log.Fatal("Target asset modification transaction rejected")
 		}
@@ -217,7 +221,7 @@ func main() {
 			log.Println("Network profile configuration space is already clean. Skipping execution.")
 			return
 		}
-		if err := restClient.DeleteNetworkBridge(ctx, sysUUID, uuid, verbose); err != nil {
+		if err := restClient.DeleteNetworkBridge(ctx, sysUUID, uuid); err != nil {
 			log.Fatal("Target asset destructive decommissioning transaction rejected")
 		}
 		log.Println("🗑️ SUCCESS: Network Bridge Configurations Swept!")

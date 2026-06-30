@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -21,6 +21,8 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	useFallback := flag.Bool("fallback", true, "Use SSH fallback if REST API fails")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -40,10 +42,10 @@ func main() {
 
 	// Create HMC client
 	fmt.Printf("Connecting to HMC at %s...\n", *hmcIP)
-	client := hmc.NewRestClient(*hmcIP)
+	client := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
 	// Login to HMC
-	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
+	if err := client.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("Failed to login to HMC: %v", err)
 	}
 	fmt.Println("✓ Successfully logged in to HMC")
@@ -52,7 +54,7 @@ func main() {
 	fmt.Printf("\nClosing virtual terminal for LPAR '%s' on system '%s'...\n", *lparName, *systemName)
 	fmt.Println("Attempting REST API method...")
 	
-	err := client.CloseVirtualTerminal(context.Background(), *systemName, *lparName, *verbose)
+	err := client.CloseVirtualTerminal(context.Background(), *systemName, *lparName)
 	if err != nil {
 		// Check if it's an unsupported command error
 		if *useFallback && strings.Contains(err.Error(), "Unsupported command") {
@@ -60,7 +62,7 @@ func main() {
 			fmt.Println("Falling back to SSH method...")
 			
 			// Try SSH method
-			if err := client.CloseVirtualTerminalViaSSH(*hmcIP, *username, *password, *systemName, *lparName, *verbose); err != nil {
+			if err := client.CloseVirtualTerminalViaSSH(*hmcIP, *username, *password, *systemName, *lparName); err != nil {
 				log.Fatalf("Failed to close virtual terminal via SSH: %v", err)
 			}
 			fmt.Println("✓ Virtual terminal closed successfully via SSH")

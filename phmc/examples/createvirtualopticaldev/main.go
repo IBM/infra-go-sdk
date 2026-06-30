@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -30,6 +30,8 @@ func main() {
 	clientSlot := flag.Int("client-slot", 51, "Target Virtual Slot Number on the Client LPAR (e.g., 51)")
 
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -44,27 +46,27 @@ func main() {
 	// =========================================================================
 	// 1. AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("\n🔍 Resolving System, VIOS, and LPAR IDs...\n")
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	// Resolve LPAR
-	lparDetails, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	lparDetails, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparDetails == nil {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
 	lparID := lparDetails.PartitionID
 
 	// Resolve VIOS
-	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch VIOS instances: %v", err)
 	}
@@ -89,14 +91,14 @@ func main() {
 	fmt.Printf("\n🔌 Step 1: Provisioning Hardware Topology...\n")
 	
 	fmt.Printf("   -> Building Server Adapter on VIOS (Slot %d) pointing to LPAR ID %d...\n", *viosSlot, lparID)
-	_, err = restClient.CreateVirtualSCSIServerAdapter(viosUUID, lparID, *viosSlot, *clientSlot, *verbose)
+	_, err = restClient.CreateVirtualSCSIServerAdapter(viosUUID, lparID, *viosSlot, *clientSlot)
 	if err != nil {
 		// It's common for an adapter to already exist on idempotency runs
 		fmt.Printf("   ⚠️ Server Adapter creation returned: %v\n", err)
 	}
 
 	fmt.Printf("   -> Building Client Adapter on LPAR pointing to VIOS ID %d (Slot %d)...\n", viosID, *viosSlot)
-	_, err = restClient.CreateVirtualSCSIClientAdapter(lparUUID, viosID, *viosSlot, *verbose)
+	_, err = restClient.CreateVirtualSCSIClientAdapter(lparUUID, viosID, *viosSlot)
 	if err != nil {
 		fmt.Printf("   ⚠️ Client Adapter creation returned: %v\n", err)
 	}
@@ -105,13 +107,13 @@ func main() {
 	// 3. DISCOVER NEW HARDWARE ON VIOS
 	// =========================================================================
 	fmt.Printf("\n🔄 Step 2: Running cfgdev to initialize new hardware...\n")
-	restClient.CliRunner(context.Background(), fmt.Sprintf(`viosvrcmd -m %s -p %s -c "cfgdev"`, *sysName, *viosName), *verbose)
+	restClient.CliRunner(context.Background(), fmt.Sprintf(`viosvrcmd -m %s -p %s -c "cfgdev"`, *sysName, *viosName))
 	time.Sleep(3 * time.Second) // Give the VIOS kernel a moment to create the vhost device
 
 	fmt.Printf("🔍 Scanning VIOS for the new vhost adapter...\n")
 	// Look for the vhost assigned to our exact Virtual Slot (e.g., C51)
 	lsmapCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lsmap -all"`, *sysName, *viosName)
-	lsmapOut, _ := restClient.CliRunner(context.Background(), lsmapCmd, *verbose)
+	lsmapOut, _ := restClient.CliRunner(context.Background(), lsmapCmd)
 	
 	var vhostName string
 	targetSlotStr := fmt.Sprintf("-C%d", *viosSlot)
@@ -137,7 +139,7 @@ func main() {
 	// A. Create the Virtual Optical Target Device (FBO - File Backed Optical)
 	fmt.Printf("   -> Creating Virtual Optical Drive on %s...\n", vhostName)
 	mkvdevCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "mkvdev -fbo -vadapter %s"`, *sysName, *viosName, vhostName)
-	mkvdevOut, err := restClient.CliRunner(context.Background(), mkvdevCmd, *verbose)
+	mkvdevOut, err := restClient.CliRunner(context.Background(), mkvdevCmd)
 	
 	var vtoptName string
 	if err != nil {
@@ -145,7 +147,7 @@ func main() {
 			fmt.Println("   [Skip] Virtual Optical Drive already exists.")
 			// We need to parse lsmap again to find the existing vtopt name
 			lsmapVhostCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "lsmap -vadapter %s"`, *sysName, *viosName, vhostName)
-			vhostOut, _ := restClient.CliRunner(context.Background(), lsmapVhostCmd, *verbose)
+			vhostOut, _ := restClient.CliRunner(context.Background(), lsmapVhostCmd)
 			for _, line := range strings.Split(vhostOut, "\n") {
 				if strings.HasPrefix(strings.TrimSpace(line), "VTD") && strings.Contains(line, "vtopt") {
 					fields := strings.Fields(line)
@@ -174,7 +176,7 @@ func main() {
 	// B. Load the ISO into the Virtual Optical Drive
 	fmt.Printf("   -> Loading '%s' into %s...\n", *mediaName, vtoptName)
 	loadoptCmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "loadopt -vtd %s -disk %s"`, *sysName, *viosName, vtoptName, *mediaName)
-	loadoptOut, err := restClient.CliRunner(context.Background(), loadoptCmd, *verbose)
+	loadoptOut, err := restClient.CliRunner(context.Background(), loadoptCmd)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error() + loadoptOut), "already loaded") {
 			fmt.Println("   [Skip] Media is already loaded.")
@@ -191,7 +193,7 @@ func main() {
 	fmt.Printf("\n💾 Step 4: Saving Profiles for Reboot Safety...\n")
 	
 	fmt.Printf("   -> Saving LPAR Profile...\n")
-	restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, true, *verbose)
+	restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, true)
 
 	fmt.Println("\n=========================================================================")
 	fmt.Printf(" 🎉 OPTICAL PROVISIONING COMPLETE!\n")

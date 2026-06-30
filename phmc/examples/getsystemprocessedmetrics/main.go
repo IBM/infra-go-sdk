@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -21,6 +22,8 @@ func main() {
 	password := flag.String("hmc-pass", "", "HMC password")
 	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -31,13 +34,13 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
@@ -51,7 +54,7 @@ func main() {
 		StartTS: time.Now().Add(-15 * time.Minute), 
 	}
 
-	snapshots, err := restClient.GetManagedSystemProcessedMetrics(context.Background(), sysUUID, opts, *verbose)
+	snapshots, err := restClient.GetManagedSystemProcessedMetrics(context.Background(), sysUUID, opts)
 	if err != nil {
 		log.Fatalf("❌ Failed to resolve processed metrics catalog: %v", err)
 	}
@@ -94,7 +97,7 @@ func main() {
 			continue
 		}
 
-		metrics, err := restClient.FetchSysProcessedMetricsPayload(context.Background(), snap.JSONLink, *verbose)
+		metrics, err := restClient.FetchSysProcessedMetricsPayload(context.Background(), snap.JSONLink)
 		if err != nil {
 			log.Printf("⚠️ Failed to fetch payload for %s: %v", snap.Published, err)
 			continue

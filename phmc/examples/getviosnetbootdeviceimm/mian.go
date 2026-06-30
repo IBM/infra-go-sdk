@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -18,7 +18,8 @@ func main() {
 	viosName := flag.String("vios-name", "", "Target VIOS Name")
 	// Changed to default to empty string. If empty, we auto-detect it.
 	profileName := flag.String("profile-name", "", "VIOS Profile Name (leave blank to auto-detect)")
-	verbose := flag.Bool("verbose", false, "Enable verbose XML and HTTP output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 
 	// Validation
@@ -37,8 +38,8 @@ func main() {
 
 	// 1. Initialize & Login
 	fmt.Println("\nStep 1: Connecting to HMC...")
-	client := hmc.NewRestClient(*hmcIP)
-	if err := client.Login(context.Background(), *username, *password, *verbose); err != nil {
+	client := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := client.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}
 	defer client.Logoff(context.Background())
@@ -46,7 +47,7 @@ func main() {
 
 	// 2. Resolve System UUID
 	fmt.Printf("Step 2: Resolving System UUID for '%s'...\n", *sysName)
-	_, sysUUID, err := client.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := client.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ Managed System '%s' not found: %v", *sysName, err)
 	}
@@ -56,7 +57,7 @@ func main() {
 	fmt.Printf("Step 3: Resolving VIOS target '%s' and Profile...\n", *viosName)
 	
 	// Fetch the Quick list so we can dynamically grab the LastActivatedProfile
-	viosList, err := client.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
+	viosList, err := client.GetVirtualIOServersQuick(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch VIOS list from system: %v", err)
 	}
@@ -98,7 +99,6 @@ func main() {
 		*viosName,
 		actualProfileName, // <--- Passing the dynamically resolved profile
 		*username,
-		*verbose,
 	)
 
 	if err != nil {

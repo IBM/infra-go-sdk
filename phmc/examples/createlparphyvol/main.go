@@ -11,6 +11,7 @@ import (
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
 	svc "github.com/IBM/infra-go-sdk/svc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -38,9 +39,9 @@ func main() {
 	// Processor Configuration
 	dedicatedProc := flag.Bool("dedicated-proc", false, "Use dedicated processors (default: shared)")
 	
-	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
-	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel() // Automatically cleans up the timer/goroutine the second the function exits
 	// Derive volume name from LPAR name
@@ -67,8 +68,8 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Println("[Auth-HMC] Connecting to HMC...")
-		restClient = hmc.NewRestClient(*hmcIP)
-		if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+		restClient = exutil.NewClient(*hmcIP, *debug, *debugFull)
+		if err := restClient.Login(context.Background(), *username, *password); err != nil {
 			hmcErr = fmt.Errorf("HMC login failed: %v", err)
 			return
 		}
@@ -104,8 +105,8 @@ func main() {
 	// =========================================================================
 	// 2. SYSTEM RESOLUTION & VALIDATION
 	// =========================================================================
-	sysUUID := resolveSystemUUID(restClient, *sysName, *verbose)
-	ensureLparDoesNotExist(restClient, sysUUID, *lparName, *verbose)
+	sysUUID := resolveSystemUUID(restClient, *sysName)
+	ensureLparDoesNotExist(restClient, sysUUID, *lparName)
 
 	// =========================================================================
 	// 3. PARALLEL: CREATE LPAR || DISCOVER VIOS || RESOLVE VSWITCH
@@ -161,7 +162,7 @@ func main() {
 		}
 
 		var err error
-		lparDetails, err = restClient.CreateLogicalPartition(sysUUID, req, *verbose)
+		lparDetails, err = restClient.CreateLogicalPartition(sysUUID, req)
 		if err != nil {
 			lparErr = fmt.Errorf("LPAR creation failed: %v", err)
 			return
@@ -175,7 +176,7 @@ func main() {
 		defer wg.Done()
 		log.Println("[Thread-VIOS] Discovering VIOS WWPNs...")
 		var err error
-		viosWwpnMap, viosUuidMap, err = getViosWwpnMap(restClient, sysUUID, *verbose)
+		viosWwpnMap, viosUuidMap, err = getViosWwpnMap(restClient, sysUUID)
 		if err != nil {
 			viosErr = fmt.Errorf("VIOS discovery failed: %v", err)
 			return
@@ -187,7 +188,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Printf("[Thread-vSwitch] Resolving Virtual Switch '%s'...", *vswitchName)
-		switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, *verbose)
+		switches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID)
 		if err != nil {
 			vswitchErr = fmt.Errorf("failed to retrieve Virtual Switches: %v", err)
 			return
@@ -236,7 +237,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Printf("[Thread-Network] Attaching VLAN %d to LPAR...", *vlanID)
-		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID, *verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, *vlanID)
 		if err != nil {
 			networkErr2 = fmt.Errorf("failed to add network adapter: %v", err)
 			return
@@ -252,7 +253,7 @@ func main() {
 		defer wg.Done()
 		log.Println("[Thread-SVC] Starting SVC storage provisioning...")
 		var err error
-		targetVol, selectedViosName, err = provisionSVCStorage(context.Background(), svcclient, *baseImageName, viosWwpnMap, volumeName, *verbose)
+		targetVol, selectedViosName, err = provisionSVCStorage(context.Background(), svcclient, *baseImageName, viosWwpnMap, volumeName)
 		if err != nil {
 			storageErr = fmt.Errorf("failed to provision SVC storage: %v", err)
 			return
@@ -280,19 +281,19 @@ func main() {
 	viosUUID := viosUuidMap[selectedViosName]
 
 	log.Println("Running ConfigDevice (cfgdev) to scan for the new SVC LUN...")
-	if err := restClient.ConfigDevice(ctx,viosUUID, "", *verbose); err != nil {
+	if err := restClient.ConfigDevice(ctx,viosUUID, ""); err != nil {
 		log.Fatalf("[HMC] Failed to run cfgdev: %v", err)
 	}
 
 	log.Printf("Locating new physical volume matching SVC UID: %s...: %v", targetVol.VdiskUID)
-	diskName, err := identifyFreeVolume(ctx,restClient, viosUUID, selectedViosName, targetVol.VdiskUID, *verbose)
+	diskName, err := identifyFreeVolume(ctx,restClient, viosUUID, selectedViosName, targetVol.VdiskUID)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to identify free volume: %v", err)
 	}
 	log.Printf("✅ Matched SVC LUN to VIOS Disk: %s: %v", diskName)
 
 	log.Printf("Attaching '%s' to LPAR '%s'...: diskName=%v", *lparName)
-	mappingUUID, err := restClient.CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID, []string{diskName}, *verbose)
+	mappingUUID, err := restClient.CreatePhysicalVolumeMaps(sysUUID, viosUUID, lparUUID, []string{diskName})
 	if err != nil {
 		log.Fatalf("[HMC] Storage Mapping Failed: %v", err)
 	}
@@ -310,7 +311,7 @@ func main() {
 	profileName := lparDetails.DefaultProfileName
 	log.Println("")
 	log.Printf("Saving active configuration to profile '%s'...: %v", profileName)
-	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true, *verbose)
+	err = restClient.SaveCurrentLparConfig(context.Background(), lparUUID, profileName, true)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to save LPAR configuration: %v", err)
 	}
@@ -331,9 +332,6 @@ func main() {
 	}
 	profileUUID := profileHref[len(profileHref)-36:]
 	
-	if *verbose {
-		log.Printf("Using default profile '%s' (UUID: %s): lparDetails.DefaultProfileName=%v", profileUUID)
-	}
 
 	// Create PowerOnOptions
 	options := &hmc.PowerOnOptions{
@@ -341,7 +339,7 @@ func main() {
 		Keylock:     "normal",
 		OSType:      *osType,
 	}
-	_, err = restClient.PowerOnPartition(ctx,lparUUID, options, *verbose)
+	_, err = restClient.PowerOnPartition(ctx,lparUUID, options)
 	if err != nil {
 		log.Fatalf("[HMC] Failed to PowerOn Partition: %v", err)
 	}
@@ -359,14 +357,14 @@ func main() {
 // WORKFLOW HELPER FUNCTIONS
 // =========================================================================
 
-func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bool) string {
-	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
+func resolveSystemUUID(restClient *hmc.RestClient, systemName string) string {
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background())
 	if err != nil {
 		log.Fatalf("[HMC] Failed to get managed systems: %v", err)
 	}
 	for _, system := range systems {
 		if strings.EqualFold(system.SystemName, systemName) {
-			if verbose {
+			if false {
 				log.Printf("Resolved Managed System UUID: %s: %v", system.UUID)
 			}
 			return system.UUID
@@ -376,18 +374,18 @@ func resolveSystemUUID(restClient *hmc.RestClient, systemName string, verbose bo
 	return ""
 }
 
-func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string, verbose bool) {
-	if verbose {
+func ensureLparDoesNotExist(restClient *hmc.RestClient, systemUUID, vmName string) {
+	if false {
 		log.Printf("Verifying LPAR name '%s' is unique...: %v", vmName)
 	}
-	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName, false)
+	_,existingUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, vmName)
 	if err == nil && existingUUID != "" {
 		log.Fatalf("[HMC] Error: LPAR with name '%s' already exists (UUID: %s)", vmName, existingUUID)
 	}
 }
 
-func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string, verbose bool) (map[string][]string, map[string]string, error) {
-	viosList, err := restClient.GetVirtualIOServers(systemUUID, verbose)
+func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string) (map[string][]string, map[string]string, error) {
+	viosList, err := restClient.GetVirtualIOServers(systemUUID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch VIOS details: %v", err)
 	}
@@ -428,7 +426,7 @@ func getViosWwpnMap(restClient *hmc.RestClient, systemUUID string, verbose bool)
 	return viosWwpnMap, viosUuidMap, nil
 }
 
-func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, volumeName string, verbose bool) (*svc.Vdisk, string, error) {
+func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageName string, viosWwpnMap map[string][]string, volumeName string) (*svc.Vdisk, string, error) {
 
 	var selectedViosName string
 	var selectedHostName string
@@ -448,7 +446,7 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 	for viosName, wwpns := range viosWwpnMap {
 		for _, wwpn := range wwpns {
 			if hostName, found := wwpnToHostMap[strings.ToUpper(wwpn)]; found {
-				if verbose {
+				if false {
 					log.Printf("✅ Match Found! VIOS '%s' is mapped to SVC Host '%s': viosName=%v", hostName)
 				}
 				selectedViosName = viosName
@@ -462,7 +460,7 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 	}
 
 	if !hostExists {
-		if verbose { log.Println("[SVC] ⚠️ No matching SVC host found. Preparing to create a new host mapping...") }
+		if false { log.Println("[SVC] ⚠️ No matching SVC host found. Preparing to create a new host mapping...") }
 		for viosName, wwpns := range viosWwpnMap {
 			selectedViosName = viosName
 			selectedHostName = viosName
@@ -527,8 +525,8 @@ func provisionSVCStorage(ctx context.Context, svcclient *svc.Client, baseImageNa
 	return targetVol, selectedViosName, nil
 }
 
-func identifyFreeVolume(ctx context.Context, restClient *hmc.RestClient, viosUUID string, viosName string, VdiskUID string, verbose bool) (string, error) {
-	pvList, err := restClient.GetFreePhyVolume(viosUUID, verbose)
+func identifyFreeVolume(ctx context.Context, restClient *hmc.RestClient, viosUUID string, viosName string, VdiskUID string) (string, error) {
+	pvList, err := restClient.GetFreePhyVolume(viosUUID)
 	if err != nil {
 		pvList = []hmc.PhysicalVolume{}
 	}

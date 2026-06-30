@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -27,6 +27,8 @@ func main() {
 	viosSlot := flag.Int("vios-slot", 10, "Virtual slot number on the VIOS (0 = Auto-Assign)")
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output (activates structured Debug logs)")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -57,11 +59,11 @@ func main() {
 	// =========================================================================
 	// 2. AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 	
 	// Sync the SDK logger level with the CLI logger
 
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
@@ -71,14 +73,14 @@ func main() {
 	// =========================================================================
 	log.Printf("Resolving Managed System to UUID: system=%v", *sysName)
 	
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve Managed System")
 	}
 
 	log.Printf("Resolving LPAR to UUID: lpar=%v", *lparName)
 	
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatal("Failed to resolve LPAR Name")
 	}
@@ -86,7 +88,7 @@ func main() {
 
 	log.Printf("Resolving VIOS to Partition ID: vios=%v", *viosName)
 	
-	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatal("Failed to fetch VIOS list")
 	}
@@ -109,7 +111,7 @@ func main() {
 	// =========================================================================
 	log.Println("Injecting vFC Client Adapter...")
 
-	adapterUUID, err := restClient.CreateVirtualFibreChannelClientAdapter(lparUUID, targetViosID, *viosSlot, *verbose)
+	adapterUUID, err := restClient.CreateVirtualFibreChannelClientAdapter(lparUUID, targetViosID, *viosSlot)
 	if err != nil {
 		log.Fatal("Failed to create vFC Client Adapter")
 	}

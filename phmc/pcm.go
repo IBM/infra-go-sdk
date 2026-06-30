@@ -13,7 +13,7 @@ import (
 )
 
 // GetLparAggregatedMetrics retrieves the Atom feed of aggregated performance metrics for a specific LPAR.
-func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lparUUID string, opts *AggregatedMetricsOptions, debug bool) ([]PcmMetricsSnapshot, error) {
+func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lparUUID string, opts *AggregatedMetricsOptions) ([]PcmMetricsSnapshot, error) {
 	if opts == nil || opts.StartTS.IsZero() {
 		return nil, fmt.Errorf("StartTS is a mandatory parameter for retrieving aggregated metrics")
 	}
@@ -57,10 +57,7 @@ func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lpar
 
 
 	if resp.StatusCode != http.StatusOK {
-		if debug {
-			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
-		}
-		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
+		return nil, fmt.Errorf("request failed with status %s", resp.Status)
 	}
 
 	doc, err := xmlStripNamespace(body)
@@ -105,7 +102,7 @@ func (c *RestClient) GetLparAggregatedMetrics(ctx context.Context, sysUUID, lpar
 
 // FetchPcmMetricsPayload downloads and unmarshals the JSON metrics snapshot from a PCM Atom link.
 // It bypasses strict MIME-type checking to prevent Tomcat 406 Not Acceptable errors on static JSON files.
-func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string, debug bool) (*PcmMetricsPayload, error) {
+func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string) (*PcmMetricsPayload, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", jsonURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -129,10 +126,7 @@ func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string,
 
 
 	if resp.StatusCode != http.StatusOK {
-		if debug {
-			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
-		}
-		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
+		return nil, fmt.Errorf("request failed with status %s", resp.Status)
 	}
 
 	var payload PcmMetricsPayload
@@ -145,7 +139,7 @@ func (c *RestClient) FetchPcmMetricsPayload(ctx context.Context, jsonURL string,
 }
 
 // GetManagedSystemAggregatedMetrics retrieves the Atom feed of aggregated performance metrics for a Managed System.
-func (c *RestClient) GetManagedSystemAggregatedMetrics(ctx context.Context, systemUUID string, opts *ManagedSystemMetricsOptions, debug bool) ([]PcmMetricsSnapshot, error) {
+func (c *RestClient) GetManagedSystemAggregatedMetrics(ctx context.Context, systemUUID string, opts *ManagedSystemMetricsOptions) ([]PcmMetricsSnapshot, error) {
 	if opts == nil || opts.StartTS.IsZero() {
 		return nil, fmt.Errorf("StartTS is a mandatory parameter for retrieving system aggregated metrics")
 	}
@@ -244,7 +238,7 @@ func (c *RestClient) GetManagedSystemAggregatedMetrics(ctx context.Context, syst
 }
 
 // FetchSystemPcmMetricsPayload downloads and parses the system-wide JSON utilization data from a specific snapshot link.
-func (c *RestClient) FetchSystemPcmMetricsPayload(ctx context.Context, jsonURL string, debug bool) (*SysPcmMetricsPayload, error) {
+func (c *RestClient) FetchSystemPcmMetricsPayload(ctx context.Context, jsonURL string) (*SysPcmMetricsPayload, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", jsonURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to instantiate requests context: %v", err)
@@ -584,7 +578,7 @@ func (c *RestClient) SetManagedSystemPcmPreferences(ctx context.Context, systemU
 }
 
 // GetManagementConsolePcmPreferences retrieves the global metrics collection preferences for the HMC and all connected systems.
-func (c *RestClient) GetManagementConsolePcmPreferences(ctx context.Context, debug bool) (*ManagementConsolePcmPreference, error) {
+func (c *RestClient) GetManagementConsolePcmPreferences(ctx context.Context) (*ManagementConsolePcmPreference, error) {
 	baseURL := fmt.Sprintf("https://%s/rest/api/pcm/preferences", c.hmcIP)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL, nil)
@@ -640,7 +634,7 @@ func (c *RestClient) GetManagementConsolePcmPreferences(ctx context.Context, deb
 
 // SetManagementConsolePcmPreferences updates the global PCM configuration for the HMC and its managed systems.
 // It uses a pristine GET-Modify-POST pattern to satisfy IBM's strict XML schema requirements.
-func (c *RestClient) SetManagementConsolePcmPreferences(ctx context.Context, prefs *ManagementConsolePcmPreference, debug bool) error {
+func (c *RestClient) SetManagementConsolePcmPreferences(ctx context.Context, prefs *ManagementConsolePcmPreference) error {
 	baseURL := fmt.Sprintf("https://%s/rest/api/pcm/preferences", c.hmcIP)
 
 	// 1. Fetch pristine XML to preserve namespaces and Read-Only Required (ROR) attributes
@@ -739,7 +733,7 @@ func (c *RestClient) SetManagementConsolePcmPreferences(ctx context.Context, pre
 }
 
 // GetLogicalPartitionProcessedMetrics retrieves the Atom feed of processed performance metrics (30-second intervals) for an LPAR.
-func (c *RestClient) GetLogicalPartitionProcessedMetrics(ctx context.Context, systemUUID, partitionUUID string, opts *LparProcessedMetricsOptions, debug bool) ([]PcmMetricsSnapshot, error) {
+func (c *RestClient) GetLogicalPartitionProcessedMetrics(ctx context.Context, systemUUID, partitionUUID string, opts *LparProcessedMetricsOptions) ([]PcmMetricsSnapshot, error) {
 	if opts == nil || opts.StartTS.IsZero() {
 		return nil, fmt.Errorf("StartTS is a mandatory parameter for retrieving LPAR processed metrics")
 	}
@@ -867,7 +861,7 @@ func (c *RestClient) FetchLparProcessedMetricsPayload(ctx context.Context, jsonU
 
 // EnableLparPerformanceCollection enables the AllowPerformanceDataCollection flag on a specific LPAR
 // using a pristine GET-Modify-POST pattern. This is required for the hypervisor to release LPAR-specific telemetry.
-func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUUID string, debug bool) error {
+func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUUID string) error {
 	url := fmt.Sprintf("https://%s/rest/api/uom/LogicalPartition/%s", c.hmcIP, lparUUID)
 
 
@@ -934,7 +928,10 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 	}
 	defer postResp.Body.Close()
 
-	body, _ := io.ReadAll(postResp.Body)
+	body, err := io.ReadAll(postResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
 
 	// Graceful RMC Error Handling (In case the LPAR is powered off)
 	if postResp.StatusCode >= 400 {
@@ -949,7 +946,7 @@ func (c *RestClient) EnableLparPerformanceCollection(ctx context.Context, lparUU
 }
 
 // GetManagedSystemProcessedMetrics retrieves the Atom feed of processed performance metrics (30-second intervals) for the entire Managed System.
-func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, systemUUID string, opts *AggregatedMetricsOptions, debug bool) ([]PcmMetricsSnapshot, error) {
+func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, systemUUID string, opts *AggregatedMetricsOptions) ([]PcmMetricsSnapshot, error) {
 	if opts == nil || opts.StartTS.IsZero() {
 		return nil, fmt.Errorf("StartTS is a mandatory parameter for retrieving system processed metrics")
 	}
@@ -1044,7 +1041,7 @@ func (c *RestClient) GetManagedSystemProcessedMetrics(ctx context.Context, syste
 
 // FetchSysProcessedMetricsPayload downloads and unmarshals a specific Managed System JSON metrics file.
 // Natively accepts both 30-second Processed files and the larger Aggregated files.
-func (c *RestClient) FetchSysProcessedMetricsPayload(ctx context.Context, jsonURL string, debug bool) (*SysProcessedMetricsPayload, error) {
+func (c *RestClient) FetchSysProcessedMetricsPayload(ctx context.Context, jsonURL string) (*SysProcessedMetricsPayload, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", jsonURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request context: %v", err)
@@ -1079,7 +1076,7 @@ func (c *RestClient) FetchSysProcessedMetricsPayload(ctx context.Context, jsonUR
 
 // GetShortTermMonitorMetrics retrieves the Atom feed of Short Term Monitor (5-second intervals) performance metrics.
 // Note: STM metrics are only retained by the HMC for 30 minutes. The Atom feed returns distinct JSON links for PHYP and each VIOS.
-func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID string, opts *ShortTermMetricsOptions, debug bool) ([]PcmMetricsSnapshot, error) {
+func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID string, opts *ShortTermMetricsOptions) ([]PcmMetricsSnapshot, error) {
 	baseURL := fmt.Sprintf("https://%s/rest/api/pcm/ManagedSystem/%s/RawMetrics/ShortTermMonitor", c.hmcIP, systemUUID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL, nil)
@@ -1168,7 +1165,7 @@ func (c *RestClient) GetShortTermMonitorMetrics(ctx context.Context, systemUUID 
 }
 
 // FetchStmRawMetricsPayload downloads and unmarshals a highly granular 5-second STM JSON metrics file.
-func (c *RestClient) FetchStmRawMetricsPayload(ctx context.Context, jsonURL string, debug bool) (*StmRawMetricsPayload, error) {
+func (c *RestClient) FetchStmRawMetricsPayload(ctx context.Context, jsonURL string) (*StmRawMetricsPayload, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", jsonURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request context: %v", err)
@@ -1202,7 +1199,7 @@ func (c *RestClient) FetchStmRawMetricsPayload(ctx context.Context, jsonURL stri
 }
 
 // FetchStmRawViosMetricsPayload downloads and unmarshals the highly granular 5-second STM JSON metrics file specifically for Virtual I/O Servers.
-func (c *RestClient) FetchStmRawViosMetricsPayload(ctx context.Context, jsonURL string, debug bool) (*StmRawViosMetricsPayload, error) {
+func (c *RestClient) FetchStmRawViosMetricsPayload(ctx context.Context, jsonURL string) (*StmRawViosMetricsPayload, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", jsonURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request context: %v", err)

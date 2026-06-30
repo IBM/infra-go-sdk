@@ -7,7 +7,7 @@ import (
 	"log"
 	"time"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -23,6 +23,8 @@ func main() {
 	verbose := flag.Bool("verbose", true, "Enable verbose logging")
 	timeout := flag.Int("timeout", 10, "Timeout in minutes for job completion")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -43,8 +45,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -54,7 +56,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Resolving managed system: %s\n", *systemName)
 	
-	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *systemName, *verbose)
+	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *systemName)
 	if err != nil {
 		log.Fatalf("❌ Failed to get managed system: %v", err)
 	}
@@ -67,7 +69,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Resolving LPAR: %s\n", *lparName)
 	
-	lpar, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, *lparName, *verbose)
+	lpar, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), systemUUID, *lparName)
 	if err != nil {
 		log.Fatalf("❌ Failed to get LPAR: %v", err)
 	}
@@ -84,7 +86,7 @@ func main() {
 	fmt.Println()
 
 	// Submit the job
-	jobID, err := restClient.ChangeDefaultProfileName(lparUUID, *profileName, *verbose)
+	jobID, err := restClient.ChangeDefaultProfileName(lparUUID, *profileName)
 	if err != nil {
 		log.Fatalf("❌ Failed to submit ChangeDefaultProfileName job: %v", err)
 	}
@@ -99,7 +101,7 @@ func main() {
 	fmt.Println("Monitoring job status...")
 	fmt.Println()
 
-	jobResp, err := restClient.FetchJobStatus(ctx,jobID, false, *timeout, *verbose)
+	jobResp, err := restClient.FetchJobStatus(ctx, jobID, false, *timeout)
 	if err != nil {
 		log.Fatalf("❌ Job failed: %v", err)
 	}
@@ -133,7 +135,7 @@ func main() {
 	// =========================================================================
 	fmt.Println()
 	fmt.Println("Cleaning up job...")
-	if err := restClient.DeleteJob(context.Background(), jobID, false, *verbose); err != nil {
+	if err := restClient.DeleteJob(context.Background(), jobID, false); err != nil {
 		log.Printf("⚠️  Warning: Failed to delete job: %v", err)
 	} else {
 		fmt.Println("✅ Job deleted successfully")

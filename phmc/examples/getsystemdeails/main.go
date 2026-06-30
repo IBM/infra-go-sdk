@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -19,6 +19,8 @@ func main() {
 	password := flag.String("hmc-pass", "", "HMC password")
 	sysName := flag.String("system-name", "", "Managed System Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -30,8 +32,8 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -40,7 +42,7 @@ func main() {
 	// RESOLVE SYSTEM UUID
 	// =========================================================================
 	fmt.Printf("Resolving Managed System '%s'...\n", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found: %v", *sysName, err)
 	}
@@ -50,7 +52,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("Fetching comprehensive XML payload for system UUID: %s...\n", sysUUID)
 	
-	detailedSystem, err := restClient.GetManagedSystem(context.Background(), sysUUID, *verbose)
+	detailedSystem, err := restClient.GetManagedSystem(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch detailed system info: %v", err)
 	}

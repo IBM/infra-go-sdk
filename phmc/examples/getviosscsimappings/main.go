@@ -8,6 +8,7 @@ import (
 	"log"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 type viosMappingResult struct {
@@ -37,6 +38,8 @@ func main() {
 	jsonOutput := flag.Bool("json", false, "Output in JSON format")
 	viosFilter := flag.String("vios-filter", "", "Filter by specific VIOS name (optional)")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -47,8 +50,8 @@ func main() {
 	// =========================================================================
 	// STEP 1: Login to HMC
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *hmcUser, *hmcPass, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *hmcUser, *hmcPass); err != nil {
 		log.Fatalf("HMC Login failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -58,7 +61,7 @@ func main() {
 	// =========================================================================
 	// STEP 2: Get Managed System UUID
 	// =========================================================================
-	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	systemUUID, system, err := restClient.GetManagedSystemByName(context.Background(), *sysName)
 	if err != nil {
 		log.Fatalf("Failed to get managed system: %v", err)
 	}
@@ -68,7 +71,7 @@ func main() {
 	// =========================================================================
 	// STEP 3: Get All VIOS Instances
 	// =========================================================================
-	viosList, err := restClient.GetVirtualIOServers(systemUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServers(systemUUID)
 	if err != nil {
 		log.Fatalf("Failed to get VIOS list: %v", err)
 	}
@@ -106,7 +109,7 @@ func main() {
 		fmt.Printf("\n📋 Fetching SCSI mappings for VIOS '%s' (State: %s)...\n",
 			vios.PartitionName, vios.PartitionState)
 
-		mappings, err := restClient.GetViosSCSIMappings(context.Background(), vios.PartitionUUID, *verbose)
+		mappings, err := restClient.GetViosSCSIMappings(context.Background(), vios.PartitionUUID)
 		
 		result := viosMappingResult{
 			ViosName:  vios.PartitionName,

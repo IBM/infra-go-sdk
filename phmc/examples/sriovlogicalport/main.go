@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -40,6 +41,8 @@ func main() {
 	listMode := flag.Bool("list", false, "Set to true to purely LIST the current SR-IOV Logical Ports")
 	logicalPortsRaw := flag.String("logical-ports", "", "Comma-separated list of Logical Port IDs or Location Codes to delete")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -60,20 +63,20 @@ func main() {
 	// AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	fmt.Printf("Resolving System UUID for '%s'...\n", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
 	fmt.Printf("Resolving LPAR UUID for '%s'...\n", *lparName)
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -85,7 +88,7 @@ func main() {
 		fmt.Printf("\n📡 LISTING SR-IOV Logical Ports for LPAR '%s'...\n", *lparName)
 		fmt.Println("=========================================================================")
 
-		logicalPorts, err := restClient.GetSRIOVLogicalPorts(context.Background(), lparUUID, *verbose)
+		logicalPorts, err := restClient.GetSRIOVLogicalPorts(context.Background(), lparUUID)
 		if err != nil {
 			log.Fatalf("❌ Failed to fetch SR-IOV Logical Ports: %v", err)
 		}
@@ -127,7 +130,7 @@ func main() {
 	// DUMP "BEFORE" XML
 	// =========================================================================
 	fmt.Println("\n[Diff Tool] Fetching 'BEFORE' XML state...")
-	beforeXML, err := restClient.GetRawLparXML(sysUUID, lparUUID, *verbose)
+	beforeXML, err := restClient.GetRawLparXML(sysUUID, lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch BEFORE XML: %v", err)
 	}
@@ -161,7 +164,7 @@ func main() {
 		}
 
 		// 2. Call the Smart SDK Deleter
-		err = restClient.DeleteSRIOVLogicalPorts(context.Background(), lparUUID, cleanTargets, *verbose)
+		err = restClient.DeleteSRIOVLogicalPorts(context.Background(), lparUUID, cleanTargets)
 		if err != nil {
 			log.Fatalf("❌ Deletion Failed: %v", err)
 		}
@@ -192,7 +195,7 @@ func main() {
 			Allowed8021QPriorities: *allowedPriorities,
 		}
 
-		operationStatus,err = restClient.CreateSRIOVLogicalPort(lparUUID, *adapterID, *portID, opts, *verbose)
+		operationStatus,err = restClient.CreateSRIOVLogicalPort(lparUUID, *adapterID, *portID, opts)
 		if err != nil {
 			log.Fatalf("❌ Provisioning Failed: %v", err)
 		}
@@ -203,7 +206,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: vFC topology modified dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {
@@ -216,7 +219,7 @@ func main() {
 	// DUMP "AFTER" XML
 	// =========================================================================
 	fmt.Println("\n[Diff Tool] Fetching 'AFTER' XML state...")
-	afterXML, err := restClient.GetRawLparXML(sysUUID, lparUUID, *verbose)
+	afterXML, err := restClient.GetRawLparXML(sysUUID, lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch AFTER XML: %v", err)
 	}

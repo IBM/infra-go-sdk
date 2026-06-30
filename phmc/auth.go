@@ -12,7 +12,7 @@ import (
 )
 
 // Login performs the logon operation to the HMC REST API
-func (c *RestClient) Login(ctx context.Context, username, password string, debug bool) error {
+func (c *RestClient) Login(ctx context.Context, username, password string) error {
 	payload := LogonRequest{
 		SchemaVersion: "V1_0",
 		XMLNS:         "http://www.ibm.com/xmlns/systems/power/firmware/web/mc/2012_10/",

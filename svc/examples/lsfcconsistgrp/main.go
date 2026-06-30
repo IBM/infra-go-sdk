@@ -48,15 +48,14 @@ func main() {
 
 	if len(groups) > 0 {
 		group := groups[0]
-		log.Printf("[INFO] ✅ Successfully retrieved FlashCopy consistency group %v", "name", group.Name, 
-			"status", group.Status, 
-			"start_time", group.StartTime,)
+		log.Printf("[INFO] ✅ Successfully retrieved FlashCopy consistency group name=%v status=%v start_time=%v",
+			group.Name, group.Status, group.StartTime)
 		
 		if len(group.Mappings) > 0 {
 			log.Printf("Associated Mappings found: count=%v", len(group.Mappings))
 			for _, mapping := range group.Mappings {
-				log.Printf("[DEBUG] Mapping Detail %v", "mapping_id", mapping.FCMappingID, 
-					"mapping_name", mapping.FCMappingName,)
+				log.Printf("[DEBUG] Mapping Detail mapping_id=%v mapping_name=%v",
+					mapping.FCMappingID, mapping.FCMappingName)
 			}
 		} else {
 			log.Println("No associated mappings for this group")
@@ -79,15 +78,13 @@ func main() {
 		log.Printf("Retrieved all FlashCopy consistency groups: total_groups=%v", len(allGroups))
 		
 		for _, group := range allGroups {
-			log.Printf("[DEBUG] Consistency Group %v", "name", group.Name, 
-				"status", group.Status, 
-				"start_time", group.StartTime,)
-			
+			log.Printf("[DEBUG] Consistency Group name=%v status=%v start_time=%v",
+				group.Name, group.Status, group.StartTime)
+
 			if len(group.Mappings) > 0 {
 				for _, mapping := range group.Mappings {
-					log.Printf("[DEBUG]   -> Mapping Detail %v", "parent_group", group.Name,
-						"mapping_id", mapping.FCMappingID, 
-						"mapping_name", mapping.FCMappingName,)
+					log.Printf("[DEBUG]   -> Mapping Detail parent_group=%v mapping_id=%v mapping_name=%v",
+						group.Name, mapping.FCMappingID, mapping.FCMappingName)
 				}
 			}
 		}

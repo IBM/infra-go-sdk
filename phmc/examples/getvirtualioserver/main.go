@@ -1,25 +1,32 @@
 package main
 
 import (
+	"flag"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your package path if necessary
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
 	// --- Configuration ---
-	hmcIP        := ""
-	username     := ""
-	password     := ""
-	targetSystem := "" // The name of the managed system
-	verbose      := false
+	hmcIP    := flag.String("hmc-ip",    "", "HMC IP address")
+	username := flag.String("hmc-user",  "", "HMC username")
+	password := flag.String("hmc-pass",  "", "HMC password")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
+	flag.Parse()
 
+	hmcIPVal    := *hmcIP
+	usernameVal := *username
+	passwordVal := *password
+
+	targetSystem := "" // The name of the managed system
 	// 1. Initialize and Login
-	restClient := hmc.NewRestClient(hmcIP)
-	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
+	restClient := exutil.NewClient(hmcIPVal, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), usernameVal, passwordVal); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -28,7 +35,7 @@ func main() {
 
 	// 2. Fetch the Quick list to resolve the Managed System UUID
 	fmt.Printf("Resolving UUID for Managed System '%s'...\n", targetSystem)
-	systems, err := restClient.GetManagedSystemQuickAll(context.Background(), verbose)
+	systems, err := restClient.GetManagedSystemQuickAll(context.Background())
 	if err != nil {
 		log.Fatalf("Error retrieving systems: %v", err)
 	}
@@ -48,7 +55,7 @@ func main() {
 
 	// 3. Get the list of VIOSs using your existing Quick method to grab a valid VIOS UUID
 	fmt.Println("Fetching Quick VIOS list to find a target VIOS UUID...")
-	quickViosList, err := restClient.GetVirtualIOServersQuick(context.Background(), systemUUID, verbose)
+	quickViosList, err := restClient.GetVirtualIOServersQuick(context.Background(), systemUUID)
 	if err != nil {
 		log.Fatalf("Error fetching VIOS list: %v", err)
 	}
@@ -64,7 +71,7 @@ func main() {
 
 	// 4. Fetch the Comprehensive Details for this SINGLE VIOS
 	fmt.Println("\nFetching detailed information for the specific VIOS via REST API...")
-	viosDetails, err := restClient.GetVirtualIOServer(context.Background(), targetViosUUID, verbose)
+	viosDetails, err := restClient.GetVirtualIOServer(context.Background(), targetViosUUID)
 	if err != nil {
 		log.Fatalf("Error fetching specific VIOS details: %v", err)
 	}

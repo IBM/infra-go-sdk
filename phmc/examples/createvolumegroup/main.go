@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -22,6 +22,8 @@ func main() {
 	vgName := flag.String("vg-name", "auto_vg01", "Name of the new Volume Group")
 	diskCount := flag.Int("disk-count", 1, "Number of free disks to allocate to the new VG")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -33,8 +35,8 @@ func main() {
 	// AUTHENTICATION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -43,13 +45,13 @@ func main() {
 	// 1. DYNAMIC SYSTEM & VIOS DISCOVERY
 	// =========================================================================
 	fmt.Printf("\nResolving System Name: %s...\n", *sysName)
-	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System %s not found: %v", *sysName, err)
 	}
 
 	fmt.Println("Discovering Virtual I/O Servers...")
-	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(context.Background(), sysUUID)
 	if err != nil || len(viosList) == 0 {
 		log.Fatalf("❌ Failed to fetch VIOS instances for system %s.", *sysName)
 	}
@@ -63,7 +65,7 @@ func main() {
 	fmt.Println("\nScanning VIOS instances for available unmapped storage...")
 	for _, vios := range viosList {
 		// Use the SDK to find physical volumes that are NOT part of a VG and NOT mapped to an LPAR
-		freeDisks, err := restClient.GetFreePhyVolume(vios.UUID, *verbose)
+		freeDisks, err := restClient.GetFreePhyVolume(vios.UUID)
 		if err != nil {
 			continue // Skip if there's an error querying this specific VIOS
 		}
@@ -97,7 +99,7 @@ func main() {
 	fmt.Printf("   -> Disks being assigned: %v\n", selectedDisks)
 
 	// Note: If you get an HTTP 405 error, remember to change "PUT" to "POST" in the CreateVolumeGroup SDK function.
-	err = restClient.CreateVolumeGroup(targetViosUUID, *vgName, selectedDisks, *verbose)
+	err = restClient.CreateVolumeGroup(targetViosUUID, *vgName, selectedDisks)
 	if err != nil {
 		log.Fatalf("❌ Failed to create Volume Group: %v", err)
 	}

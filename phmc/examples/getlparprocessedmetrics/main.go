@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -22,6 +23,8 @@ func main() {
 	sysName := flag.String("system-name", "", "Managed System Name")
 	lparName := flag.String("lpar-name", "", "Target LPAR Name")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -30,19 +33,19 @@ func main() {
 	}
 
 	// 1. CONNECT & LOGON
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	// 2. RESOLVE SYSTEM & LPAR TARGETS
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -76,7 +79,7 @@ func main() {
 
 	// ✨ NEW: ENFORCE THE LPAR-LEVEL DATA COLLECTION LOCK
 	fmt.Printf("\n⚙️  Verifying LPAR-level Performance Collection permissions for '%s'...\n", *lparName)
-	err = restClient.EnableLparPerformanceCollection(context.Background(), lparUUID, *verbose)
+	err = restClient.EnableLparPerformanceCollection(context.Background(), lparUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to enable performance collection on LPAR: %v", err)
 	}
@@ -91,7 +94,7 @@ func main() {
 		StartTS: time.Now().Add(-60 * time.Minute), 
 	}
 
-	snapshots, err := restClient.GetLogicalPartitionProcessedMetrics(context.Background(), sysUUID, lparUUID, opts, *verbose)
+	snapshots, err := restClient.GetLogicalPartitionProcessedMetrics(context.Background(), sysUUID, lparUUID, opts)
 	if err != nil {
 		log.Fatalf("❌ Failed to resolve processed metrics catalog: %v", err)
 	}

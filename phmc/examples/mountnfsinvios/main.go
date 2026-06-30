@@ -7,6 +7,7 @@ import (
 	"log"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -29,6 +30,8 @@ func main() {
 	action := flag.String("action", "mount", "Action: mount or unmount")
 	
 	verbose := flag.Bool("verbose", true, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -62,8 +65,8 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ Login failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -77,7 +80,7 @@ func main() {
 	switch *action {
 	case "mount":
 		fmt.Println("\n📌 Mounting NFS export...")
-		output, err = hmc.MountNFS(context.Background(), restClient, *sysName, *viosName, *nfsServer, *exportPath, *mountPoint, *nfsVersion, *verbose)
+		output, err = hmc.MountNFS(context.Background(), restClient, *sysName, *viosName, *nfsServer, *exportPath, *mountPoint, *nfsVersion)
 		if err != nil {
 			log.Fatalf("❌ Failed to mount NFS: %v", err)
 		}
@@ -85,7 +88,7 @@ func main() {
 
 	case "unmount":
 		fmt.Println("\n📌 Unmounting NFS...")
-		output, err = hmc.UnmountNFS(context.Background(), restClient, *sysName, *viosName, *mountPoint, *verbose)
+		output, err = hmc.UnmountNFS(context.Background(), restClient, *sysName, *viosName, *mountPoint)
 		if err != nil {
 			log.Fatalf("❌ Failed to unmount NFS: %v", err)
 		}

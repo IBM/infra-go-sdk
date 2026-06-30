@@ -12,7 +12,7 @@ import (
 )
 
 // FetchJobResponse retrieves the full job response and returns it as a structured JobResponse
-func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string, debug bool) (*JobResponse, error) {
+func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string) (*JobResponse, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/jobs/%s", c.hmcIP, jobID)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -99,7 +99,7 @@ func (c *RestClient) FetchJobResponse(ctx context.Context, jobID string, debug b
 //   - error: Error if job fails, is canceled, or times out
 //
 // Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-job-status
-func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template bool, timeoutInMin int, debug bool) (*JobResponse, error) {
+func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template bool, timeoutInMin int) (*JobResponse, error) {
 	// Construct URL based on template flag
 	var url string
 	if template {
@@ -297,7 +297,7 @@ func (c *RestClient) FetchJobStatus(ctx context.Context, jobID string, template 
 //   - error: Error if the deletion fails, nil on success
 //
 // Reference: https://www.ibm.com/docs/en/power10/7063-CR1?topic=apis-jobs
-func (c *RestClient) DeleteJob(ctx context.Context, jobID string, template bool, debug bool) error {
+func (c *RestClient) DeleteJob(ctx context.Context, jobID string, template bool) error {
 	// Construct URL based on template flag
 	var url string
 	if template {
@@ -336,10 +336,7 @@ func (c *RestClient) DeleteJob(ctx context.Context, jobID string, template bool,
 	// DELETE typically returns 204 No Content on success, but may also return 200 OK
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		if len(body) > 0 {
-			if debug {
-				return fmt.Errorf("failed to delete job (status %s): %s", resp.Status, string(body))
-			}
-			return fmt.Errorf("failed to delete job (status %s). Enable debug mode to see full response", resp.Status)
+			return fmt.Errorf("failed to delete job (status %s)", resp.Status)
 		}
 		return fmt.Errorf("failed to delete job with status: %s", resp.Status)
 	}

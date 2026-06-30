@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -22,6 +22,8 @@ func main() {
 	lparName := flag.String("lpar-name", "", "Target LPAR Name")
 	
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -35,23 +37,23 @@ func main() {
 	// =========================================================================
 	// AUTHENTICATION & RESOLUTION
 	// =========================================================================
-	restClient := hmc.NewRestClient(*hmcIP)
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer restClient.Logoff(context.Background())
 
 	// Resolve System Name -> UUID
 	log.Printf("Resolving System: system=%v", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve System")
 	}
 
 	// Resolve LPAR Name -> UUID
 	log.Printf("Resolving LPAR: lpar=%v", *lparName)
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatal("Failed to resolve LPAR")
 	}
@@ -59,7 +61,7 @@ func main() {
 	// =========================================================================
 	// FETCH AND DISPLAY ADAPTERS
 	// =========================================================================
-	adapters, err := restClient.GetVirtualFibreChannelClientAdapters(lparUUID, *verbose)
+	adapters, err := restClient.GetVirtualFibreChannelClientAdapters(lparUUID)
 	if err != nil {
 		log.Fatal("Failed to retrieve vFC adapters")
 	}

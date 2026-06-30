@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -42,6 +43,8 @@ func main() {
 	uncappedWeight := flag.Int("weight", 128, "Uncapped Weight (0-255)")
 
 	verbose := flag.Bool("verbose", false, "Enable verbose XML and HTTP output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -55,10 +58,10 @@ func main() {
 	// 3. AUTHENTICATION & SYSTEM RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
 
-	if err := restClient.Login(ctx, *username, *password, *verbose); err != nil {
+	if err := restClient.Login(ctx, *username, *password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
@@ -67,14 +70,14 @@ func main() {
 	}()
 
 	log.Printf("Resolving System: system=%v", *sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName, *verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(ctx, *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve Managed System")
 	}
 
 	// --- PRE-FLIGHT EXISTENCE CHECK ---
 	log.Println("Verifying if VIOS already exists...")
-	viosList, err := restClient.GetVirtualIOServersQuick(ctx, sysUUID, *verbose)
+	viosList, err := restClient.GetVirtualIOServersQuick(ctx, sysUUID)
 	if err == nil {
 		for _, vios := range viosList {
 			if strings.EqualFold(vios.PartitionName, *viosName) {
@@ -113,7 +116,7 @@ func main() {
 
 	log.Printf("Provisioning Virtual I/O Server...: vios=%v mem_mb=%v cpus=%v", *viosName, req.DesiredMem, req.DesiredProcUnits)
 
-	newUUID, err := restClient.CreateVirtualIOServer(ctx, sysUUID, req, *verbose)
+	newUUID, err := restClient.CreateVirtualIOServer(ctx, sysUUID, req)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.Fatal("Operation aborted by user (Ctrl+C)")

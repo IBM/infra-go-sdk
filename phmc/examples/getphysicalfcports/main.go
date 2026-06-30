@@ -8,6 +8,7 @@ import (
 	"log"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -20,6 +21,8 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	jsonOutput := flag.Bool("json", false, "Output in JSON format")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -30,8 +33,8 @@ func main() {
 
 	// --- Initialize and Login ---
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("❌ HMC Login failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
@@ -40,7 +43,7 @@ func main() {
 
 	// --- Resolve Managed System UUID ---
 	fmt.Printf("\nResolving UUID for Managed System '%s'...\n", *systemName)
-	_, systemUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *systemName, *verbose)
+	_, systemUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *systemName)
 	if err != nil || systemUUID == "" {
 		log.Fatalf("❌ Managed System '%s' not found: %v", *systemName, err)
 	}
@@ -48,7 +51,7 @@ func main() {
 
 	// --- Resolve VIOS UUID ---
 	fmt.Printf("\nResolving UUID for VIOS '%s'...\n", *viosName)
-	viosUUID, err := hmc.GetViosID(context.Background(), restClient, systemUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, systemUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found: %v", *viosName, err)
 	}
@@ -56,7 +59,7 @@ func main() {
 
 	// --- Fetch Physical Fibre Channel Ports ---
 	fmt.Printf("\n🔍 Fetching Physical Fibre Channel Ports for VIOS '%s'...\n", *viosName)
-	fcPorts, err := restClient.GetPhysicalFibreChannelPorts(context.Background(), viosUUID, *verbose)
+	fcPorts, err := restClient.GetPhysicalFibreChannelPorts(context.Background(), viosUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch Physical FC Ports: %v", err)
 	}

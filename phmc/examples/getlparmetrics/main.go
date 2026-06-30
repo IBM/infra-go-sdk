@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 // =========================================================================
@@ -71,6 +72,8 @@ func main() {
     endDateStr := flag.String("end-date", "", "End date (YYYY-MM-DD) e.g., 2026-05-22")
     
     verbose := flag.Bool("verbose", false, "Enable verbose output")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
     flag.Parse()
 
     // Validation
@@ -109,12 +112,12 @@ func main() {
     // =========================================================================
     // AUTHENTICATION
     // =========================================================================
-    restClient := hmc.NewRestClient(*hmcIP)
+    restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
 
     if *verbose {
         log.Printf("Attempting to log on to HMC at %s with username %s", *hmcIP, *username)
     }
-    if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+    if err := restClient.Login(context.Background(), *username, *password); err != nil {
         if *verbose {
             log.Fatalf("Logon failed: %v", err)
         }
@@ -136,7 +139,7 @@ func main() {
     if *verbose {
         fmt.Printf("\nResolving System UUID for '%s'...\n", *sysName)
     }
-    _, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName, *verbose)
+    _, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), *sysName)
     if err != nil || sysUUID == "" {
         log.Fatalf("❌ System '%s' not found.", *sysName)
     }
@@ -144,7 +147,7 @@ func main() {
     if *verbose {
         fmt.Printf("Resolving LPAR UUID for '%s'...\n", *lparName)
     }
-    _, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+    _, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
     if err != nil || lparUUID == "" {
         log.Fatalf("❌ LPAR '%s' not found.", *lparName)
     }
@@ -164,7 +167,7 @@ func main() {
     fmt.Printf("\n⚙️  Ensuring PCM data collection is enabled on '%s'...\n", *sysName)
     pcmCmd := fmt.Sprintf("chlparutil -m %s -r config -s 30", *sysName)
     
-    output, err := hmc.CliRunnerViaSSH(*hmcIP, *username, *password, pcmCmd, *verbose)
+    output, err := hmc.CliRunnerViaSSH(*hmcIP, *username, *password, pcmCmd)
     if err != nil {
         log.Printf("⚠️ Warning: Failed to enable PCM via CLI: %v\nOutput: %s", err, output)
     } else {
@@ -172,7 +175,7 @@ func main() {
     }
 
     // 1. Get the Atom feed links
-    snapshots, err := restClient.GetLparAggregatedMetrics(context.Background(), sysUUID, lparUUID, opts, true)
+    snapshots, err := restClient.GetLparAggregatedMetrics(context.Background(), sysUUID, lparUUID, opts)
 
     if len(snapshots) == 0 {
         fmt.Println("\n⚠️  No metrics snapshots found for this time period.")
@@ -203,7 +206,7 @@ func main() {
 
     // 2. Loop and download the rich struct data via the SDK
     for _, snap := range snapshots {
-        metrics, err := restClient.FetchPcmMetricsPayload(context.Background(), snap.JSONLink, true)
+        metrics, err := restClient.FetchPcmMetricsPayload(context.Background(), snap.JSONLink)
         if err != nil {
             log.Printf("Skipping snapshot %s: %v", snap.Published, err)
             continue

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
@@ -30,6 +31,8 @@ func main() {
 	deleteMode := flag.Bool("delete", false, "Set to true to DELETE the mappings instead of creating them")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 	flag.Parse()
 	_ = verbose
 
@@ -61,23 +64,23 @@ func main() {
 	// AUTHENTICATION & RESOLUTION
 	// =========================================================================
 	fmt.Printf("Logging into HMC at %s...\n", *hmcIP)
-	restClient := hmc.NewRestClient(*hmcIP)
-	if err := restClient.Login(context.Background(), *username, *password, *verbose); err != nil {
+	restClient := exutil.NewClient(*hmcIP, *debug, *debugFull)
+	if err := restClient.Login(context.Background(), *username, *password); err != nil {
 		log.Fatalf("HMC Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
-	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName, *verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), *sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("❌ System '%s' not found.", *sysName)
 	}
 
-	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName, *verbose)
+	viosUUID, err := hmc.GetViosID(context.Background(), restClient, sysUUID, *viosName)
 	if err != nil || viosUUID == "" {
 		log.Fatalf("❌ VIOS '%s' not found.", *viosName)
 	}
 
-	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName, *verbose)
+	_, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, *lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatalf("❌ LPAR '%s' not found.", *lparName)
 	}
@@ -86,7 +89,7 @@ func main() {
 	// 1. DUMP "BEFORE" XML
 	// =========================================================================
 	fmt.Printf("\n[Diff Tool] Fetching 'BEFORE' XML state...\n")
-	beforeXML, err := restClient.GetRawViosXML(viosUUID, "ViosSCSIMapping", *verbose)
+	beforeXML, err := restClient.GetRawViosXML(viosUUID, "ViosSCSIMapping")
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch before XML: %v", err)
 	}
@@ -102,7 +105,7 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n[Check] Verifying current mapping state for LPAR '%s'...\n", *lparName)
 	
-	mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID, *verbose)
+	mappings, err := restClient.GetViosSCSIMappings(context.Background(), viosUUID)
 	if err != nil {
 		log.Fatalf("❌ Failed to get current VIOS mappings: %v", err)
 	}
@@ -152,7 +155,7 @@ func main() {
 			fmt.Printf("\n⚠️  Attempting to DELETE %d Virtual Optical Media mapping(s) from LPAR '%s'...\n", len(mediaToUnmap), *lparName)
 			fmt.Printf("Media to unmap: %v\n", mediaToUnmap)
 
-			operationStatus, err = restClient.DeleteVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, mediaToUnmap, *verbose)
+			operationStatus, err = restClient.DeleteVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, mediaToUnmap)
 			if err != nil {
 				log.Fatalf("❌ Storage Deletion Failed: %v", err)
 			}
@@ -164,7 +167,7 @@ func main() {
 		
 		// 3a. Validate media actually exists in the VIOS repository
 		fmt.Printf("[Validate] Verifying requested media exists in VIOS repository...\n")
-		viosDetails, err := restClient.GetVirtualIOServer(context.Background(), viosUUID, *verbose)
+		viosDetails, err := restClient.GetVirtualIOServer(context.Background(), viosUUID)
 		if err != nil {
 			log.Fatalf("❌ Failed to get VIOS details: %v", err)
 		}
@@ -212,7 +215,7 @@ func main() {
 			fmt.Printf("Media to map: %v\n", mediaToMap)
 
 			// Assuming CreateVirtualOpticalMaps is your auto-pilot creation function
-			operationStatus, err = restClient.CreateVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, mediaToMap, *verbose)
+			operationStatus, err = restClient.CreateVirtualOpticalMaps(context.Background(), sysUUID, viosUUID, lparUUID, mediaToMap)
 			if err != nil {
 				log.Fatalf("❌ Storage Mapping Failed: %v", err)
 			}
@@ -224,7 +227,7 @@ func main() {
 	// =========================================================================
 	if operationStatus == "SUCCESS" || operationStatus == "SUCCESS_WITH_RMC_WARNING" {
 		fmt.Printf("\n[Profile] Saving running configuration to LPAR profile '%s'...\n", *lparProfile)
-		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave, *verbose)
+		saveErr := restClient.SaveCurrentLparConfig(context.Background(), lparUUID, *lparProfile, *forceSave)
 		if saveErr != nil {
 			log.Printf("⚠️ Warning: vFC topology modified dynamically, but failed to save LPAR profile: %v\n", saveErr)
 		} else {
@@ -238,7 +241,7 @@ func main() {
 	// 4. DUMP "AFTER" XML
 	// =========================================================================
 	fmt.Printf("\n[Diff Tool] Fetching 'AFTER' XML state...\n")
-	afterXML, err := restClient.GetRawViosXML(viosUUID, "ViosSCSIMapping", *verbose)
+	afterXML, err := restClient.GetRawViosXML(viosUUID, "ViosSCSIMapping")
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch after XML: %v", err)
 	}

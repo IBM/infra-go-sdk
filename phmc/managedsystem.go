@@ -16,7 +16,7 @@ import (
 )
 
 // GetManagedSystemQuick retrieves a surgical JSON summary of a single system.
-func (c *RestClient) GetManagedSystemQuick(ctx context.Context, systemUUID string, debug bool) (*ManagedSystemQuick, error) {
+func (c *RestClient) GetManagedSystemQuick(ctx context.Context, systemUUID string) (*ManagedSystemQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/quick", c.hmcIP, systemUUID)
 
 
@@ -56,7 +56,7 @@ func (c *RestClient) GetManagedSystemQuick(ctx context.Context, systemUUID strin
 }
 
 // GetManagedSystemByName fetches the managed system UUID and comprehensive details by its friendly name.
-func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName string, debug bool) (string, *ManagedSystemDetailed, error) {
+func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName string) (string, *ManagedSystemDetailed, error) {
 	if systemName == "" {
 		return "", nil, fmt.Errorf("systemName cannot be empty")
 	}
@@ -132,7 +132,7 @@ func (c *RestClient) GetManagedSystemByName(ctx context.Context, systemName stri
 }
 
 // GetMaximumPartitions retrieves the MaximumPartitions for a system by UUID
-func (c *RestClient) GetMaximumPartitions(ctx context.Context, systemUUID string, debug bool) (string, error) {
+func (c *RestClient) GetMaximumPartitions(ctx context.Context, systemUUID string) (string, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
 
 
@@ -178,7 +178,7 @@ func (c *RestClient) GetMaximumPartitions(ctx context.Context, systemUUID string
 }
 
 // GetManagedSystems retrieves the list of managed systems as an XML document
-func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.Element, error) {
+func (c *RestClient) GetManagedSystems(ctx context.Context) (*etree.Element, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem", c.hmcIP)
 
 	// Create and configure the GET request
@@ -209,11 +209,7 @@ func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.
 
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		if debug {
-			return nil, fmt.Errorf("request failed with status: %s, body: %s", resp.Status, string(body))
-		}
-		return nil, fmt.Errorf("request failed with status: %s. Enable debug mode to see full response", resp.Status)
+		return nil, fmt.Errorf("request failed with status: %s", resp.Status)
 	}
 
 	// Read the response body
@@ -240,7 +236,7 @@ func (c *RestClient) GetManagedSystems(ctx context.Context, debug bool) (*etree.
 }
 
 // GetManagedSystemQuickAll fetches all systems using the high-performance JSON endpoint.
-func (c *RestClient) GetManagedSystemQuickAll(ctx context.Context, debug bool) ([]ManagedSystemQuick, error) {
+func (c *RestClient) GetManagedSystemQuickAll(ctx context.Context) ([]ManagedSystemQuick, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/quick/All", c.hmcIP)
 
 
@@ -260,16 +256,12 @@ func (c *RestClient) GetManagedSystemQuickAll(ctx context.Context, debug bool) (
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HMC error (%s): %s", resp.Status, string(body))
-	}
-
-	// We decode directly since we don't need to read body string for logging unless requested,
-	// but to keep wire logging consistent we should read it
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HMC error (%s): %s", resp.Status, string(body))
 	}
 
 
@@ -283,7 +275,7 @@ func (c *RestClient) GetManagedSystemQuickAll(ctx context.Context, debug bool) (
 }
 
 // GetManagedSystem retrieves the comprehensive, deeply parsed XML details of a Managed System.
-func (c *RestClient) GetManagedSystem(ctx context.Context, systemUUID string, debug bool) (*ManagedSystemDetailed, error) {
+func (c *RestClient) GetManagedSystem(ctx context.Context, systemUUID string) (*ManagedSystemDetailed, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, systemUUID)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -311,10 +303,7 @@ func (c *RestClient) GetManagedSystem(ctx context.Context, systemUUID string, de
 
 
 	if resp.StatusCode != http.StatusOK {
-		if debug {
-			return nil, fmt.Errorf("request failed with status %s: %s", resp.Status, string(body))
-		}
-		return nil, fmt.Errorf("request failed with status %s. Enable debug mode to see full response", resp.Status)
+		return nil, fmt.Errorf("request failed with status %s", resp.Status)
 	}
 
 	// 1. Strip the namespaces using the existing helper to make unmarshaling clean
@@ -350,7 +339,7 @@ func (c *RestClient) GetManagedSystem(ctx context.Context, systemUUID string, de
 // CliRunner executes an OS-level command by tunneling it through the HMC CLIRunner job.
 // This can be used to run HMC CLI commands or viosvrcmd commands to execute commands on VIOS partitions.
 // It returns the stdout of the command as a string, and an error if the job fails.
-func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool) (string, error) {
+func (c *RestClient) CliRunner(ctx context.Context, cmdString string) (string, error) {
 	// 1. Fetch the Management Console UUID
 	mcURL := fmt.Sprintf("https://%s/rest/api/uom/ManagementConsole", c.hmcIP)
 
@@ -379,10 +368,7 @@ func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool
 
 
 	if resp.StatusCode != http.StatusOK {
-		if debug {
-			return "", fmt.Errorf("failed to get Management Console (HTTP %d): %s", resp.StatusCode, string(body))
-		}
-		return "", fmt.Errorf("failed to get Management Console (HTTP %d). Enable debug mode to see full response", resp.StatusCode)
+		return "", fmt.Errorf("failed to get Management Console (HTTP %d)", resp.StatusCode)
 	}
 
 	mcDoc, err := xmlStripNamespace(body)
@@ -487,7 +473,7 @@ func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool
 		jobID := jobIDElem.Text()
 
 		// 5. Wait for job completion and capture the resulting document
-		jobResp, err := c.FetchJobStatus(ctx, jobID, false, 10, debug)
+		jobResp, err := c.FetchJobStatus(ctx, jobID, false, 10)
 		if err != nil {
 			return "", fmt.Errorf("CLIRunner job failed: %v", err)
 		}
@@ -502,7 +488,7 @@ func (c *RestClient) CliRunner(ctx context.Context, cmdString string, debug bool
 					} else {
 						cmdOutput += "\n" + param.ParameterValue
 					}
-				} else if param.ParameterName == "stderr" && param.ParameterValue != "" && debug {
+				} else if param.ParameterName == "stderr" && param.ParameterValue != "" {
 				}
 			}
 		}
@@ -536,13 +522,13 @@ func (c *RestClient) GetVIOSAdminCredentials() (username, password string) {
 
 // CheckVIOSAdminUser checks if viosadmin user exists on HMC
 // Returns true if user exists, false otherwise
-func (c *RestClient) CheckVIOSAdminUser(ctx context.Context, hmcUsername, hmcPassword string, debug bool) (bool, error) {
+func (c *RestClient) CheckVIOSAdminUser(ctx context.Context, hmcUsername, hmcPassword string) (bool, error) {
 	// Use lshmcusr with --filter to check if viosadmin exists
 	// Format: lshmcusr --filter "names=viosadmin"
 	cmd := `lshmcusr --filter "names=viosadmin"`
 
 
-	output, err := CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, cmd, debug)
+	output, err := CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, cmd)
 	if err != nil {
 		// If lshmcusr fails, return error
 		return false, fmt.Errorf("lshmcusr command failed: %w", err)
@@ -559,11 +545,11 @@ func (c *RestClient) CheckVIOSAdminUser(ctx context.Context, hmcUsername, hmcPas
 
 // EnsureVIOSAdminUser checks if viosadmin user exists, creates it if not
 // Returns the username, password, and whether the user was created (true) or already existed (false)
-func (c *RestClient) EnsureVIOSAdminUser(ctx context.Context, hmcUsername, hmcPassword string, debug bool) (username, password string, created bool, err error) {
+func (c *RestClient) EnsureVIOSAdminUser(ctx context.Context, hmcUsername, hmcPassword string) (username, password string, created bool, err error) {
 	username, password = c.GetVIOSAdminCredentials()
 
 	// Check if user already exists
-	exists, err := c.CheckVIOSAdminUser(ctx, hmcUsername, hmcPassword, debug)
+	exists, err := c.CheckVIOSAdminUser(ctx, hmcUsername, hmcPassword)
 	if err != nil {
 		return "", "", false, fmt.Errorf("failed to check viosadmin user: %w", err)
 	}
@@ -579,7 +565,7 @@ func (c *RestClient) EnsureVIOSAdminUser(ctx context.Context, hmcUsername, hmcPa
 	roleCmd := `mkaccfg -t taskrole -i 'name=VIOS_Admin,parent=hmcsuperadmin,"resources=lpar:ViosAdminOp"'`
 
 
-	_, err = CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, roleCmd, debug)
+	_, err = CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, roleCmd)
 	if err != nil {
 		// Role might already exist, log warning but continue
 	}
@@ -588,7 +574,7 @@ func (c *RestClient) EnsureVIOSAdminUser(ctx context.Context, hmcUsername, hmcPa
 	createCmd := fmt.Sprintf(`mkhmcusr -u %s -a VIOS_Admin --passwd %s`, username, password)
 
 
-	_, err = CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, createCmd, debug)
+	_, err = CliRunnerViaSSH(c.hmcIP, hmcUsername, hmcPassword, createCmd)
 	if err != nil {
 		return "", "", false, fmt.Errorf("failed to create viosadmin user: %w", err)
 	}
@@ -599,7 +585,7 @@ func (c *RestClient) EnsureVIOSAdminUser(ctx context.Context, hmcUsername, hmcPa
 
 // RunVIOSCommandAsAdmin executes a viosvrcmd with --admin flag using viosadmin credentials
 // Uses SSH to authenticate as viosadmin user
-func (c *RestClient) RunVIOSCommandAsAdmin(ctx context.Context, systemName, viosName, command string, debug bool) (string, error) {
+func (c *RestClient) RunVIOSCommandAsAdmin(ctx context.Context, systemName, viosName, command string) (string, error) {
 	viosAdminUser, viosAdminPass := c.GetVIOSAdminCredentials()
 
 	// Build the full viosvrcmd command with --admin flag
@@ -612,17 +598,17 @@ func (c *RestClient) RunVIOSCommandAsAdmin(ctx context.Context, systemName, vios
 
 
 	// Execute via CliRunner (which will run the SSH command)
-	return c.CliRunner(ctx, sshCmd, debug)
+	return c.CliRunner(ctx, sshCmd)
 }
 
 // GetSRIOVAdapters fetches the detailed Managed System configuration and extracts all SR-IOV adapters.
 // It bypasses the IBM Atom <entry> wrapper and unmarshals natively into ManagedSystemDetailed.
-func (c *RestClient) GetSRIOVAdapters(ctx context.Context, sysUUID string, debug bool) ([]SRIOVAdapter, error) {
+func (c *RestClient) GetSRIOVAdapters(ctx context.Context, sysUUID string) ([]SRIOVAdapter, error) {
 	url := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s", c.hmcIP, sysUUID)
 
 
 	// 1. Fetch and strip namespaces into an etree Document
-	doc, err := c.fetchAndParseHMCXML(ctx, url, debug)
+	doc, err := c.fetchAndParseHMCXML(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch Managed System configuration: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 
 	hmc "github.com/IBM/infra-go-sdk/phmc" // Adjust to your actual package path
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func printUsage() {
@@ -46,6 +47,7 @@ func main() {
 
 	// Shared Variables
 	var hmcIP, username, password, sysName, lparName string
+	var debug, debugFull bool
 	var verbose bool
 
 	// Action-Specific Variables
@@ -57,6 +59,8 @@ func main() {
 		fs.StringVar(&hmcIP, "hmc-ip", "", "HMC IP address")
 		fs.StringVar(&username, "hmc-user", "", "HMC username")
 		fs.StringVar(&password, "hmc-pass", "", "HMC password")
+		fs.BoolVar(&debug,     "debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+		fs.BoolVar(&debugFull, "debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
 		fs.StringVar(&sysName, "system-name", "", "Managed System Name (Required)")
 		fs.StringVar(&lparName, "lpar-name", "ocp-sno-lpar", "Target LPAR Name (Required)")
 		fs.BoolVar(&verbose, "verbose", false, "Enable verbose output")
@@ -113,9 +117,9 @@ func main() {
 	// 3. AUTHENTICATION & SYSTEM/LPAR RESOLUTION
 	// =========================================================================
 	log.Printf("Logging into HMC: ip=%v", hmcIP)
-	restClient := hmc.NewRestClient(hmcIP)
+	restClient := exutil.NewClient(hmcIP, debug, debugFull)
 
-	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), username, password); err != nil {
 		log.Fatal("HMC Logon failed")
 	}
 	defer func() {
@@ -124,13 +128,13 @@ func main() {
 	}()
 
 	log.Printf("Resolving System: system=%v", sysName)
-	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName, verbose)
+	_, sysUUID, err := restClient.GetManagedSystemByNameQuick(context.Background(), sysName)
 	if err != nil || sysUUID == "" {
 		log.Fatal("Failed to resolve Managed System")
 	}
 
 	log.Printf("Resolving LPAR: lpar=%v", lparName)
-	lparDetails, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName, verbose)
+	lparDetails, lparUUID, err := restClient.GetLogicalPartitionByName(context.Background(), sysUUID, lparName)
 	if err != nil || lparUUID == "" {
 		log.Fatal("Failed to resolve LPAR Name")
 	}
@@ -153,7 +157,7 @@ func main() {
 	case "list":
 		log.Printf("Fetching Virtual Ethernet Adapters: lpar=%v", lparName)
 
-		adapters, err := restClient.GetClientNetworkAdapters(context.Background(), sysUUID, lparUUID, verbose)
+		adapters, err := restClient.GetClientNetworkAdapters(context.Background(), sysUUID, lparUUID)
 		if err != nil {
 			log.Fatal("Failed to retrieve client network adapters")
 		}
@@ -183,7 +187,7 @@ func main() {
 	// -------------------------------------------------------------------------
 	case "create":
 		log.Printf("Resolving Target Virtual Switch: vswitch=%v", vswitchName)
-		vswitches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID, verbose)
+		vswitches, err := restClient.GetVirtualSwitchQuickAll(context.Background(), sysUUID)
 		if err != nil {
 			log.Fatal("Failed to get Virtual Switches")
 		}
@@ -202,7 +206,7 @@ func main() {
 
 		log.Printf("Provisioning new Virtual Ethernet Adapter: vlan=%v vswitch=%v", vlanID, vswitchName)
 
-		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, vlanID, verbose)
+		adapter, err := restClient.CreateClientNetworkAdapter(context.Background(), sysUUID, lparUUID, vswitchUUID, vlanID)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")
@@ -226,7 +230,7 @@ func main() {
 	case "delete":
 		log.Printf("Deleting Virtual Ethernet Adapter: adapter_uuid=%v", adapterUUID)
 
-		err := restClient.DeleteClientNetworkAdapter(context.Background(), lparUUID, adapterUUID, verbose)
+		err := restClient.DeleteClientNetworkAdapter(context.Background(), lparUUID, adapterUUID)
 		if err != nil {
 			if ctx.Err() != nil {
 				log.Fatal("Operation aborted by user (Ctrl+C)")

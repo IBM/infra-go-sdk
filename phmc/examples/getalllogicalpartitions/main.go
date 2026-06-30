@@ -1,34 +1,41 @@
 package main
 
 import (
+	"flag"
 	"context"
 	"fmt"
 	"log"
 	"strings"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
 	// --- Configuration ---
-	hmcIP      := ""
-	username   := ""
-	password   := ""
-	targetSystem := "" // The name of the managed system
-	verbose    := false 
+	hmcIP    := flag.String("hmc-ip",    "", "HMC IP address")
+	username := flag.String("hmc-user",  "", "HMC username")
+	password := flag.String("hmc-pass",  "", "HMC password")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
+	flag.Parse()
 
+	hmcIPVal    := *hmcIP
+	usernameVal := *username
+	passwordVal := *password
+
+	targetSystem := "" // The name of the managed system
 	// 1. Initialize Client
-	restClient := hmc.NewRestClient(hmcIP)
+	restClient := exutil.NewClient(hmcIPVal, *debug, *debugFull)
 
 	// 2. Logon
-	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), usernameVal, passwordVal); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
 	defer restClient.Logoff(context.Background())
 
 	// 3. Find Managed System UUID by Name
 	fmt.Printf("Searching for Managed System: %s...\n", targetSystem)
-	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), targetSystem, verbose)
+	sysUUID, _, err := restClient.GetManagedSystemByName(context.Background(), targetSystem)
 	if err != nil || sysUUID == "" {
 		log.Fatalf("Could not find system %s: %v", targetSystem, err)
 	}
@@ -36,7 +43,7 @@ func main() {
 
 	// 4. Get all Logical Partitions using the Quick/All endpoint
 	// This uses the optimized JSON streaming you just added to logicalpartitions.go
-	partitions, err := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID, verbose)
+	partitions, err := restClient.GetLogicalPartitionsQuickAll(context.Background(), sysUUID)
 	if err != nil {
 		log.Fatalf("Failed to fetch partitions: %v", err)
 	}

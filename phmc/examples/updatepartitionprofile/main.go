@@ -1,17 +1,26 @@
 package main
 
 import (
+	"flag"
 	"context"
 	"fmt"
 	"log"
 
-	hmc "github.com/IBM/infra-go-sdk/phmc"
+	exutil "github.com/IBM/infra-go-sdk/phmc/examples/exutil"
 )
 
 func main() {
-	hmcIP := ""
-	username := ""
-	password := ""
+	hmcIP    := flag.String("hmc-ip",    "", "HMC IP address")
+	username := flag.String("hmc-user",  "", "HMC username")
+	password := flag.String("hmc-pass",  "", "HMC password")
+	debug     := flag.Bool("debug",      false, "Log each HTTP request/response (bodies truncated at 2048 bytes)")
+	debugFull := flag.Bool("debug-full",  false, "Log each HTTP request/response with full body (no truncation)")
+	flag.Parse()
+
+	hmcIPVal    := *hmcIP
+	usernameVal := *username
+	passwordVal := *password
+
 	verbose := false
 	partitionUUID := "6C7FFA07-5A4A-4545-97FF-37732EE54523" // Replace with actual partition UUID
 	profileName := "default_profile"
@@ -27,13 +36,13 @@ func main() {
 `
 
     // Initialize HmcRestClient
-	restClient := hmc.NewRestClient(hmcIP)
+	restClient := exutil.NewClient(hmcIPVal, *debug, *debugFull)
 
 	// Logon
 	if verbose {
 		log.Printf("Attempting to log on to HMC at %s with username %s", hmcIP, username)
 	}
-	if err := restClient.Login(context.Background(), username, password, verbose); err != nil {
+	if err := restClient.Login(context.Background(), usernameVal, passwordVal); err != nil {
 		log.Fatalf("Logon failed: %v", err)
 	}
 	defer func() {
@@ -44,7 +53,7 @@ func main() {
 		}
 	}()
 
-    err := restClient.UpdateLogicalPartitionProfile(partitionUUID, profileName, updatedProfile, verbose)
+    err := restClient.UpdateLogicalPartitionProfile(partitionUUID, profileName, updatedProfile)
     if err != nil {
         log.Fatalf("Failed to update logical partition profile: %v", err)
     }
