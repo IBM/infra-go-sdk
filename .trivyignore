@@ -1,0 +1,11 @@
+# Trivy vulnerability ignore list
+#
+# GO-2026-5932: golang.org/x/crypto/openpgp is unmaintained and unsafe by design.
+#
+# This advisory has no fixed version ("all versions, no known fixed") and targets
+# the openpgp sub-packages inside golang.org/x/crypto.  This repository only imports
+# golang.org/x/crypto/ssh — it does not import openpgp or any of its sub-packages —
+# so the vulnerability is not reachable in this codebase.
+#
+# Reference: https://pkg.go.dev/vuln/GO-2026-5932
+GO-2026-5932
