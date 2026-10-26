@@ -3,7 +3,7 @@ module github.com/IBM/infra-go-sdk
 go 1.26.6
 
 require (
-	github.com/beevik/etree v1.8.0
+	github.com/beevik/etree v1.8.1
 	golang.org/x/crypto v0.57.0
 )
 
