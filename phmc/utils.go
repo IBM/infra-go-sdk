@@ -3,15 +3,23 @@ package hmc
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/beevik/etree"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// KnownHostsEnvVar is the environment variable that overrides the default
+// known_hosts file location (~/.ssh/known_hosts) used by CliRunnerViaSSH.
+const KnownHostsEnvVar = "SSH_KNOWN_HOSTS"
 
 // FormatMACAddress formats a MAC address string by inserting colons every 2 characters
 // Example: "DA20D7D4B802" -> "DA:20:D7:D4:B8:02"
@@ -53,7 +61,7 @@ func GetViosID(ctx context.Context, restClient *RestClient, systemUUID, viosName
 }
 
 // createJobRequestPayload generates the XML payload for a job request
-func createJobRequestPayload(operation map[string]string, params map[string]string, schemaVersion string,  includeJobParamSchema bool) (string, error) {
+func createJobRequestPayload(operation map[string]string, params map[string]string, schemaVersion string, includeJobParamSchema bool) (string, error) {
 
 	// Create the root element with namespace prefix
 	doc := etree.NewDocument()
@@ -510,7 +518,6 @@ func (c *RestClient) GetLogicalPartition(ctx context.Context, systemUUID, partit
 	defer cancel()
 	req = req.WithContext(ctxWithTimeout)
 
-
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("HTTP request failed: %v", err)
@@ -521,8 +528,6 @@ func (c *RestClient) GetLogicalPartition(ctx context.Context, systemUUID, partit
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to read response body: %v", err)
 	}
-
-
 
 	if resp.StatusCode != http.StatusOK {
 		return "", nil, nil
@@ -591,7 +596,6 @@ func (c *RestClient) fetchAndParseHMCXML(ctx context.Context, url string) (*etre
 	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-
 	resp, err := c.client.Do(req.WithContext(timeoutCtx))
 	if err != nil {
 		return nil, err
@@ -599,7 +603,6 @@ func (c *RestClient) fetchAndParseHMCXML(ctx context.Context, url string) (*etre
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
-
 
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -611,7 +614,6 @@ func (c *RestClient) fetchAndParseHMCXML(ctx context.Context, url string) (*etre
 // GetAttachedVolumes traces vSCSI mappings on all VIOSes to find backing storage for an LPAR
 func (c *RestClient) GetAttachedVolumes(ctx context.Context, systemUUID, lparUUID string) ([]StorageMap, error) {
 	var attachedStorage []StorageMap
-
 
 	// 1. Fetch the list of ALL VIOSes on the Managed System
 	viosListURL := fmt.Sprintf("https://%s/rest/api/uom/ManagedSystem/%s/VirtualIOServer", c.hmcIP, systemUUID)
@@ -757,7 +759,6 @@ func (c *RestClient) DeleteHMCResource(resourceURL string) error {
 		return err
 	}
 	req.Header.Set("X-API-Session", c.session)
-
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -905,7 +906,6 @@ func MountNFS(ctx context.Context, restClient *RestClient, sysName, viosName, nf
 		return "", fmt.Errorf("sysName, viosName, nfsServer, exportPath, and mountPoint are required")
 	}
 
-
 	// Build the mount command using AIX syntax
 	// Syntax: mount [-nfsvers version] Node:Directory Directory
 	var cmd string
@@ -917,12 +917,10 @@ func MountNFS(ctx context.Context, restClient *RestClient, sysName, viosName, nf
 			sysName, viosName, nfsServer, exportPath, mountPoint)
 	}
 
-
 	output, err := restClient.CliRunner(ctx, cmd)
 	if err != nil {
 		return output, fmt.Errorf("failed to mount NFS: %v\nOutput: %s", err, output)
 	}
-
 
 	return output, nil
 }
@@ -945,18 +943,15 @@ func UnmountNFS(ctx context.Context, restClient *RestClient, sysName, viosName, 
 		return "", fmt.Errorf("sysName, viosName, and mountPoint are required")
 	}
 
-
 	// Build the umount command
 	// Syntax: umount Directory
 	cmd := fmt.Sprintf(`viosvrcmd -m %s -p %s -c "unmount %s"`,
 		sysName, viosName, mountPoint)
 
-
 	output, err := restClient.CliRunner(ctx, cmd)
 	if err != nil {
 		return output, fmt.Errorf("failed to unmount NFS: %v\nOutput: %s", err, output)
 	}
-
 
 	return output, nil
 }
@@ -972,7 +967,6 @@ func (c *RestClient) CloseVirtualTerminal(ctx context.Context, sysName, lparName
 	if err != nil {
 		return fmt.Errorf("failed to close terminal: %v (Output: %s)", err, output)
 	}
-
 
 	return nil
 }
@@ -995,13 +989,36 @@ func (c *RestClient) CloseVirtualTerminal(ctx context.Context, sysName, lparName
 //
 //	output, err := CliRunnerViaSSH("192.0.2.2", "REDACTED_HMC_USER<==", "password", "lshmc -V", true)
 func CliRunnerViaSSH(hmcIP, username, password, command string) (string, error) {
+	// Build a HostKeyCallback from the known_hosts file.
+	// The path defaults to ~/.ssh/known_hosts and can be overridden with the
+	// SSH_KNOWN_HOSTS environment variable. The HMC host must be present in
+	// the file before this function is called.
+	knownHostsFile := os.Getenv(KnownHostsEnvVar)
+	if knownHostsFile == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot determine known_hosts path: %w (set %s to specify it)", err, KnownHostsEnvVar)
+		}
+		knownHostsFile = filepath.Join(home, ".ssh", "known_hosts")
+	}
+	if _, err := os.Stat(knownHostsFile); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("known_hosts file %s does not exist; add the HMC host key first (e.g. ssh-keyscan -H %s >> %s)", knownHostsFile, hmcIP, knownHostsFile)
+		}
+		return "", fmt.Errorf("cannot access known_hosts file %s: %w", knownHostsFile, err)
+	}
+	hostKeyCallback, err := knownhosts.New(knownHostsFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to load known_hosts from %s: %w", knownHostsFile, err)
+	}
+
 	// Configure SSH client
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // Note: In production, verify host key
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         30 * time.Second,
 	}
 
@@ -1009,6 +1026,13 @@ func CliRunnerViaSSH(hmcIP, username, password, command string) (string, error) 
 	addr := fmt.Sprintf("%s:22", hmcIP)
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) {
+			if len(keyErr.Want) == 0 {
+				return "", fmt.Errorf("host %s is not present in %s; add its key (e.g. ssh-keyscan -H %s >> %s): %w", hmcIP, knownHostsFile, hmcIP, knownHostsFile, err)
+			}
+			return "", fmt.Errorf("host key verification failed for %s (possible MITM or key changed); see %s: %w", hmcIP, knownHostsFile, err)
+		}
 		return "", fmt.Errorf("failed to connect to HMC via SSH: %w", err)
 	}
 	defer client.Close()
@@ -1055,7 +1079,6 @@ func (c *RestClient) CloseVirtualTerminalViaSSH(hmcIP, username, password, sysNa
 func (c *RestClient) GetActiveVIOSServers(ctx context.Context, systemUUID string, viosUUIDs []string) (map[string]*VirtualIOServerDetailed, error) {
 	activeVIOSServers := make(map[string]*VirtualIOServerDetailed)
 
-
 	for _, viosUUID := range viosUUIDs {
 		// Get detailed VIOS information
 		viosDetails, err := c.GetVirtualIOServer(ctx, viosUUID)
@@ -1073,7 +1096,6 @@ func (c *RestClient) GetActiveVIOSServers(ctx context.Context, systemUUID string
 	if len(activeVIOSServers) == 0 {
 		return nil, fmt.Errorf("no active VIOS servers found among %d VIOS(s)", len(viosUUIDs))
 	}
-
 
 	return activeVIOSServers, nil
 }
